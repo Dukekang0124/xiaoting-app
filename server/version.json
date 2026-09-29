@@ -4,11 +4,11 @@
   "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.0.0-RC-release.apk",
   "web_url": "https://xiaoting.app.workbuddy.host/#/say",
   "apk": {
-    "versionCode": 1000,
+    "versionCode": 10000,
     "version": "1.0.0-RC",
     "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.0.0-RC-release.apk",
-    "md5": "",
-    "size": 0,
+    "md5": "30abbf2af043eb996b607db1608cd9a2",
+    "size": 3305741,
     "force": false
   },
   "release_notes": [
