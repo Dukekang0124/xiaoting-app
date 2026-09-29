@@ -14,11 +14,12 @@
 
 import {
   safetyCheck, analyzeMain, nextFollowup, generateCard, weeklyReport, validateShape,
+  buildScenarioCard, selectCardType, pickActionVariant,
 } from './ai.js';
 import { callJson, isStructural, debug as llmDebug, stats as llmStats } from './llm.js';
 import {
   SYSTEM, MODEL_CONFIG, buildSafetyPrompt, buildMainPrompt, buildFollowupPrompt,
-  buildCardPrompt, buildWeeklyPrompt, scrubForbidden, findForbidden,
+  buildCardPrompt, buildWeeklyPrompt, scrubForbidden, findForbidden, CARD_LIB, CARD_LAYER,
 } from './prompts.js';
 import { AI } from './config.js';
 import * as store from './store.js';
@@ -229,7 +230,7 @@ function normalizeFollowup(raw, { round = 0, asked = [] } = {}) {
   return validateShape('followup', { empathy, question, round: next, can_skip: true, ready_for_card: false });
 }
 
-function normalizeCard(raw, analysis, followup, extra) {
+function normalizeCard(raw, analysis, followup, extra, transcript = '') {
   const rule = generateCard({ analysis, followup, extra });
   const s = validateShape('card', raw || {});
   const tags = arr(s.tags).slice(0, 3);
@@ -243,8 +244,30 @@ function normalizeCard(raw, analysis, followup, extra) {
   const emotionShift = str(s.emotion_shift) || (analysis && analysis.emotion_shift) || rule.emotion_shift;
   const shiftTrigger = str(s.shift_trigger) || (analysis && analysis.shift_trigger) || rule.shift_trigger;
   const hiddenNeed = guard(s.hidden_need, 'card.hidden_need') || (analysis && analysis.hidden_need) || rule.hidden_need;
+
+  // v1.0.0-RC 升级：四类场景卡片。标题/正文/动作以 CARD_LIB 为 SSOT 逐字回填，保证与蓝图一字不差。
+  // transcript 合并「原始倾诉 + 追问补充」，让矛盾/转折信号（一边…一边 / 明明…却）无论落在哪一句都能被识别。
+  const sceneText = [transcript, extra].filter(Boolean).join(' ');
+  const cardType = (raw && raw.card_type && ['see', 'hold', 'notice', 'action'].includes(raw.card_type))
+    ? raw.card_type
+    : selectCardType({ analysis, transcript: sceneText });
+  const lib = CARD_LIB[cardType] || CARD_LIB.see;
+  let title = lib.title;
+  let cardBody = lib.body;
+  let actionTitle = '';
+  let actionStep = '';
+  let actionNote = '';
+  if (cardType === 'action') {
+    const variant = pickActionVariant(rule.emotion, sceneText);
+    title = variant.title;
+    actionTitle = variant.title;
+    actionStep = variant.step;
+    actionNote = variant.note;
+    cardBody = `${variant.step} ${variant.note}`;
+  }
+
   return validateShape('card', {
-    title: guard(s.title, 'card.title').slice(0, 40) || rule.title,
+    title: scrubForbidden(title),
     date: /^\d{4}-\d{2}-\d{2}$/.test(str(s.date)) ? str(s.date) : new Date().toISOString().slice(0, 10),
     event: guard(s.event, 'card.event') || rule.event,
     emotion,
@@ -264,6 +287,14 @@ function normalizeCard(raw, analysis, followup, extra) {
     summary: guard(s.summary, 'card.summary') || rule.summary,
     tags: tags.length ? tags : rule.tags,
     ip_state: normalizeIpState(s.ip_state, rule.ip_state),
+    // 四类场景卡片字段（v1.0.0-RC 升级）
+    card_type: cardType,
+    card_layer: CARD_LAYER[cardType] || lib.layer || '',
+    card_name: lib.name || '情绪卡片',
+    action_title: actionTitle,
+    action_step: actionStep,
+    action_note: actionNote,
+    card_body: cardBody,
     // 周报聚合需要的内部字段（不对外，卡片契约未列）
     people: (analysis && analysis.people) || [],
     scene: (analysis && analysis.scene) || '',
@@ -401,7 +432,7 @@ export const api = {
   },
 
   /** POST /api/card/generate —— 追问结束后整合成卡片（不落库） */
-  async cardGenerate({ analysis = null, followup = [], extra = '' } = {}) {
+  async cardGenerate({ analysis = null, followup = [], extra = '', transcript = '' } = {}) {
     const raw = await ask({
       stage: 'card',
       system: SYSTEM.card,
@@ -411,8 +442,8 @@ export const api = {
       json: true,
       tier: 'strong', // v1.5 §2.2：卡片走强推理档
     });
-    if (raw) return normalizeCard(raw, analysis, followup, extra);
-    return generateCard({ analysis, followup, extra });
+    if (raw) return normalizeCard(raw, analysis, followup, extra, transcript);
+    return buildScenarioCard({ analysis, followup, extra, transcript });
   },
 
   /** POST /api/card/create */

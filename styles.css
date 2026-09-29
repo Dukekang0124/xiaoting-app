@@ -374,6 +374,33 @@ body.thinking--stuck .stuck-bubble{opacity:1;transform:translateY(0)}
 .kv span{color:var(--ink-2);flex:0 0 82px}
 .kv b{font-weight:500;color:var(--ink)}
 
+/* ---------- 四类情绪卡片（v1.0.0-RC 升级：场景卡片块） ---------- */
+.cf-card{
+  background:#fff;border-radius:20px;padding:18px 17px 16px;margin:10px 0 6px;
+  border:1.5px solid rgba(184,169,232,.55);
+  box-shadow:0 10px 28px rgba(150,130,200,.18), inset 0 1px 6px rgba(255,255,255,.5);
+}
+.cf-card__badge{
+  display:inline-block;font-size:12px;font-weight:600;color:var(--primary-deep);
+  background:#F3EDFF;border-radius:999px;padding:4px 11px;margin-bottom:10px;letter-spacing:.3px;
+}
+.cf-card__title{font-size:19px;font-weight:700;line-height:1.5;color:var(--ink);margin:0 0 9px}
+.cf-card__body{font-size:15px;line-height:1.85;color:var(--ink);margin:0 0 4px;white-space:pre-wrap}
+.cf-card__action{
+  margin:13px 0 4px;padding:13px 14px;border-radius:16px;
+  background:linear-gradient(135deg,rgba(184,169,232,.16),rgba(214,205,240,.22));
+  border:1px solid rgba(184,169,232,.5);
+}
+.cf-card__action-label{font-size:12.5px;color:var(--primary-deep);margin-bottom:6px;font-weight:600}
+.cf-card__action-step{font-size:15px;line-height:1.7;color:var(--ink);font-weight:500}
+.cf-card__action-note{font-size:13px;line-height:1.65;color:var(--ink-2);margin-top:6px}
+.cf-card__btns{display:flex;gap:11px;margin-top:15px}
+.cf-card__btns .primary,.cf-card__btns .ghost-btn{
+  flex:1 1 0;width:auto;margin-top:0;padding:13px 10px;font-size:15px;font-weight:600;text-align:center;
+}
+.cf-card__hint{font-size:12.5px;color:var(--ink-2);text-align:center;margin:11px 2px 0;line-height:1.6}
+
+
 /* ---------- 卡片列表 ---------- */
 .card-list{display:flex;flex-direction:column;gap:12px}
 .mcard{display:flex;gap:12px;background:#fff;border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow-sm);transition:transform .16s}
@@ -596,17 +623,9 @@ body.thinking--stuck .stuck-bubble{opacity:1;transform:translateY(0)}
 .cf-mascot.catch-in{animation-delay:.02s}
 .cf-lead.catch-in,.detail-card.catch-in{animation-delay:.06s}
 .cf-sub.catch-in{animation-delay:.12s}
-/* 确认页字段逐项柔和上浮 */
-.confirm .fld,.confirm .cf-more,.confirm .primary{opacity:0;animation:catch-rise .38s ease-out both}
-.confirm .fld:nth-of-type(1){animation-delay:.12s}
-.confirm .fld:nth-of-type(2){animation-delay:.155s}
-.confirm .fld:nth-of-type(3){animation-delay:.19s}
-.confirm .fld:nth-of-type(4){animation-delay:.225s}
-.confirm .fld:nth-of-type(5){animation-delay:.26s}
-.confirm .fld:nth-of-type(6){animation-delay:.295s}
-.confirm .fld:nth-of-type(7){animation-delay:.33s}
-.confirm .fld:nth-of-type(8){animation-delay:.365s}
-.confirm .cf-more{animation-delay:.40s}
+/* 确认页：仅对「入场时本就该可见」的元素做柔和入场（卡片/引导语/副文案/吉祥物走 .catch-in，主按钮上浮）。
+   折叠的 <details class="cf-more"> 内表单是用户主动展开才可见，不再强制 opacity:0 —— 否则展开后字段可能停在透明态。 */
+.confirm .primary{opacity:0;animation:catch-rise .38s ease-out both}
 .confirm .primary{animation-delay:.45s}
 /* 卡片详情页同样柔和进入 */
 .detail .detail-card,.detail .kv,.detail .voice-box{opacity:0;animation:catch-rise .38s ease-out both}

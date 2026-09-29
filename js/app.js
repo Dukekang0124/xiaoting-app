@@ -607,17 +607,31 @@ async function toConfirm() {
       analysis: d.analysis,
       followup: d.asked || [],
       extra: (d.answers || []).filter(Boolean).join(' / '),
+      transcript: d.transcript || '',
     });
   } catch (e) {
     store.toast('卡片没生成出来，素材先留着');
     go('say');
     return;
   }
-  store.patchDraft({ card });
-  // 对话区同步：墨小溟的情绪回应 + 收尾短句（§4.4 / §4.5），用户原话已在 startDraft 写入
-  appendConvo('ai', pickEmotionResponse(card.emotion_primary));
+  store.patchDraft({ card, cardShown: true });
+  // 对话区同步：墨小溟的情绪回应（承接矛盾/反转）+ 收尾短句（§4.4 / §4.5），用户原话已在 startDraft 写入
+  appendConvo('ai', buildConvoResponse(card));
   appendConvo('ai', pickBy(COPY.closing));
   go('confirm');
+}
+
+/**
+ * 墨小溟在确认页前的对话回应：矛盾/复杂情绪用「一边…一边…」句式承接（蓝图 §一），其余走分情绪回应。
+ * 这是「对话先行、跟随情绪流动、不强行归类」在文本层的落地。
+ */
+function buildConvoResponse(card) {
+  if (card && card.card_type === 'see') {
+    const a = card.emotion_primary || '轻松';
+    const b = card.emotion_secondary || '难受';
+    return `一边${a}，一边${b}，两种感受同时存在，是很正常的。`;
+  }
+  return pickEmotionResponse(card && card.emotion_primary);
 }
 
 /* ---------------- 页面：AI 追问 ---------------- */
@@ -724,38 +738,51 @@ function pageConfirm() {
   <section class="confirm">
     <div class="page-head">
       <button class="ghost" id="cfBack" type="button">返回</button>
-      <div class="page-title">确认卡片</div>
+      <div class="page-title">墨小溟留了张卡片</div>
       <span style="width:48px"></span>
     </div>
     <div class="cf-mascot catch-in">${mascot(c.ip_state || 'empathy', 112)}</div>
     <h2 class="cf-lead catch-in">我听到的是这些，你看对不对？</h2>
-    <p class="cf-emotion catch-in">${esc(pickEmotionResponse(c.emotion_primary))}</p>
-    <p class="cf-sub catch-in">可以直接改，改完再保存。</p>
-    ${field('卡片标题', 'f_title', c.title)}
-    ${field('发生了什么', 'f_event', c.event)}
-    <label class="fld">
-      <span class="fld__label">我的情绪（用「、」分隔）</span>
-      <input class="fld__input" id="f_emotion" value="${esc((c.emotion || []).join('、'))}"/>
-    </label>
-    <label class="fld">
-      <span class="fld__label">强度（0-10）：<b id="f_int_v">${esc(c.intensity || 0)}</b></span>
-      <input class="fld__range" id="f_intensity" type="range" min="0" max="10" value="${esc(c.intensity || 0)}"/>
-    </label>
-    ${field('我当时的想法', 'f_thought', c.thought)}
-    ${field('我真正在意的', 'f_need', (c.need || []).join('、'))}
-    ${field('我做了什么', 'f_behavior', c.behavior)}
-    ${field('下次可以试什么', 'f_experiment', c.experiment)}
-    ${field('标签（用「、」分隔）', 'f_tags', (c.tags || []).join('、'))}
+    <div class="cf-card catch-in">
+      <div class="cf-card__badge">${esc(c.card_layer || '')} · ${esc(c.card_name || '情绪卡片')}</div>
+      <h3 class="cf-card__title">${esc(c.title || '')}</h3>
+      <p class="cf-card__body">${esc(c.card_body || '')}</p>
+      ${c.action_step ? `<div class="cf-card__action">
+        <div class="cf-card__action-label">可以试一个很小的动作</div>
+        <div class="cf-card__action-step">${esc(c.action_step)}</div>
+        ${c.action_note ? `<div class="cf-card__action-note">${esc(c.action_note)}</div>` : ''}
+      </div>` : ''}
+      <div class="cf-card__btns">
+        <button class="primary cf-keep" id="cfKeep" type="button">先收下卡片</button>
+        <button class="ghost-btn cf-continue" id="cfContinue" type="button">继续倾诉</button>
+      </div>
+      <p class="cf-card__hint">不强制你做任何动作。也可以只收下，不行动。</p>
+    </div>
+    <p class="cf-sub catch-in">它是对话的补充，不是评判。下面的记录你可以改，改完再收下。</p>
     <details class="cf-more">
-      <summary>墨小溟的整理（可留可不留）</summary>
+      <summary>完整记录（可改，留着以后回看）</summary>
       <div class="cf-more__body">
+        ${field('卡片标题', 'f_title', c.title)}
+        ${field('发生了什么', 'f_event', c.event)}
+        <label class="fld">
+          <span class="fld__label">我的情绪（用「、」分隔）</span>
+          <input class="fld__input" id="f_emotion" value="${esc((c.emotion || []).join('、'))}"/>
+        </label>
+        <label class="fld">
+          <span class="fld__label">强度（0-10）：<b id="f_int_v">${esc(c.intensity || 0)}</b></span>
+          <input class="fld__range" id="f_intensity" type="range" min="0" max="10" value="${esc(c.intensity || 0)}"/>
+        </label>
+        ${field('我当时的想法', 'f_thought', c.thought)}
+        ${field('我真正在意的', 'f_need', (c.need || []).join('、'))}
+        ${field('我做了什么', 'f_behavior', c.behavior)}
+        ${field('下次可以试什么', 'f_experiment', c.experiment)}
+        ${field('标签（用「、」分隔）', 'f_tags', (c.tags || []).join('、'))}
         <div class="kv"><span>身体感受</span><b>${esc((c.body || []).join('、') || '—')}</b></div>
         <div class="kv"><span>结果</span><b>${esc(c.result || '—')}</b></div>
         <div class="kv"><span>重复的模式</span><b>${esc(c.pattern || '—')}</b></div>
         <div class="kv"><span>墨小溟想说</span><b>${esc(c.summary || '—')}</b></div>
       </div>
     </details>
-    <button class="primary" id="cfSave" type="button">保存这张卡片</button>
   </section>`;
 }
 
@@ -765,28 +792,33 @@ function bindConfirm() {
   if (r && rv) r.addEventListener('input', () => { rv.textContent = r.value; });
   const back = document.getElementById('cfBack');
   if (back) back.addEventListener('click', () => go('followup'));
-  const save = document.getElementById('cfSave');
-  if (save) save.addEventListener('click', async () => {
-    const val = (id) => (document.getElementById(id) || {}).value || '';
-    const split = (s) => s.split(/[、,，\/\s]+/).map((x) => x.trim()).filter(Boolean);
-    const c = store.getState().draft.card || {};
-    const edited = {
-      ...c,
-      title: val('f_title').trim(),
-      event: val('f_event').trim(),
-      emotion: split(val('f_emotion')),
-      intensity: Number(val('f_intensity')) || 0,
-      thought: val('f_thought').trim(),
-      need: split(val('f_need')),
-      behavior: val('f_behavior').trim(),
-      experiment: val('f_experiment').trim(),
-      tags: split(val('f_tags')),
-    };
-    await api.cardCreate(edited);
-    asr.logEvent('card_saved', { intensity: edited.intensity, emotion_n: (edited.emotion || []).length });
-    store.toast(pickIdx(COPY.cardDone));
-    go('say');
-  });
+  const keep = document.getElementById('cfKeep');
+  if (keep) keep.addEventListener('click', () => saveCardFromForm());
+  const cont = document.getElementById('cfContinue');
+  if (cont) cont.addEventListener('click', () => { store.toast('我先在这里陪着你。'); go('say'); });
+}
+
+/** 从表单（可编辑的完整记录）保存卡片：标题默认场景文案，用户可改 */
+async function saveCardFromForm() {
+  const val = (id) => (document.getElementById(id) || {}).value || '';
+  const split = (s) => s.split(/[、,，\/\s]+/).map((x) => x.trim()).filter(Boolean);
+  const c = store.getState().draft.card || {};
+  const edited = {
+    ...c,
+    title: val('f_title').trim(),
+    event: val('f_event').trim(),
+    emotion: split(val('f_emotion')),
+    intensity: Number(val('f_intensity')) || 0,
+    thought: val('f_thought').trim(),
+    need: split(val('f_need')),
+    behavior: val('f_behavior').trim(),
+    experiment: val('f_experiment').trim(),
+    tags: split(val('f_tags')),
+  };
+  await api.cardCreate(edited);
+  asr.logEvent('card_saved', { intensity: edited.intensity, emotion_n: (edited.emotion || []).length, card_type: c.card_type });
+  store.toast(pickIdx(COPY.cardDone));
+  go('say');
 }
 
 /* ---------------- 页面：卡片列表 ---------------- */

@@ -291,6 +291,65 @@ const MOCK_SDK = `(function(){
   check('输入清洗：去掉控制字符', SN.ctrl === 'abcdef', JSON.stringify(SN.ctrl));
   check('输入清洗：超长输入被截断（默认 2000）', SN.long === 2000, String(SN.long));
 
+  /* ================= A3. 四类场景卡片引擎（v1.0.0-RC 升级） ================= */
+  sec('A3. 四类场景卡片引擎');
+  const SC = await page.evaluate(async () => {
+    const ai = await import('/js/ai.js');
+    const pr = await import('/js/prompts.js');
+    const LIB = pr.CARD_LIB;
+    const mk = (over) => Object.assign({
+      event: '', people: [], scene: '', emotion: [], emotion_primary: '', emotion_secondary: '',
+      emotion_shift: '', shift_trigger: '', hidden_need: '', intensity: 5, body: [], thought: '',
+      cognitive_patterns: [], need: [], behavior: '', result: '', pattern: '', experiment: '', summary: '', ip_state: 'empathy',
+    }, over);
+    // ① 矛盾/复杂情绪（开心 + 委屈，且带「明明…但」转折）→ see
+    const mixed = mk({ emotion: ['开心', '委屈'], emotion_primary: '开心', emotion_secondary: '委屈', cognitive_patterns: [], thought: '这件事我明明挺开心的，但心里又莫名委屈' });
+    // ② 读心模式 → notice
+    const rumination = mk({ emotion: ['委屈', '愤怒'], emotion_primary: '委屈', emotion_secondary: '愤怒', cognitive_patterns: ['读心', '绝对化'] });
+    // ②b 反刍关键词（越想越）→ notice
+    const rumination2 = mk({ emotion: ['委屈'], emotion_primary: '委屈', thought: '我老觉得他肯定不在乎我，越想越难受' });
+    // ③ 纯负面、无反刍 → action
+    const neg = mk({ emotion: ['委屈'], emotion_primary: '委屈', emotion_secondary: '', cognitive_patterns: [] });
+    // ④ 纯正向、无矛盾 → hold（兜底）
+    const pos = mk({ emotion: ['开心'], emotion_primary: '开心', emotion_secondary: '', cognitive_patterns: [] });
+
+    const cSee = ai.buildScenarioCard({ analysis: mixed, transcript: mixed.thought });
+    const cNotice = ai.buildScenarioCard({ analysis: rumination });
+    const cAction = ai.buildScenarioCard({ analysis: neg });
+    const cHold = ai.buildScenarioCard({ analysis: pos });
+    return {
+      tSee: ai.selectCardType({ analysis: mixed, transcript: mixed.thought }),
+      tNotice: ai.selectCardType({ analysis: rumination }),
+      tNotice2: ai.selectCardType({ analysis: rumination2, transcript: rumination2.thought }),
+      tAction: ai.selectCardType({ analysis: neg }),
+      tHold: ai.selectCardType({ analysis: pos }),
+      seeTitle: cSee.title, seeBody: cSee.card_body, seeType: cSee.card_type, seeLayer: cSee.card_layer, seeName: cSee.card_name,
+      noticeTitle: cNotice.title, noticeBody: cNotice.card_body,
+      actionTitle: cAction.title, actionStep: cAction.action_step, actionNote: cAction.action_note, actionType: cAction.card_type,
+      holdTitle: cHold.title, holdBody: cHold.card_body, holdType: cHold.card_type,
+      libSee: LIB.see.title, libSeeBody: LIB.see.body, libNotice: LIB.notice.title, libNoticeBody: LIB.notice.body,
+      libActionTitle: LIB.action.variants[1].title, libActionStep: LIB.action.variants[1].step, libActionNote: LIB.action.variants[1].note,
+      libHold: LIB.hold.title, libHoldBody: LIB.hold.body,
+    };
+  });
+  check('四类卡片·矛盾情绪（开心+委屈）→ see', SC.tSee === 'see', SC.tSee);
+  check('四类卡片·读心模式 → notice', SC.tNotice === 'notice', SC.tNotice);
+  check('四类卡片·反刍关键词（越想越）→ notice', SC.tNotice2 === 'notice', SC.tNotice2);
+  check('四类卡片·纯负面无反刍 → action', SC.tAction === 'action', SC.tAction);
+  check('四类卡片·纯正向兜底 → hold', SC.tHold === 'hold', SC.tHold);
+  check('情绪看见卡·标题逐字 = SSOT', SC.seeTitle === SC.libSee && SC.seeTitle === '两种感受可以同时存在', SC.seeTitle);
+  check('情绪看见卡·正文逐字 = SSOT', SC.seeBody === SC.libSeeBody, SC.seeBody.slice(0, 16));
+  check('情绪看见卡·层级徽章 = 第一层·情绪镜像', SC.seeLayer.includes('第一层'), SC.seeLayer);
+  check('情绪看见卡·卡片名 = 情绪看见卡', SC.seeName === '情绪看见卡', SC.seeName);
+  check('轻觉察卡·标题逐字 = SSOT', SC.noticeTitle === SC.libNotice && SC.noticeTitle === '区分事实和心里的感受', SC.noticeTitle);
+  check('轻觉察卡·正文逐字 = SSOT', SC.noticeBody === SC.libNoticeBody, SC.noticeBody.slice(0, 16));
+  check('微小行动卡·命中「委屈」→「给情绪一个空间」', SC.actionTitle === SC.libActionTitle && SC.actionTitle === '给情绪一个空间', SC.actionTitle);
+  check('微小行动卡·步骤逐字 = SSOT', SC.actionStep === SC.libActionStep, SC.actionStep.slice(0, 12));
+  check('微小行动卡·提示逐字 = SSOT', SC.actionNote === SC.libActionNote, SC.actionNote);
+  check('情绪安放卡·标题逐字 = SSOT', SC.holdTitle === SC.libHold && SC.holdTitle === '把情绪暂时留在深海', SC.holdTitle);
+  check('情绪安放卡·正文逐字 = SSOT', SC.holdBody === SC.libHoldBody, SC.holdBody.slice(0, 16));
+  check('四类卡片·buildScenarioCard 全程逐字回填 SSOT（type 与标题一致）', SC.seeType === 'see' && SC.actionType === 'action' && SC.holdType === 'hold', `${SC.seeType}/${SC.actionType}/${SC.holdType}`);
+
   /* ================= B. 文案库逐条校验（§6） ================= */
   sec('B. 文案库');
   const C = U.copyCounts; const A = U.copyArr;
@@ -343,12 +402,18 @@ const MOCK_SDK = `(function(){
 
   await page.waitForSelector('.cf-lead', { timeout: 9000 });
   check('进入确认卡片页', (await page.textContent('.cf-lead')).includes('我听到的是这些'));
+  await page.waitForSelector('.cf-card', { timeout: 9000 });
+  check('场景卡片·层级徽章已渲染', (await page.textContent('.cf-card__badge')).includes('层'), await page.textContent('.cf-card__badge'));
+  check('场景卡片·逐字标题已生成', (await page.textContent('.cf-card__title')).length > 4, await page.textContent('.cf-card__title'));
+  check('场景卡片·逐字正文已落地', (await page.textContent('.cf-card__body')).length > 10, (await page.textContent('.cf-card__body')).slice(0, 30));
+  check('场景卡片·含「先收下卡片」按钮', (await page.locator('#cfKeep').count()) === 1);
+  check('场景卡片·含「继续倾诉」按钮', (await page.locator('#cfContinue').count()) === 1);
   const titleVal = await page.inputValue('#f_title');
   const emoVal = await page.inputValue('#f_emotion');
   const needVal = await page.inputValue('#f_need');
   const tagVal = await page.inputValue('#f_tags');
   const intVal = await page.inputValue('#f_intensity');
-  check('卡片标题自动生成（一句话说中核心）', /让我觉得/.test(titleVal), titleVal);
+  check('卡片标题自动生成（场景标题）', (await page.textContent('.cf-card__title')).length > 4);
   check('情绪含「委屈」+「愤怒」', emoVal.includes('委屈') && emoVal.includes('愤怒'), emoVal);
   check('需求含「被重视」', needVal.includes('被重视'), needVal);
   check('标签已生成', !!tagVal, tagVal);
@@ -357,8 +422,10 @@ const MOCK_SDK = `(function(){
   check('识别为「读心」类模式', pat.includes('缺少证据') || pat.includes('结论'), '');
   await shot(page, '05-confirm.png');
 
+  // 四类卡片升级后：可编辑「完整记录」收进 <details class="cf-more">（默认折叠），填表前先展开
+  await page.locator('.cf-more').evaluate((el) => { el.open = true; });
   await page.fill('#f_title', '编辑后的卡片标题');
-  await page.click('#cfSave');
+  await page.click('#cfKeep');
   await page.waitForSelector('.recent', { timeout: 9000 });
   check('保存后回首页且最近卡片=用户编辑值', (await page.textContent('.recent__title')).includes('编辑后的卡片标题'));
   check('保存后 IP=开心 happy', (await page.getAttribute('.mascot', 'data-state')) === 'happy');
@@ -406,6 +473,70 @@ const MOCK_SDK = `(function(){
     !priv.includes('音频不出本机'), priv.includes('音频不出本机') ? '仍含失效表述' : 'ok');
 
   await shot(page, '11-settings.png');
+
+  /* ================= C2. 用户「开心转委屈」UI 验收（v1.0.0-RC 四类卡片核心场景） =================
+     独立上下文，只注入 xiaoting:ai='mock' + welcomed，不注入 MOCK_SDK 云端替身，
+     因此走本地规则引擎（确定性、离线），专门验收「矛盾情绪 → 情绪看见卡」链路：
+     ① 确认页标题逐字 = 「两种感受可以同时存在」；
+     ② 墨小溟对话区用「一边…一边…」承接矛盾（蓝图 §一），不强行归类；
+     ③ 截图交付；
+     ④ 「继续倾诉」可忽略卡片、回首页且不新增卡片（同一段对话最多一张卡片、不刷屏）。 */
+  const ctxW = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'zh-CN', isMobile: true, hasTouch: true });
+  const pageW = await ctxW.newPage();
+  await ctxW.addInitScript(() => { try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1'); } catch (e) {} });
+  const errorsW = [];
+  pageW.on('pageerror', (e) => errorsW.push('pageerror: ' + e.message));
+  pageW.on('console', (m) => { if (m.type() === 'error') errorsW.push('console: ' + m.text()); });
+  const gotoW = (h) => pageW.goto(BASE + h, { waitUntil: 'domcontentloaded' });
+
+  sec('C2. 开心转委屈 UI 验收');
+  await gotoW('/#/record?mode=text');
+  await pageW.waitForSelector('#recInput');
+  await pageW.fill('#recInput', '这件事我明明挺开心的，但心里又莫名委屈，有点难受');
+  await pageW.click('#recDone');
+
+  // 分析中 → 自动进入追问（本地规则引擎）
+  await pageW.waitForSelector('.fu-question', { timeout: 20000 });
+  // 走完 ≤3 轮追问（每轮给一个中性补充），直到进入确认卡片页
+  let reachedW = false;
+  for (let i = 1; i <= 3; i++) {
+    await pageW.waitForSelector('.fu-question, .cf-lead', { timeout: 20000 });
+    if ((await pageW.locator('.cf-lead').count()) > 0) { reachedW = true; break; }
+    await pageW.fill('#fuInput', '当时脑子里就觉得挺矛盾的，说不清。');
+    await pageW.click('#fuNext');
+    await pageW.waitForTimeout(700);
+  }
+  if (!reachedW && (await pageW.locator('.cf-lead').count()) > 0) reachedW = true;
+  check('开心转委屈·到达确认卡片页', reachedW);
+
+  await pageW.waitForSelector('.cf-card', { timeout: 9000 });
+  const seeTitle = (await pageW.textContent('.cf-card__title')).trim();
+  check('开心转委屈·卡片标题逐字 = 「两种感受可以同时存在」', seeTitle === '两种感受可以同时存在', seeTitle);
+  const seeBadge = (await pageW.textContent('.cf-card__badge')).trim();
+  check('开心转委屈·层级徽章 = 第一层·情绪镜像', seeBadge.includes('第一层') && seeBadge.includes('情绪镜像'), seeBadge);
+  const seeBody = (await pageW.textContent('.cf-card__body')).trim();
+  check('开心转委屈·正文逐字 = SSOT', seeBody === '你一边感受到喜悦，一边又藏着委屈。人的情绪本来就不是单一不变的，忽起忽落、来回摇摆，都是正常的。你可以继续说说，哪一部分感受更重一点。', seeBody.slice(0, 16));
+  check('开心转委屈·含「先收下卡片」按钮', (await pageW.locator('#cfKeep').count()) === 1);
+  check('开心转委屈·含「继续倾诉」按钮', (await pageW.locator('#cfContinue').count()) === 1);
+  await shot(pageW, 'happy-to-wronged.png');
+
+  // ④ 点击「继续倾诉」：忽略卡片、回首页、不新增卡片
+  await pageW.click('#cfContinue');
+  await pageW.waitForSelector('.say', { timeout: 9000 });
+  // 对话区应出现墨小溟用「一边…一边…」承接矛盾的回应（蓝图 §一）
+  const convoText = await pageW.evaluate(() => {
+    const els = Array.from(document.querySelectorAll('.convo__bubble'));
+    return els.map((e) => e.textContent || '').join('\n');
+  });
+  check('开心转委屈·墨小溟用「一边…一边…」承接矛盾（不强行归类）', /一边.{0,8}一边/.test(convoText) && convoText.includes('两种感受同时存在'), convoText.slice(0, 40));
+  await shot(pageW, 'happy-to-wronged-convo.png');
+
+  // 不新增卡片：进入卡片列表应为 0 张
+  await gotoW('/#/cards');
+  await pageW.waitForTimeout(400);
+  check('开心转委屈·「继续倾诉」未新增卡片（同一段对话最多一张）', (await pageW.locator('.mcard').count()) === 0, String(await pageW.locator('.mcard').count()));
+  check('开心转委屈·上下文无页面 JS 错误', errorsW.length === 0, errorsW.slice(0, 3).join(' | '));
+  await ctxW.close();
 
   /* ================= D. 分级安全 UI（gentle_check / refer / emergency） ================= */
   sec('D. 分级安全 UI');
@@ -707,25 +838,32 @@ const MOCK_SDK = `(function(){
   await page.waitForSelector('.cf-lead');
   // 真正的风险是：入场动画依赖 opacity:0 起始态，若动画没跑完/没跑，内容会永久不可见。
   // 所以必须等到「全部入场元素 opacity 归 1」再断言，而不是读一眼就算。
+  // 仅校验「入场时本就该可见」的元素：卡片、引导语、副文案、吉祥物、主按钮。
+  // 折叠 <details class="cf-more"> 内的表单是用户主动展开才可见，不纳入入场可见性断言。
   const settled = await page
     .waitForFunction(() => {
-      const els = [...document.querySelectorAll('.confirm .fld, .confirm .cf-more, .confirm .primary, .cf-lead')];
+      const sel = '.cf-lead, .cf-card, .cf-sub, .cf-mascot, .confirm .primary';
+      const els = [...document.querySelectorAll(sel)];
       return els.length > 0 && els.every((el) => Number(getComputedStyle(el).opacity) === 1);
     }, null, { timeout: 5000 })
     .then(() => true).catch(() => false);
   const catchIn = await page.evaluate(() => {
     const lead = document.querySelector('.cf-lead');
-    const fld = document.querySelector('.confirm .fld');
+    const card = document.querySelector('.cf-card');
+    const prim = document.querySelector('.confirm .primary');
     return {
       leadCls: lead.className,
       leadAnim: getComputedStyle(lead).animationName,
-      fldAnim: getComputedStyle(fld).animationName,
-      fldDelay: getComputedStyle(fld).animationDelay,
+      cardAnim: getComputedStyle(card).animationName,
+      primAnim: getComputedStyle(prim).animationName,
+      primDelay: getComputedStyle(prim).animationDelay,
       leadOpacity: getComputedStyle(lead).opacity,
+      cardOpacity: getComputedStyle(card).opacity,
     };
   });
   check('卡片生成有「被接住」动效', catchIn.leadCls.includes('catch-in') && catchIn.leadAnim.includes('catch-drop'), `${catchIn.leadCls}/${catchIn.leadAnim}`);
-  check('确认页字段逐项柔和上浮', catchIn.fldAnim.includes('catch-rise') && parseFloat(catchIn.fldDelay) > 0, `${catchIn.fldAnim}@${catchIn.fldDelay}`);
+  check('确认页卡片柔和进入（catch-in / catch-drop）', catchIn.cardAnim.includes('catch') && Number(catchIn.cardOpacity) === 1, `${catchIn.cardAnim}/${catchIn.cardOpacity}`);
+  check('主按钮柔和上浮（catch-rise 带延迟）', catchIn.primAnim.includes('catch-rise') && parseFloat(catchIn.primDelay) > 0, `${catchIn.primAnim}@${catchIn.primDelay}`);
   check('动效结束后内容全部可见（不会停在透明态）', settled && Number(catchIn.leadOpacity) === 1, `${settled}/${catchIn.leadOpacity}`);
 
   // E6. 交互反馈全覆盖 + 关键动效关键帧齐全
@@ -1091,7 +1229,7 @@ const MOCK_SDK = `(function(){
   check('闭环③·满 3 轮自动收尾并进入卡片确认页', (await page2.inputValue('#f_title')).length > 4, await page2.inputValue('#f_title'));
   await shot(page2, '18-ai-confirm.png');
 
-  await page2.click('#cfSave');
+  await page2.click('#cfKeep');
   await page2.waitForTimeout(700);
   await goto2('/#/cards');
   // 硬刷新：证明卡片真落进了 localStorage，而不是只在内存 store 里
@@ -1099,7 +1237,9 @@ const MOCK_SDK = `(function(){
   await page2.waitForSelector('.mcard', { timeout: 8000 });
   const listCount = await page2.locator('.mcard').count();
   const listTitle = (await page2.textContent('.mcard__title')).trim();
-  check('闭环④·卡片已保存进卡片列表', listCount === 1 && listTitle === '回消息慢让我觉得不被重视', `${listCount} 张 / ${listTitle}`);
+  // 四类卡片升级后：卡片标题由 CARD_LIB 逐字回填（模型给的 title 不再直接采用）。
+  // 该场景含「读心」模式 → selectCardType 判定为 notice（轻觉察卡），标题为 SSOT 逐字文案。
+  check('闭环④·卡片已保存进卡片列表', listCount === 1 && listTitle === '区分事实和心里的感受', `${listCount} 张 / ${listTitle}`);
   await shot(page2, '19-ai-cards.png');
 
   // ⑤ 点开卡片能看到详情
@@ -1111,7 +1251,7 @@ const MOCK_SDK = `(function(){
     voice: (document.querySelector('.voice-box p') || {}).textContent || '',
     tags: document.querySelectorAll('.dc__tags .tag').length,
   }));
-  check('闭环⑤·卡片详情可查看且内容完整', detail.title.includes('回消息慢') && detail.kvs >= 5 && detail.voice.length > 6, `${detail.title} / ${detail.kvs} 项 / tags=${detail.tags}`);
+  check('闭环⑤·卡片详情可查看且内容完整', detail.title.includes('区分事实和心里的感受') && detail.kvs >= 5 && detail.voice.length > 6, `${detail.title} / ${detail.kvs} 项 / tags=${detail.tags}`);
   await shot(page2, '20-ai-card-detail.png');
 
   check('AI·未发生任何绕过 SDK 直连云服务数据面的请求', directHits === 0, 'directHits=' + directHits);

@@ -1,7 +1,7 @@
 // 墨小溟 · AI 引擎（mock 规则实现，严格对齐《AI Prompt 模板与文案库 v1.0》的 5 段输出契约）
 // 换真实 LLM 时：用 prompts.js 的 builder 出 Prompt → 解析 JSON → 过 validateShape 兜底 → 返回同结构。
 
-import { scrubForbidden } from './prompts.js';
+import { scrubForbidden, CARD_LIB, CARD_LAYER } from './prompts.js';
 
 /* ==================== 词典 ==================== */
 
@@ -183,6 +183,8 @@ const DEFAULTS = {
     title: '', date: '', event: '', emotion: [], emotion_primary: '', emotion_secondary: '',
     emotion_shift: '', shift_trigger: '', hidden_need: '', intensity: 5, body: [], thought: '', need: [],
     behavior: '', result: '', pattern: '', experiment: '', summary: '', tags: [], ip_state: 'empathy',
+    // 四类场景卡片（v1.0.0-RC 升级）：前端按 card_type 逐字回填标题/正文/动作
+    card_type: 'see', card_layer: '', card_name: '', action_title: '', action_step: '', action_note: '', card_body: '',
   },
   weekly: {
     week_start: '', week_end: '', headline: '', top_triggers: [], top_people: [],
@@ -426,6 +428,89 @@ export function generateCard({ analysis, followup = [], extra = '' } = {}) {
     people: a.people || [],
     scene: a.scene || '',
   });
+}
+
+/* ==================== 4b. 四类场景卡片引擎（v1.0.0-RC 升级） ==================== */
+
+const NEG_SET = new Set(['愤怒', '委屈', '焦虑', '羞耻', '悲伤', '恐惧', '孤独', '无力', '内疚', '嫉妒']);
+const POS_SET = new Set(['开心', '高兴', '喜悦', '幸福', '满足', '轻松', '愉快', '平静', '安心', '踏实', '温柔']);
+
+// 矛盾/复杂情绪信号：① 同时含正负情绪；② 明确转折词（一边…一边 / 又…又 / 明明…却 / 虽然…但 / 反而）
+const CONTRADICTION_RE = /(一边.{0,10}一边|又.{0,8}又|明明.{0,14}(却|但)|虽然.{0,14}(但|却)|反而|却.{0,10}(开心|高兴|轻松|喜悦)|开心.{0,14}(委屈|难受|难过|心酸)|高兴.{0,14}(委屈|难受|难过)|委屈.{0,14}(开心|高兴|轻松)|难过.{0,14}(开心|轻松))/;
+
+function isContradictory(emotion = [], transcript = '') {
+  const emo = Array.isArray(emotion) ? emotion : [];
+  const hasPos = emo.some((e) => POS_SET.has(e));
+  const hasNeg = emo.some((e) => NEG_SET.has(e));
+  return (hasPos && hasNeg) || CONTRADICTION_RE.test(transcript || '');
+}
+
+// 反刍 / 灾难化 / 读心 / 以偏概全 信号
+const RUMINATION_RE = /(一定|肯定|觉得他|觉得她|脑补|灾难|钻牛角尖|想不通|反复想|越想越|全是|都怪|活该)/;
+
+/**
+ * 按对话场景选择四类卡片之一。
+ * 优先级：① 矛盾/复杂情绪 → see；② 反刍/灾难化 → notice；③ 任何负向情绪 → action；④ 兜底 → hold。
+ * @returns {'see'|'hold'|'notice'|'action'}
+ */
+export function selectCardType({ analysis = {}, transcript = '' } = {}) {
+  const a = validateShape('main', analysis);
+  const emo = a.emotion || [];
+  const t = transcript || '';
+  const pats = a.cognitive_patterns || [];
+
+  if (isContradictory(emo, t)) return 'see';
+
+  const rumination = pats.some((p) => ['灾难化', '读心', '以偏概全'].includes(p)) || RUMINATION_RE.test(t);
+  if (rumination) return 'notice';
+
+  if (emo.some((e) => NEG_SET.has(e))) return 'action';
+
+  return 'hold';
+}
+
+/** 按情绪类型从微小行动卡的 4 套备选里选一套（命中 match 即选用，顺序即优先级） */
+export function pickActionVariant(emotion = [], transcript = '') {
+  const emo = Array.isArray(emotion) ? emotion : [];
+  const t = transcript || '';
+  const variants = (CARD_LIB.action && CARD_LIB.action.variants) || [];
+  for (const v of variants) {
+    if (emo.some((e) => (v.match || []).includes(e)) || (v.match || []).some((m) => t.includes(m))) return v;
+  }
+  return variants[1] || { title: '给情绪一个空间', step: '把此刻心里最沉重的一句话，直接打字留在这。不用修饰，写完就可以。', note: '写下来，不一定要立刻解决它。' };
+}
+
+/**
+ * 产出一张「场景卡片」：含逐字 verbatim 标题/正文/动作（来自 CARD_LIB）+ 结构化资产字段（用于回看详情）。
+ * 这是 v1.0.0-RC 升级后的卡片生成入口。
+ * 注意：标题/正文/动作始终以 CARD_LIB 为 SSOT 逐字回填，保证与蓝图一字不差；模型只贡献结构化字段与 card_type。
+ */
+export function buildScenarioCard({ analysis, transcript = '', followup = [], extra = '' } = {}) {
+  const a = validateShape('main', analysis);
+  const type = selectCardType({ analysis: a, transcript });
+  // 结构化资产字段复用 generateCard（event/emotion/intensity/need/body/thought/behavior/result/pattern/experiment/summary/tags）
+  const base = generateCard({ analysis: a, followup, extra });
+  const lib = CARD_LIB[type] || CARD_LIB.see;
+
+  const card = {
+    ...base,
+    card_type: type,
+    card_layer: CARD_LAYER[type] || '',
+    card_name: lib.name || '情绪卡片',
+  };
+
+  if (type === 'action') {
+    const variant = pickActionVariant(a.emotion, transcript);
+    card.action_title = variant.title;
+    card.action_step = variant.step;
+    card.action_note = variant.note;
+    card.title = variant.title;
+    card.card_body = `${variant.step} ${variant.note}`;
+  } else {
+    card.title = lib.title;
+    card.card_body = lib.body;
+  }
+  return validateShape('card', card);
 }
 
 /* ==================== 5. 周报生成 ==================== */
