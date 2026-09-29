@@ -24,6 +24,8 @@ const ICON = {
   cards: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="3"/><path d="M6.5 3.4h11"/><path d="M7.4 11h5"/></svg>`,
   settings: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2.6"/><path d="M8.2 10.5V8a3.8 3.8 0 0 1 7.6 0v2.5"/></svg>`,
   about: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="7.6" r="1.05" fill="currentColor" stroke="none"/></svg>`,
+  // 时间线：一条起伏的水流曲线（与卡片图标区分）
+  timeline: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15.5c3 0 3.4-7 6.4-7s3.4 7 6.4 7 3.4-4.5 5.2-4.5"/></svg>`,
 };
 
 /** 录音波形（7 根柱子，CSS 驱动起伏） */
@@ -396,7 +398,7 @@ function bindSay() {
 }
 
 /**
- * 「结束倾诉」→ 生成情绪时间线卡片（v1.1.0）。
+ * 「结束倾诉」→ 生成情绪时间线卡片（v1.1.1）。
  * 铁律：对话过程中绝不自动弹出，只有用户主动点「结束倾诉」才生成；
  *      若本次会话命中高危阻断（自伤/伤人高危），不生成时间线卡，只保留危机提示与热线。
  */
@@ -404,7 +406,12 @@ async function onEndVent() {
   const st = store.getState();
   const log = (st.sessionLog || []).filter((m) => m.role === 'user' && m.text);
   if (!log.length) { go('say'); return; }
-  if (isBlockingAction(st.risk && st.risk.action)) { go('risk?level=high'); return; }
+  // 🔴 v1.1.1 修复：阻断判定不能只看 store.risk —— startDraft 每轮都会把 risk 重置回 continue，
+  // 高危后再倾诉一轮就会漏判，时间线卡照样生成（违反蓝图「触发危机弹窗不生成时间线」）。
+  // 改为双保险：risk 命中 **或** 本次会话任一用户轮次本地复检命中高危，都走危机提示。
+  const { safetyCheck } = await import('./ai.js');
+  const sessionHit = log.some((m) => isBlockingAction((safetyCheck(m.text) || {}).action));
+  if (isBlockingAction((st.risk || {}).action) || sessionHit) { go('risk?level=high'); return; }
   let tl;
   try {
     tl = await api.timelineGenerate({ conversation: log });
@@ -846,21 +853,32 @@ async function saveCardFromForm() {
   go('say');
 }
 
-/* ---------------- 页面：情绪时间线卡片（v1.1.0） ----------------
+/* ---------------- 页面：情绪时间线卡片（v1.1.1） ----------------
  * 复盘载体：对话结束后生成，可视化「情绪本来就是流动、矛盾、来回摇摆的」。
  * 底线：不是心理评估、不打分，只做记录与呈现。 */
 
 /** 柔和曲线路径：用三次贝塞尔（C）连接各节点，水平出入，像水流而非尖锐折线 */
-function timelineCurve(nodes) {
-  const W = 320, H = 140, padX = 30, baseY = H / 2 + 6, amp = 18;
-  const n = nodes.length;
-  const xs = nodes.map((_, i) => (n === 1 ? W / 2 : padX + (W - 2 * padX) * (i / (n - 1))));
-  const ys = nodes.map((_, i) => (n === 1 ? baseY : baseY - amp * Math.sin((Math.PI * i) / Math.max(1, n - 1))));
+/** 曲线几何：三次贝塞尔，水平出入 —— 页面曲线与导出海报共用同一份算法，保证两处长得一样 */
+function timelineGeom(nodes, W = 320, H = 140, padX = 30, baseY = H / 2 + 6, amp = 18) {
+  const list = Array.isArray(nodes) ? nodes : [];
+  if (!list.length) return { xs: [], ys: [], d: '' };
+  const n = list.length;
+  const xs = list.map((_, i) => (n === 1 ? W / 2 : padX + (W - 2 * padX) * (i / (n - 1))));
+  const ys = list.map((_, i) => (n === 1 ? baseY : baseY - amp * Math.sin((Math.PI * i) / Math.max(1, n - 1))));
   let d = `M ${xs[0].toFixed(1)} ${ys[0].toFixed(1)}`;
   for (let i = 1; i < n; i++) {
     const cx = ((xs[i - 1] + xs[i]) / 2).toFixed(1);
     d += ` C ${cx} ${ys[i - 1].toFixed(1)} ${cx} ${ys[i].toFixed(1)} ${xs[i].toFixed(1)} ${ys[i].toFixed(1)}`;
   }
+  return { xs, ys, d };
+}
+
+function timelineCurve(list) {
+  // 兜底：空节点直接不画（P0 防护，正常路径不该走到，但绝不让页面崩在这里）
+  const nodes = Array.isArray(list) ? list : [];
+  if (!nodes.length) return '';
+  const W = 320, H = 140, padX = 30, baseY = H / 2 + 6, amp = 18;
+  const { xs, ys, d } = timelineGeom(nodes, W, H, padX, baseY, amp);
   const dots = xs.map((x, i) => {
     const emo = (nodes[i].emotions && nodes[i].emotions.length) ? nodes[i].emotions[0] : '·';
     return `<circle class="tl-dot" cx="${x.toFixed(1)}" cy="${ys[i].toFixed(1)}" r="7"/>`
@@ -875,11 +893,19 @@ function timelineCurve(nodes) {
 
 const TIMELINE_DISCLAIMER = '提示：这只是本次倾诉过程中情绪的简单记录，不是心理评估。情绪会随场景变化，仅供你自我看见。';
 
-function timelineActions() {
+/** 底部按钮区：未保存 → 【保存卡片】【重新倾诉】；已保存 → 按钮变「已保存 ✓」并出现「保存为图片」 */
+function timelineActions(tl) {
+  const saved = !!(tl && tl.id);
   return `<div class="tl-btns">
-    <button class="primary tl-save" id="tlSave" type="button">保存卡片</button>
-    <button class="ghost-btn tl-restart" id="tlRestart" type="button">重新倾诉</button>
-  </div>`;
+    <button class="primary tl-save" id="tlSave" type="button"${saved ? ' disabled' : ''}>${saved ? '已保存 ✓' : '保存卡片'}</button>
+    ${saved
+      ? `<button class="ghost-btn tl-export" id="tlExport" type="button">保存为图片</button>`
+      : `<button class="ghost-btn tl-restart" id="tlRestart" type="button">重新倾诉</button>`}
+  </div>
+  ${saved ? `<div class="tl-saveline">
+    <button class="linkbtn" id="tlRestart" type="button">重新倾诉</button>
+    <button class="linkbtn tl-del" id="tlDelete" type="button">删除这条记录</button>
+  </div>` : ''}`;
 }
 
 /** 时间线正文（有情绪）：柔和曲线 + 节点说明 + 小结 + 微小停靠提示 */
@@ -909,7 +935,7 @@ function timelineBody(tl) {
       </div>` : ''}
     </div>
     <p class="tl-disclaimer">${esc(TIMELINE_DISCLAIMER)}</p>
-    ${timelineActions()}`;
+    ${timelineActions(tl)}`;
 }
 
 /** 时间线正文（全程无情绪）：简化卡，只留一句说明 */
@@ -920,36 +946,198 @@ function timelineEmptyBody(tl) {
       <div class="tl-summary">${esc(tl.summary || '本次对话更多是陈述事件，没有捕捉到明显情绪')}</div>
     </div>
     <p class="tl-disclaimer">${esc(TIMELINE_DISCLAIMER)}</p>
-    ${timelineActions()}`;
+    ${timelineActions(tl)}`;
 }
 
-function pageTimeline() {
-  const tl = store.getState().timeline;
+/** 支持 #/timeline?id=xxx 回看已保存的时间线（v1.1.1 补：否则存了永远看不到） */
+function currentTimeline(p) {
+  const id = (p && p.q && p.q.id) || '';
+  const s = store.getState();
+  if (id) return (s.timelines || []).find((t) => t.id === id) || null;
+  return s.timeline;
+}
+
+function pageTimeline(p) {
+  const tl = currentTimeline(p);
   if (!tl || !tl.type) {
     return `<section class="timeline"><div class="page-title center">情绪时间线</div>
       <div class="empty-state">${mascot('idle', 120)}<p>还没有可以回看的这一次倾诉。<br/>先回首页说一次吧。</p>
       <a class="primary small" href="#/say">去说一次</a></div></section>`;
   }
   const body = tl.type === 'no-emotion' ? timelineEmptyBody(tl) : timelineBody(tl);
+  const when = tl.saved_at ? `　${esc(String(tl.saved_at).slice(0, 10))}` : '';
   return `
   <section class="timeline">
     <div class="page-title center">情绪时间线</div>
-    <h2 class="tl-title">本次深海情绪记录</h2>
-    <p class="tl-sub">情绪本来就会起伏波动，没有好坏</p>
+    <h2 class="tl-title">${tl.id ? '深海情绪记录' : '本次深海情绪记录'}</h2>
+    <p class="tl-sub">情绪本来就会起伏波动，没有好坏${when}</p>
     ${body}
   </section>`;
 }
 
-function bindTimeline() {
+function bindTimeline(p) {
+  const tl0 = currentTimeline(p);
+
   const save = document.getElementById('tlSave');
   if (save) save.addEventListener('click', async () => {
-    const tl = store.getState().timeline;
-    if (!tl) return;
-    await api.saveTimeline(tl);
+    const tl = currentTimeline(p);
+    if (!tl || tl.id) return;               // 已保存过就不再重复存（v1.1.1：防连点存出 N 份）
+    const full = await api.saveTimeline(tl);
+    store.setState({ timeline: full });     // 让当前页立刻认领 id，按钮原地变「已保存 ✓」
     store.toast('已保存到本地，只有你能看到');
+    render();
   });
+
+  const exp = document.getElementById('tlExport');
+  if (exp) exp.addEventListener('click', async () => {
+    const tl = currentTimeline(p) || tl0;
+    if (!tl) return;
+    try {
+      await exportTimelinePng(tl);
+      store.toast('图片已生成，看看下载里');
+    } catch (e) {
+      store.toast('这台设备不支持直接导出，可以截屏保存');
+    }
+  });
+
+  const del = document.getElementById('tlDelete');
+  if (del) del.addEventListener('click', () => {
+    const tl = currentTimeline(p);
+    if (!tl || !tl.id) return;
+    store.removeTimeline(tl.id);
+    store.toast('已删除这条记录');
+    go('timelines');
+  });
+
   const restart = document.getElementById('tlRestart');
   if (restart) restart.addEventListener('click', () => { store.startSession(); go('say'); });
+}
+
+/* ---------------- 页面：时间线列表（已保存的复盘卡回看入口） ---------------- */
+
+function pageTimelines() {
+  const list = store.getState().timelines || [];
+  if (!list.length) {
+    return `<section class="timelines"><div class="page-head">
+        <a class="ghost" href="#/me">返回</a><div class="page-title">情绪时间线</div><span style="width:48px"></span>
+      </div>
+      <div class="empty-state">${mascot('idle', 120)}<p>还没有保存过时间线。<br/>倾诉完点「结束倾诉」，就能存下这一次的起伏。</p>
+      <a class="primary small" href="#/say">去说一次</a></div></section>`;
+  }
+  const rows = list.map((t) => {
+    const emos = (t.nodes || []).map((n) => (n.emotions && n.emotions.length ? n.emotions.join('+') : '·'));
+    const flow = t.type === 'no-emotion' ? '这次更多是陈述事件' : emos.join(' → ');
+    return `<a class="tlrow" href="#/timeline?id=${esc(t.id)}">
+      <span class="tlrow__ico">${ICON.timeline}</span>
+      <span class="tlrow__txt">${esc(String(t.saved_at || '').slice(0, 10)) || '未标注时间'}
+        <span class="tlrow__sub">${esc(flow)}</span></span>
+      <i class="tlrow__arrow">›</i>
+    </a>`;
+  }).join('');
+  return `
+  <section class="timelines">
+    <div class="page-head">
+      <a class="ghost" href="#/me">返回</a><div class="page-title">情绪时间线</div><span style="width:48px"></span>
+    </div>
+    <p class="tl-note">这里只放你主动保存过的记录，全部存在这台设备上。</p>
+    <nav class="tl-list">${rows}</nav>
+    <p class="tl-disclaimer">${esc(TIMELINE_DISCLAIMER)}</p>
+  </section>`;
+}
+
+/* ---------------- 时间线卡片导出为图片（零依赖：SVG → canvas → PNG） ---------------- */
+
+/** 把卡片重绘成一张独立的 SVG 海报，用于导出 PNG（不依赖 html2canvas） */
+function timelinePosterSvg(tl) {
+  const W = 720, padX = 56;
+  const textW = W - padX * 2;
+  // 按字号估算每行可容纳的字符数（CJK 字宽≈字号），超出换行 —— SVG text 不自动折行
+  const wrap = (s, size, maxLines = 4) => {
+    const per = Math.max(8, Math.floor(textW / size));
+    const lines = [];
+    let cur = String(s || '');
+    while (cur.length && lines.length < maxLines) {
+      lines.push(cur.slice(0, per));
+      cur = cur.slice(per);
+    }
+    if (cur.length) lines[lines.length - 1] = lines[lines.length - 1].slice(0, per - 1) + '…';
+    return lines;
+  };
+  const textLines = (s, size, fill, y0, lineH) => wrap(s, size).map((l, i) =>
+    `<text x="${padX}" y="${(y0 + i * lineH).toFixed(0)}" font-size="${size}" fill="${fill}" font-family="${F}">${esc(l)}</text>`
+  ).join('');
+
+  const nodes = tl.nodes || [];
+  const curveH = 200;
+  const rowH = 40;
+  const nodesH = nodes.length * rowH;
+  const hintH = (tl.actionHint && tl.actionHint.title) ? 118 : 0;
+  const summaryLines = wrap(tl.summary || '', 26);
+  const disclaimerLines = wrap(TIMELINE_DISCLAIMER, 19);
+  const sumH = summaryLines.length * 38;
+  const discH = disclaimerLines.length * 30;
+  const H = 176 + sumH + 20 + curveH + nodesH + hintH + 40 + discH + 110;
+  const F = "system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif";
+
+  const geom = timelineGeom(nodes, textW, curveH, 40, curveH / 2 + 10, 34);
+  const ox = padX, oy = 176 + sumH + 60;
+  const path = geom.d ? `<path d="${geom.d}" transform="translate(${ox},${oy})" fill="none" stroke="#8B7BE8" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>` : '';
+  const dots = geom.xs.map((x, i) => {
+    const emo = (nodes[i].emotions && nodes[i].emotions.length) ? nodes[i].emotions[0] : '·';
+    return `<circle cx="${(ox + x).toFixed(1)}" cy="${(oy + geom.ys[i]).toFixed(1)}" r="9" fill="#FFF" stroke="#8B7BE8" stroke-width="3"/>`
+      + `<text x="${(ox + x).toFixed(1)}" y="${(oy + geom.ys[i] + 34).toFixed(1)}" text-anchor="middle" font-size="22" fill="#5B5470" font-family="${F}">${esc(emo)}</text>`;
+  }).join('');
+
+  const rowText = nodes.map((nd, i) => {
+    const emo = (nd.emotions && nd.emotions.length) ? nd.emotions.join(' + ') : '（没捕捉到明显情绪）';
+    return `<text x="${padX}" y="${(oy + curveH + 44 + i * rowH).toFixed(0)}" font-size="22" fill="#6B6482" font-family="${F}">第 ${i + 1} 段　${esc(emo)}</text>`;
+  }).join('');
+
+  const yHint = oy + curveH + 64 + nodesH;
+  const hint = tl.actionHint || {};
+  const hintSvg = hint.title ? `
+    <text x="${padX}" y="${yHint}" font-size="20" fill="#9A93AE" font-family="${F}">一个很小的停靠（不强制）</text>
+    <text x="${padX}" y="${yHint + 34}" font-size="23" fill="#4A4360" font-family="${F}">${esc(hint.title)}</text>
+    ${textLines(hint.step || '', 20, '#6B6482', yHint + 70, 30)}` : '';
+
+  const yDisc = yHint + hintH;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+    <rect width="${W}" height="${H}" fill="#F7F5FF"/>
+    <text x="${padX}" y="96" font-size="38" font-weight="600" fill="#3D3654" font-family="${F}">${tl.id ? '深海情绪记录' : '本次深海情绪记录'}</text>
+    <text x="${padX}" y="140" font-size="24" fill="#8A83A0" font-family="${F}">情绪本来就会起伏波动，没有好坏</text>
+    ${textLines(tl.summary || '', 26, '#5B5470', 186, 38)}
+    ${path}${dots}${rowText}${hintSvg}
+    ${textLines(TIMELINE_DISCLAIMER, 19, '#A29BB6', yDisc + 30, 30)}
+  </svg>`;
+}
+
+async function exportTimelinePng(tl) {
+  const svg = timelinePosterSvg(tl);
+  const w = Number((svg.match(/width="(\d+)"/) || [])[1]) || 720;
+  const h = Number((svg.match(/height="(\d+)"/) || [])[1]) || 900;
+  const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
+  try {
+    const img = new Image();
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+    const scale = 2;
+    const cv = document.createElement('canvas');
+    cv.width = w * scale; cv.height = h * scale;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = '#F7F5FF';
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.drawImage(img, 0, 0, cv.width, cv.height);
+    const blob = await new Promise((res) => cv.toBlob(res, 'image/png'));
+    if (!blob) throw new Error('toBlob failed');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `墨小溟-情绪时间线-${new Date().toISOString().slice(0, 10)}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 /* ---------------- 页面：卡片列表 ---------------- */
@@ -1098,6 +1286,11 @@ function pageMe() {
         <span class="mrow__txt">我的卡片<span class="mrow__sub">${s.cards.length ? `共 ${s.cards.length} 张，都是你说过的` : '还没有卡片，去说一次吧'}</span></span>
         <i class="mrow__arrow">›</i>
       </a>
+      <a class="mrow mrow--timelines" href="#/timelines">
+        <span class="mrow__ico">${ICON.timeline}</span>
+        <span class="mrow__txt">情绪时间线<span class="mrow__sub">${(s.timelines || []).length ? `已保存 ${s.timelines.length} 次倾诉的起伏` : '还没有保存过，结束倾诉时可以存一张'}</span></span>
+        <i class="mrow__arrow">›</i>
+      </a>
       <a class="mrow mrow--settings" href="#/settings">
         <span class="mrow__ico">${ICON.settings}</span>
         <span class="mrow__txt">设置与隐私<span class="mrow__sub">记录存本机，随时可删</span></span>
@@ -1152,7 +1345,7 @@ function pageSettings() {
       <div class="set-title">重要声明</div>
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.1.0')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.1.1')}</p>
   </section>`;
 }
 
@@ -1180,14 +1373,14 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.1.0')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.1.1')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
     <div class="disclaimer-box">${esc(COPY.about.disclaimer)}</div>
     <div class="changelog__list" id="clList"><p class="set-sub">正在加载更新历史…</p></div>
     <button class="primary" id="clCheck" type="button">检查更新</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.1.0')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.1.1')}</p>
   </section>`;
 }
 
@@ -1321,6 +1514,7 @@ const PAGES = {
   gentle: { render: pageGentle, bind: bindGentle, nav: false },
   confirm: { render: pageConfirm, bind: bindConfirm, nav: false },
   timeline: { render: pageTimeline, bind: bindTimeline, nav: false },
+  timelines: { render: pageTimelines, nav: false },
   cards: { render: pageCards, tab: 'cards', nav: true },
   card: { render: pageCardDetail, bind: bindCardDetail, nav: true },
   weekly: { render: pageWeekly, mount: mountWeekly, nav: true },

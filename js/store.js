@@ -18,6 +18,9 @@ let state = {
   conversation: [],
   // sessionLog: 本次会话累积的用户原话（每轮 startDraft 追加），是情绪时间线卡片的数据源；只保留本次会话、不跨会话合并
   sessionLog: [],
+  // sessionAt: 本次会话开始时间戳。sessionLog 会持久化（防刷新丢），但超过 SESSION_TTL 视为新会话自动清空，
+  //           以此守住「只保留本次会话、不跨会话合并」这条蓝图边界。
+  sessionAt: 0,
   // timelines: 已保存的情绪时间线卡片（完全本地，隐私优先）
   timelines: [],
   // timeline: 当前正在查看的时间线卡片（瞬时，不持久化）
@@ -33,9 +36,15 @@ let state = {
 const freshUser = () => ({ id: 'local-user', nickname: '', createdAt: Date.now(), settings: { autoDeleteAudio: true, ttsHint: true, cloudAsr: true } });
 const freshRisk = () => ({ level: 'none', action: 'continue', hit: false, evidence: '' });
 
+/** 一次「会话」的有效期：超过就当作新会话，清空 sessionLog（6 小时） */
+export const SESSION_TTL_MS = 6 * 60 * 60 * 1000;
+
 function persist() {
   try {
-    localStorage.setItem(KEY, JSON.stringify({ user: state.user, cards: state.cards, draft: state.draft, timelines: state.timelines }));
+    localStorage.setItem(KEY, JSON.stringify({
+      user: state.user, cards: state.cards, draft: state.draft, timelines: state.timelines,
+      sessionLog: state.sessionLog, sessionAt: state.sessionAt,
+    }));
   } catch (e) { /* 隐私模式等场景静默失败 */ }
 }
 
@@ -48,6 +57,13 @@ function restore() {
     if (Array.isArray(data.cards)) state.cards = data.cards;
     if (data.draft) state.draft = data.draft;
     if (Array.isArray(data.timelines)) state.timelines = data.timelines;
+    // sessionLog 持久化是为了「中途刷新不白说」，但必须按 TTL 判定是否还算同一次会话
+    if (Array.isArray(data.sessionLog)) {
+      const at = Number(data.sessionAt) || 0;
+      const fresh = at && Date.now() - at < SESSION_TTL_MS;
+      state.sessionLog = fresh ? data.sessionLog : [];
+      state.sessionAt = fresh ? at : 0;
+    }
   } catch (e) { /* ignore */ }
 }
 
@@ -107,6 +123,7 @@ export function startDraft(transcript, recordId) {
     conversation: [{ role: 'user', text: transcript, at: Date.now() }],
     // 本次会话累积：追加用户原话，作为情绪时间线卡片的数据源（v1.1.0）
     sessionLog: [...(state.sessionLog || []), { role: 'user', text: transcript, at: Date.now() }],
+    sessionAt: state.sessionAt || Date.now(),
   });
 }
 
@@ -121,7 +138,12 @@ export function clearConvo() { state.conversation = []; emit(); }
 
 /** 开启一段全新会话：清空轮次对话、会话累积与临时时间线（不碰已保存的时间线与卡片） */
 export function startSession() {
-  setState({ conversation: [], sessionLog: [], draft: null, risk: freshRisk(), timeline: null });
+  setState({ conversation: [], sessionLog: [], sessionAt: 0, draft: null, risk: freshRisk(), timeline: null });
+}
+
+/** 删除一条已保存的情绪时间线（本地数据，用户自主要求） */
+export function removeTimeline(id) {
+  setState({ timelines: (state.timelines || []).filter((t) => t.id !== id) });
 }
 
 export function patchDraft(patch) {

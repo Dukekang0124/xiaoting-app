@@ -523,7 +523,7 @@ export function buildScenarioCard({ analysis, transcript = '', followup = [], ex
  * 从一段文字里抽出时间线情绪标签：按「首次出现顺序」取前 2 个，支持「A+B」并存。
  * 只命中白名单关键词，用户没说就不标（宁缺毋滥，绝不脑补）。
  */
-export function detectTimelineEmotions(text) {
+export function detectTimelineEmotions(text, { limit = 2 } = {}) {
   const t = (text || '').trim();
   const found = [];
   for (const [label, kws] of Object.entries(TIMELINE_EMOTION_KEYWORDS)) {
@@ -533,7 +533,7 @@ export function detectTimelineEmotions(text) {
   const ordered = found
     .map((label) => ({ label, idx: Math.max(0, t.indexOf(label)) }))
     .sort((a, b) => a.idx - b.idx);
-  return ordered.slice(0, 2).map((x) => x.label);
+  return ordered.slice(0, limit).map((x) => x.label);
 }
 
 /** 小结文案：描述情绪流动的过程，不评判、不鸡汤、不解读深层原因 */
@@ -594,6 +594,10 @@ export function buildTimeline(conversation = []) {
       emotions,
       merged: !!m._merged,
       count: m._count || 1,
+      // v2 预留：触发事件关键词（当前不填，只占位，避免以后改数据结构）
+      trigger: null,
+      // v3 预留：用户标记的「印象最深节点」（当前不填）
+      marked: false,
     };
   });
 

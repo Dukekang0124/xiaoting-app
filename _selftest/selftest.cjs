@@ -719,6 +719,162 @@ const MOCK_SDK = `(function(){
     `timeline=${await pageX.locator('.timeline .tl-title').count()} risk=${await pageX.locator('.risk').count()}`);
   await ctxX.close();
 
+  /* ================= C4. 审计修复回归（v1.1.1） =================
+     背景：v1.1.0 自测 334/334 全绿，但审计仍查出 1 P0 + 4 P1。原因是 mock 模式下云端分支一行都跑不到、
+     高危边界用 setState 手工注入只测了判定函数没测链路。本分区专守这五条，防止回归。 */
+  sec('C4. 审计修复回归（v1.1.1）');
+  const ctxY = await browser.newContext({
+    viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'zh-CN',
+    isMobile: true, hasTouch: true, acceptDownloads: true, serviceWorkers: 'block',
+  });
+  const pageY = await ctxY.newPage();
+  const errsY = [];
+  pageY.on('pageerror', (e) => errsY.push(e.message));
+  await ctxY.addInitScript(() => { try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1'); } catch (e) {} });
+  await pageY.goto(BASE + '/#/say', { waitUntil: 'domcontentloaded' });
+  await pageY.waitForSelector('#sayInput, .talkbtn', { timeout: 9000 });
+
+  // ① P0：云端返回非空 + 本地判无情绪 ⇒ 必须原样返回 no-emotion（否则页面曲线崩溃）
+  const Y1 = await pageY.evaluate(async () => {
+    const { normalizeTimeline } = await import('/js/api.js');
+    const conv = [{ role: 'user', text: '今天开了三个会，晚上又改了一版方案。' }];
+    const out = normalizeTimeline({ nodes: [{ emotions: ['委屈'], caption: 'x' }], summary: '模型硬编的一段小结' }, conv);
+    return { type: out.type, hasNodes: Array.isArray(out.nodes) };
+  });
+  check('[P0] 云端有返回但本地判无情绪 → 仍返回 no-emotion（不返回空 nodes 的 timeline）',
+    Y1.type === 'no-emotion', JSON.stringify(Y1));
+
+  // ② P0 UI 兜底：就算真拿到空 nodes 的 timeline，页面也不能崩
+  await pageY.evaluate(async () => {
+    const s = await import('/js/store.js');
+    s.setState({ timeline: { type: 'timeline', nodes: [], summary: 'x', actionHint: {} } });
+  });
+  await pageY.evaluate(() => { location.hash = '#/timeline'; });
+  await pageY.waitForTimeout(500);
+  check('[P0] 空 nodes 的时间线渲染不抛错（页面仍在）',
+    errsY.length === 0 && (await pageY.locator('.timeline').count()) === 1, JSON.stringify(errsY));
+
+  // ③ 反脑补：模型给的标签必须在该轮原话里有关键词支撑，否则丢弃
+  const Y3 = await pageY.evaluate(async () => {
+    const { normalizeTimeline } = await import('/js/api.js');
+    const conv = [{ role: 'user', text: '今天升职了，我真的很开心' }];
+    const out = normalizeTimeline({ nodes: [{ emotions: ['愤怒'] }], summary: '' }, conv);
+    return (out.nodes[0] || {}).emotions || [];
+  });
+  check('[反脑补] 模型给「愤怒」但原话只有开心 → 愤怒被丢弃', !Y3.includes('愤怒') && Y3.includes('开心'), JSON.stringify(Y3));
+
+  // ④ 真实会话：开心 → 委屈 → 愤怒，保存去重 + 按钮变态 + 回看入口 + 导出图片
+  await pageY.evaluate(async () => {
+    const s = await import('/js/store.js');
+    s.startSession();
+    s.startDraft('今天他升职了，我真的很开心，为他高兴');
+    s.startDraft('结果他连一句谢谢都没说，我觉得好委屈');
+    s.startDraft('后来他还把活都推给我，我越想越愤怒');
+  });
+  await pageY.evaluate(() => { location.hash = '#/me'; });
+  await pageY.waitForTimeout(150);
+  await pageY.evaluate(() => { location.hash = '#/say'; });
+  await pageY.waitForSelector('#endVent', { timeout: 9000 });
+  await pageY.click('#endVent');
+  await pageY.waitForSelector('.tl-card', { timeout: 15000 });
+  const before4 = await pageY.evaluate(async () => { const s = await import('/js/store.js'); return (s.getState().timelines || []).length; });
+  await pageY.click('#tlSave');
+  await pageY.waitForTimeout(400);
+  await pageY.evaluate(() => { const b = document.getElementById('tlSave'); if (b) b.click(); });
+  await pageY.waitForTimeout(300);
+  await pageY.evaluate(() => { const b = document.getElementById('tlSave'); if (b) b.click(); });
+  await pageY.waitForTimeout(400);
+  const Y4 = await pageY.evaluate(async () => {
+    const s = await import('/js/store.js');
+    const b = document.getElementById('tlSave');
+    return { n: (s.getState().timelines || []).length, btn: b ? b.textContent.trim() : '', disabled: b ? b.disabled : null };
+  });
+  check('[P1] 连点保存只存 1 份（不重复落库）', Y4.n === before4 + 1, `${before4} → ${Y4.n}`);
+  check('[P2] 保存后按钮变「已保存」且不可再点', Y4.btn.includes('已保存') && Y4.disabled === true, JSON.stringify(Y4));
+
+  // ⑤ 保存为图片：点「保存为图片」必须真的触发一次 PNG 下载
+  let dlName = '';
+  try {
+    const [dl] = await Promise.all([
+      pageY.waitForEvent('download', { timeout: 15000 }),
+      pageY.click('#tlExport'),
+    ]);
+    dlName = dl.suggestedFilename();
+  } catch (e) { dlName = 'ERR:' + String(e.message).slice(0, 60); }
+  check('[P1] 「保存为图片」触发 PNG 下载', /\.png$/.test(dlName) && dlName.includes('墨小溟'), dlName);
+
+  // ⑥ 回看入口：我的页 → 情绪时间线 → 详情
+  await pageY.evaluate(() => { location.hash = '#/me'; });
+  await pageY.waitForTimeout(300);
+  check('[P1] 「我的」页出现情绪时间线入口', (await pageY.locator('.mrow--timelines').count()) === 1,
+    await pageY.locator('.mrow--timelines').first().textContent().catch(() => ''));
+  await pageY.click('.mrow--timelines');
+  await pageY.waitForSelector('.tlrow', { timeout: 9000 });
+  const rows6 = await pageY.locator('.tlrow').count();
+  await shot(pageY, 'timeline-list.png');
+  await pageY.click('.tlrow');
+  await pageY.waitForSelector('.tl-card', { timeout: 9000 });
+  const det6 = await pageY.evaluate(() => ({
+    hash: location.hash,
+    title: (document.querySelector('.tl-title') || {}).textContent || '',
+    emos: Array.from(document.querySelectorAll('.tl-node__emo')).map((n) => n.textContent.trim()),
+  }));
+  check('[P1] 已保存的时间线可回看（列表 → 详情）', rows6 >= 1 && det6.hash.includes('#/timeline?id=') && det6.emos.length === 3, JSON.stringify(det6));
+
+  // ⑦ 删除记录
+  const before7 = await pageY.evaluate(async () => { const s = await import('/js/store.js'); return (s.getState().timelines || []).length; });
+  await pageY.click('#tlDelete');
+  await pageY.waitForTimeout(500);
+  const after7 = await pageY.evaluate(async () => { const s = await import('/js/store.js'); return (s.getState().timelines || []).length; });
+  check('[P2] 已保存记录可删除（不再只增不减）', after7 === before7 - 1, `${before7} → ${after7}`);
+
+  // ⑧ 高危不被后续轮次冲掉（真实动作序列，不是 setState）
+  await pageY.evaluate(async () => {
+    const s = await import('/js/store.js');
+    s.startSession();
+    s.startDraft('最近真的不想活了，想结束一切');
+    s.setState({ risk: { level: 'high', action: 'refer', hit: true, evidence: '模拟高危' } });
+    s.startDraft('算了，我还是想说说今天开会的事，有点委屈'); // startDraft 会重置 risk —— 旧版正是漏在这里
+  });
+  await pageY.evaluate(() => { location.hash = '#/me'; });
+  await pageY.waitForTimeout(150);
+  await pageY.evaluate(() => { location.hash = '#/say'; });
+  await pageY.waitForSelector('#endVent', { timeout: 9000 });
+  await pageY.click('#endVent');
+  await pageY.waitForTimeout(900);
+  const Y8 = await pageY.evaluate(() => ({ hash: location.hash, tl: document.querySelectorAll('.tl-card').length, risk: document.querySelectorAll('.risk').length }));
+  check('[P1] 高危后再倾诉一轮，结束倾诉仍走危机提示（不生成时间线）',
+    Y8.hash.indexOf('#/risk') === 0 && Y8.tl === 0 && Y8.risk === 1, JSON.stringify(Y8));
+
+  // ⑨ sessionLog 刷新后仍在（中途刷新不白说）
+  await pageY.evaluate(async () => {
+    const s = await import('/js/store.js');
+    s.startSession();
+    s.startDraft('我有点开心');
+    s.startDraft('又有点委屈');
+  });
+  await pageY.evaluate(() => { location.hash = '#/say'; });   // 先回到首页再 reload，否则刷的是 #/risk
+  await pageY.waitForTimeout(200);
+  await pageY.reload({ waitUntil: 'domcontentloaded' });
+  await pageY.waitForSelector('#sayInput, .talkbtn', { timeout: 9000 });
+  await pageY.waitForTimeout(400);
+  const Y9 = await pageY.evaluate(async () => {
+    const s = await import('/js/store.js');
+    return { log: (s.getState().sessionLog || []).length, btn: !!document.querySelector('#endVent') };
+  });
+  check('[P2] 刷新后本次会话仍在，「结束倾诉」入口不消失', Y9.log === 2 && Y9.btn === true, JSON.stringify(Y9));
+
+  // ⑩ health 版本与 front 版本一致（server.cjs 的 VERSION 曾在 v1.1.0 漏 bump）
+  const Y10 = await pageY.evaluate(async () => {
+    const h = await fetch('/api/health').then((r) => r.json()).catch(() => ({}));
+    return { health: h.version || '', front: window.APP_VERSION || '' };
+  });
+  check('[P1] /api/health 版本 = 前端 APP_VERSION（服务端常量不再漏改）',
+    !!Y10.health && Y10.health === Y10.front, JSON.stringify(Y10));
+
+  check('[护栏] C4 全程无未捕获异常', errsY.length === 0, JSON.stringify(errsY));
+  await ctxY.close();
+
   /* ================= D. 分级安全 UI（gentle_check / refer / emergency） ================= */
   sec('D. 分级安全 UI');
   await goto('/#/record?mode=text');
@@ -1004,7 +1160,8 @@ const MOCK_SDK = `(function(){
     };
   });
   check('我的页头像=墨小溟 IP（非系统默认）', me.avatar, String(me.avatar));
-  check('我的页列表 4 项且各有线性图标（含「关于墨小溟」）', me.rows === 4 && me.iconN === 4, `rows=${me.rows} icons=${me.iconN}`);
+  // v1.1.1：「我的」页新增「情绪时间线」入口 ⇒ 5 项 5 图标
+  check('我的页列表 5 项且各有线性图标（含「情绪时间线」「关于墨小溟」）', me.rows === 5 && me.iconN === 5, `rows=${me.rows} icons=${me.iconN}`);
   check('图标为线性描边（fill:none）', me.fill.every((f) => f === 'none'), me.fill.join('|'));
   check('图标用辅助色点缀（4 色互不相同）', new Set(me.strokes).size === 4, me.strokes.join(' | '));
   check('图标含淡蓝（心电图）', me.strokes.some((c) => c === 'rgb(168, 200, 232)'), me.strokes.join(' | '));
@@ -1470,11 +1627,11 @@ const MOCK_SDK = `(function(){
   check('版本API·/api/version/latest 含 5 字段',
     ['latest_version', 'release_notes', 'download_url', 'force_update', 'web_url'].every((k) => k in HAPI.latest),
     JSON.stringify(Object.keys(HAPI.latest)));
-  check('版本API·latest_version=1.1.0', HAPI.latest.latest_version === '1.1.0', HAPI.latest.latest_version);
+  check('版本API·latest_version=1.1.1', HAPI.latest.latest_version === '1.1.1', HAPI.latest.latest_version);
   check('版本API·release_notes 为非空数组', Array.isArray(HAPI.latest.release_notes) && HAPI.latest.release_notes.length >= 1, String((HAPI.latest.release_notes || []).length));
   check('版本API·force_update 为布尔', typeof HAPI.latest.force_update === 'boolean', String(HAPI.latest.force_update));
   check('版本API·/api/version/history 含 versions 数组', Array.isArray(HAPI.hist.versions) && HAPI.hist.versions.length >= 1, String((HAPI.hist.versions || []).length));
-  check('版本API·history 最新项=1.1.0 且含 notes', HAPI.hist.versions[0].version === '1.1.0' && Array.isArray(HAPI.hist.versions[0].notes), HAPI.hist.versions[0].version);
+  check('版本API·history 最新项=1.1.1 且含 notes', HAPI.hist.versions[0].version === '1.1.1' && Array.isArray(HAPI.hist.versions[0].notes), HAPI.hist.versions[0].version);
 
   // H2. update.js 纯函数（直接 import 模块）
   const H2 = await page.evaluate(async () => {
@@ -1600,8 +1757,8 @@ const MOCK_SDK = `(function(){
     hasCheck: !!document.getElementById('clCheck'),
   }));
   check('更新日志·渲染历史条目（≥1）', H6.items >= 1, String(H6.items));
-  check('更新日志·最新条目=1.1.0', H6.topVer.includes('1.1.0'), H6.topVer);
-  check('更新日志·当前版本显示 1.1.0', H6.ver.includes('1.1.0'), H6.ver);
+  check('更新日志·最新条目=1.1.1', H6.topVer.includes('1.1.1'), H6.topVer);
+  check('更新日志·当前版本显示 1.1.0', H6.ver.includes('1.1.1'), H6.ver);
   check('更新日志·有「检查更新」按钮', H6.hasCheck, String(H6.hasCheck));
   await shot(page6, '25-changelog.png');
 

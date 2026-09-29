@@ -1,0 +1,23 @@
+=== A. 「结束倾诉」入口 ===
+  首页存在 #endVent（结束倾诉）：true
+  当前路由：#/timeline
+  时间线节点情绪：["开心","委屈","愤怒"]
+  小结：这段对话里，你的感受一直在流动。先是开心，中间经过委屈，最后落在愤怒。很多时候情绪并不会一直保持同一种状态，这种来回起伏，是很自然的。
+=== B. 保存按钮：是否真的能「保存为图片」===
+  按钮文案：保存卡片
+  页面存在 canvas（截图导出能力）：false
+  导出相关导出符号：{"appKeys":[],"apiKeys":["recordUpload","safety","analyze","followup","cardGenerate","cardCreate","timelineGenerate","saveTimeline","cardList","cardGet","reportWeekly","userDataDelete","aiStatus","aiDebug"]}
+=== C. 重复点击「保存卡片」是否去重 ===
+  timelines 条数：点击前 0 → 连点3次后 3（无去重则 = before+3）
+  点击后按钮状态：{"text":"保存卡片","disabled":false,"cls":"primary tl-save"}（若仍是「保存卡片」且可点 → 用户无从得知已保存）
+=== D. 已保存的时间线：有没有回看入口 ===
+  底部导航项：["说","卡片","我"]
+  卡片列表页首屏文本："卡片 | 你的情绪卡片会出现在这里。 | 先回首页说一次吧。 | 以后这里会是一张卡片 | 去说一次 | 说 | 卡片 | 我 | 已保存到本地，只有你能看到"
+  「我的」页可点项：["本周情绪体检看看这周的情绪走向\n        ›","我的卡片还没有卡片，去说一次吧\n        ›","设置与隐私记录存本机，随时可删\n        ›","关于墨小溟版本更新与更新历史\n        ›","说","卡片","我"]
+  localStorage 实际存量：{"timelines":3,"cards":0}（有数据但无入口 ⇒ 只写不读死数据）
+=== E. 刷新后「结束倾诉」是否还在（真 reload）===
+  {"sessionLog":0,"timelines":3,"btn":false,"hash":"#/say"}（sessionLog 不持久化 ⇒ 刷新后「结束倾诉」入口消失）
+=== G. toast 是否跨页面残留 ===
+  say 页 toast 可见=true → 切到 cards 页后 {"hash":"#/cards","toastVisible":true,"toastText":"测试提示"}
+=== F. 时间线页的「离开」路径 ===
+  {"hash":"#/timeline","hasTabbar":true,"backBtns":["保存卡片","重新倾诉","说","卡片","我"]}

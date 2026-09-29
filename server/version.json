@@ -1,23 +1,38 @@
 {
-  "latest_version": "1.1.0",
+  "latest_version": "1.1.1",
   "force_update": false,
-  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.0-release.apk",
+  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.1-release.apk",
   "web_url": "https://xiaoting.app.workbuddy.host/#/say",
   "apk": {
-    "versionCode": 10100,
-    "version": "1.1.0",
-    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.0-release.apk",
-    "md5": "7f300e813aaca0c72d679c9292ec92f8",
-    "size": 3322125,
+    "versionCode": 10101,
+    "version": "1.1.1",
+    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.1-release.apk",
+    "md5": "",
+    "size": 0,
     "force": false
   },
   "release_notes": [
-    "新增「情绪时间线卡片」：一次倾诉结束后，把情绪的起伏画成一条柔和的水流曲线，看得见「情绪本来就会流动、矛盾、来回摇摆」",
-    "时间线卡片只记录、不评分、不评判、不解读深层原因，同一节点最多标注两种并存情绪",
-    "对话过程中绝不弹出；只有你主动点「结束倾诉」，才会生成这张复盘卡",
-    "命中高危阻断时不会生成时间线卡，只保留危机提示与热线"
+    "时间线卡片可以「保存为图片」了：除了存到本机，还能导出一张 PNG 自己留着",
+    "「我的」页新增「情绪时间线」入口，保存过的每一次起伏都能随时回看、可删除",
+    "修复：倾诉中途刷新后「结束倾诉」入口消失，本次会话现在能安全续上（超过 6 小时自动算新会话）",
+    "修复：保存按钮重复点击会存出多份相同记录，现在保存后按钮直接变「已保存」",
+    "安全加固：命中高危后再倾诉一轮，也不会生成时间线卡，只保留危机提示与热线",
+    "修复若干稳定性问题（含云端生成时的页面异常）"
   ],
   "history": [
+    {
+      "version": "1.1.1",
+      "date": "2026-09-30",
+      "title": "时间线卡片可回看、可导出图片",
+      "notes": [
+        "时间线卡片支持导出为 PNG 图片，方便留存回看（完全本地生成，不上传）",
+        "「我的」页新增「情绪时间线」列表，保存过的记录随时可回看、可删除",
+        "修复：中途刷新页面后「结束倾诉」入口消失，导致本次倾诉无法收尾",
+        "修复：连点「保存卡片」会存出多份相同记录；保存后按钮变为「已保存」",
+        "安全加固：高危阻断不再被后续轮次冲掉，命中过危机提示的会话不会生成时间线卡",
+        "修复：云端生成路径在「全程无明显情绪」时的页面异常"
+      ]
+    },
     {
       "version": "1.1.0",
       "date": "2026-09-29",

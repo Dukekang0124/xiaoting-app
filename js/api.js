@@ -14,7 +14,7 @@
 
 import {
   safetyCheck, analyzeMain, nextFollowup, generateCard, weeklyReport, validateShape,
-  buildScenarioCard, selectCardType, pickActionVariant, buildTimeline,
+  buildScenarioCard, selectCardType, pickActionVariant, buildTimeline, detectTimelineEmotions,
 } from './ai.js';
 import { callJson, isStructural, debug as llmDebug, stats as llmStats } from './llm.js';
 import {
@@ -301,16 +301,24 @@ function normalizeCard(raw, analysis, followup, extra, transcript = '') {
   });
 }
 
-function normalizeTimeline(raw, conversation) {
+/** 导出仅为自测可达（v1.1.1）：云端归一化分支在 mock 模式下永远走不到，必须能单独断言 */
+export function normalizeTimeline(raw, conversation) {
   const rule = buildTimeline(conversation);
-  if (!raw || typeof raw !== 'object') return rule;
+  // 🔴 P0 修复（v1.1.1 审计）：本地判定「全程无情绪」时必须原样返回简化卡。
+  // 否则 rule.nodes 为空 ⇒ 页面 timelineCurve([]) 抛 TypeError（xs[0].toFixed 读 undefined）。
+  // 自测走 mock（ask 返回 null）永远走不到这里，只有真实云端会崩。
+  if (!raw || typeof raw !== 'object' || rule.type === 'no-emotion') return rule;
 
   // 节点条数 / 顺序 / 关键词命中以本地规则引擎为准，保证确定性；只覆盖模型给的 emotions / caption
   const rawNodes = Array.isArray(raw.nodes) ? raw.nodes : [];
   const nodes = (rule.nodes || []).map((n, i) => {
     const rn = rawNodes[i] || {};
-    const emos = pickFrom(rn.emotions, TIMELINE_EMOTIONS, n.emotions, 2);
-    return { ...n, emotions: emos, caption: guard(rn.caption, 'timeline.caption') || n.caption };
+    // 蓝图「禁止 AI 脑补」：模型给的标签必须在该轮原话里有关键词支撑才能采用，
+    // 否则退回本地结果。模型可以在「本地全部候选」里改取舍/顺序，但不能凭空造一个。
+    const supported = detectTimelineEmotions(n.text, { limit: TIMELINE_EMOTIONS.length });
+    const picked = pickFrom(rn.emotions, TIMELINE_EMOTIONS, n.emotions, 2);
+    const emos = picked.filter((e) => supported.includes(e));
+    return { ...n, emotions: emos.length ? emos : n.emotions, caption: guard(rn.caption, 'timeline.caption') || n.caption };
   });
 
   const summary = guard(raw.summary, 'timeline.summary') || rule.summary;
