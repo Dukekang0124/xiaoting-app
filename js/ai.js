@@ -1,7 +1,7 @@
 // 墨小溟 · AI 引擎（mock 规则实现，严格对齐《AI Prompt 模板与文案库 v1.0》的 5 段输出契约）
 // 换真实 LLM 时：用 prompts.js 的 builder 出 Prompt → 解析 JSON → 过 validateShape 兜底 → 返回同结构。
 
-import { scrubForbidden, CARD_LIB, CARD_LAYER } from './prompts.js';
+import { scrubForbidden, CARD_LIB, CARD_LAYER, TIMELINE_EMOTION_KEYWORDS, TIMELINE_EMOTIONS } from './prompts.js';
 
 /* ==================== 词典 ==================== */
 
@@ -513,7 +513,111 @@ export function buildScenarioCard({ analysis, transcript = '', followup = [], ex
   return validateShape('card', card);
 }
 
-/* ==================== 5. 周报生成 ==================== */
+/* ==================== 5. 情绪时间线（v1.1.0）====================
+ * 复盘载体：对话结束后生成，只记录与呈现情绪流动，不是心理评估、不打分。
+ * 约束铁律：① 每轮 ≤2 种并存情绪；② 只取用户说出来的，禁止脑补；③ 全程无情绪 → 简化卡；
+ *          ④ 最多 6 节点（超出合并）；⑤ 小结描述流动、不评判、不鸡汤。
+ */
+
+/**
+ * 从一段文字里抽出时间线情绪标签：按「首次出现顺序」取前 2 个，支持「A+B」并存。
+ * 只命中白名单关键词，用户没说就不标（宁缺毋滥，绝不脑补）。
+ */
+export function detectTimelineEmotions(text) {
+  const t = (text || '').trim();
+  const found = [];
+  for (const [label, kws] of Object.entries(TIMELINE_EMOTION_KEYWORDS)) {
+    if (kws.some((w) => t.includes(w))) found.push(label);
+  }
+  // 按在原文里首次出现的位置排序，保证「先说开心、后说委屈」的叙事顺序
+  const ordered = found
+    .map((label) => ({ label, idx: Math.max(0, t.indexOf(label)) }))
+    .sort((a, b) => a.idx - b.idx);
+  return ordered.slice(0, 2).map((x) => x.label);
+}
+
+/** 小结文案：描述情绪流动的过程，不评判、不鸡汤、不解读深层原因 */
+function buildTimelineSummary(nodes) {
+  const seq = nodes.map((n) => (n.emotions && n.emotions.length ? n.emotions.join('+') : '一个未命名的瞬间'));
+  const first = seq[0];
+  const last = seq[seq.length - 1];
+  let s = '这段对话里，你的感受一直在流动。';
+  if (nodes.length === 1) {
+    s += `从${first}开始，这一轮你主要停留在这里。情绪会停留，也会慢慢走，都是正常的。`;
+  } else if (nodes.length === 2) {
+    s += `先是${seq[0]}，接着变成了${seq[1]}。从一种感受滑向另一种，中间没有对错。`;
+  } else {
+    const mid = seq.slice(1, -1);
+    s += `先是${seq[0]}`;
+    if (mid.length) s += `，中间经过${mid.join('、')}`;
+    s += `，最后落在${last}。很多时候情绪并不会一直保持同一种状态，这种来回起伏，是很自然的。`;
+  }
+  return scrubForbidden(s);
+}
+
+/**
+ * 由对话流生成时间线卡片数据。
+ * @param {Array<{role:string,text:string,at?:number}>} conversation 一次会话的全部消息（user/ai）
+ * @returns {{type:'timeline',nodes:Array,summary:string,actionHint:object}
+ *          |{type:'no-emotion',summary:string}}
+ */
+export function buildTimeline(conversation = []) {
+  const userMsgs = (conversation || []).filter((m) => m && m.role === 'user' && m.text && m.text.trim());
+  if (!userMsgs.length) {
+    return { type: 'no-emotion', summary: '本次对话更多是陈述事件，没有捕捉到明显情绪' };
+  }
+
+  // 最多 6 节点；超出则把后面的轮次合并进最后一个节点
+  const MAX = 6;
+  let nodesSrc = userMsgs;
+  if (userMsgs.length > MAX) {
+    const keep = userMsgs.slice(0, MAX - 1);
+    const rest = userMsgs.slice(MAX - 1);
+    nodesSrc = [
+      ...keep,
+      {
+        role: 'user',
+        text: rest.map((m) => m.text).join('。'),
+        at: (rest[rest.length - 1] || {}).at || Date.now(),
+        _merged: true,
+        _count: rest.length,
+      },
+    ];
+  }
+
+  const nodes = nodesSrc.map((m) => {
+    const emotions = detectTimelineEmotions(m.text);
+    const snippet = (m.text || '').trim().slice(0, 40);
+    return {
+      at: m.at || Date.now(),
+      text: snippet,
+      emotions,
+      merged: !!m._merged,
+      count: m._count || 1,
+    };
+  });
+
+  // 全程无情绪 → 简化卡（蓝图 §三.5 边界）
+  const anyEmotion = nodes.some((n) => n.emotions.length);
+  if (!anyEmotion) {
+    return { type: 'no-emotion', summary: '本次对话更多是陈述事件，没有捕捉到明显情绪' };
+  }
+
+  const summary = buildTimelineSummary(nodes);
+
+  // 微小停靠提示：复用【微小行动卡】库，按最后一节点的情绪挑最低门槛那一档
+  const last = nodes[nodes.length - 1];
+  const hint = pickActionVariant(last.emotions, last.text);
+  const actionHint = {
+    title: (hint && hint.title) || '给情绪一个空间',
+    step: (hint && hint.step) || '把此刻心里最沉重的一句话，直接打字留在这。不用修饰，写完就可以。',
+    note: (hint && hint.note) || '写下来，不一定要立刻解决它。',
+  };
+
+  return { type: 'timeline', nodes, summary, actionHint };
+}
+
+/* ==================== 5b. 周报生成 ==================== */
 
 function weekBounds(now = new Date()) {
   const start = new Date(now);

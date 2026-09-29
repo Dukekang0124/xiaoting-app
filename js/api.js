@@ -14,12 +14,12 @@
 
 import {
   safetyCheck, analyzeMain, nextFollowup, generateCard, weeklyReport, validateShape,
-  buildScenarioCard, selectCardType, pickActionVariant,
+  buildScenarioCard, selectCardType, pickActionVariant, buildTimeline,
 } from './ai.js';
 import { callJson, isStructural, debug as llmDebug, stats as llmStats } from './llm.js';
 import {
   SYSTEM, MODEL_CONFIG, buildSafetyPrompt, buildMainPrompt, buildFollowupPrompt,
-  buildCardPrompt, buildWeeklyPrompt, scrubForbidden, findForbidden, CARD_LIB, CARD_LAYER,
+  buildCardPrompt, buildWeeklyPrompt, buildTimelinePrompt, scrubForbidden, findForbidden, CARD_LIB, CARD_LAYER, TIMELINE_EMOTIONS,
 } from './prompts.js';
 import { AI } from './config.js';
 import * as store from './store.js';
@@ -301,6 +301,34 @@ function normalizeCard(raw, analysis, followup, extra, transcript = '') {
   });
 }
 
+function normalizeTimeline(raw, conversation) {
+  const rule = buildTimeline(conversation);
+  if (!raw || typeof raw !== 'object') return rule;
+
+  // 节点条数 / 顺序 / 关键词命中以本地规则引擎为准，保证确定性；只覆盖模型给的 emotions / caption
+  const rawNodes = Array.isArray(raw.nodes) ? raw.nodes : [];
+  const nodes = (rule.nodes || []).map((n, i) => {
+    const rn = rawNodes[i] || {};
+    const emos = pickFrom(rn.emotions, TIMELINE_EMOTIONS, n.emotions, 2);
+    return { ...n, emotions: emos, caption: guard(rn.caption, 'timeline.caption') || n.caption };
+  });
+
+  const summary = guard(raw.summary, 'timeline.summary') || rule.summary;
+
+  const ah = raw.action_hint || {};
+  const hint = rule.actionHint || {};
+  return {
+    type: 'timeline',
+    nodes,
+    summary,
+    actionHint: {
+      title: guard(ah.title, 'timeline.ah.title') || hint.title,
+      step: guard(ah.step, 'timeline.ah.step') || hint.step,
+      note: guard(ah.note, 'timeline.ah.note') || hint.note,
+    },
+  };
+}
+
 function normalizeWeekly(raw, cards) {
   const rule = weeklyReport(cards);
   if (!raw || typeof raw !== 'object') return rule;
@@ -449,6 +477,26 @@ export const api = {
   /** POST /api/card/create */
   async cardCreate(card) {
     return store.addCard(card);
+  },
+
+  /** 情绪时间线：由本次会话对话流生成复盘卡（本地规则引擎为离线主路径，云端为增强） */
+  async timelineGenerate({ conversation = [] } = {}) {
+    const raw = await ask({
+      stage: 'timeline',
+      system: SYSTEM.timeline,
+      user: buildTimelinePrompt({ conversation }),
+      temperature: MODEL_CONFIG.timeline.temperature,
+      maxTokens: MODEL_CONFIG.timeline.maxTokens,
+      json: true,
+      tier: 'strong',
+    });
+    if (raw) return normalizeTimeline(raw, conversation);
+    return buildTimeline(conversation);
+  },
+
+  /** 保存时间线卡片到本机（隐私优先，完全本地，不自动分享） */
+  async saveTimeline(tl) {
+    return store.addTimeline(tl);
   },
 
   /** GET /api/card/list */

@@ -1,23 +1,35 @@
 {
-  "latest_version": "1.0.0-RC",
+  "latest_version": "1.1.0",
   "force_update": false,
-  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.0.0-RC-release.apk",
+  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.0-release.apk",
   "web_url": "https://xiaoting.app.workbuddy.host/#/say",
   "apk": {
-    "versionCode": 10000,
-    "version": "1.0.0-RC",
-    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.0.0-RC-release.apk",
+    "versionCode": 10100,
+    "version": "1.1.0",
+    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.0-release.apk",
     "md5": "f06765e34261c3c1188573060c80d0a3",
     "size": 3313933,
     "force": false
   },
   "release_notes": [
-    "品牌升级为「墨小溟」：深海紫色小墨鱼 IP，Slogan「说出来，就轻一点」",
-    "安全边界全面升级：识别自伤 / 伤害他人 / 索要诊断 / 过度依赖等风险，立即阻断并常驻展示危机热线",
-    "分情绪场景回应 + 沉默引导：开心 / 委屈 / 愤怒 / 迷茫 / 疲惫各有专属短句，静默与退出都有温柔承接",
-    "首访欢迎弹窗 + 关于页 IP 人设与常驻免责声明"
+    "新增「情绪时间线卡片」：一次倾诉结束后，把情绪的起伏画成一条柔和的水流曲线，看得见「情绪本来就会流动、矛盾、来回摇摆」",
+    "时间线卡片只记录、不评分、不评判、不解读深层原因，同一节点最多标注两种并存情绪",
+    "对话过程中绝不弹出；只有你主动点「结束倾诉」，才会生成这张复盘卡",
+    "命中高危阻断时不会生成时间线卡，只保留危机提示与热线"
   ],
   "history": [
+    {
+      "version": "1.1.0",
+      "date": "2026-09-29",
+      "title": "情绪时间线卡片",
+      "notes": [
+        "新增「情绪时间线卡片」：一次倾诉结束后，把情绪起伏画成一条柔和的水流曲线",
+        "只做记录与呈现：不打分、不评估、不贴标签、不解读深层原因；同一节点支持两种并存情绪（如喜悦 + 委屈）",
+        "触发时机由你做主：对话过程中绝不弹出，只有主动点「结束倾诉」才生成",
+        "边界保护：命中高危阻断时不生成时间线卡，只保留危机提示与热线；全程只陈述事实则显示简化卡",
+        "卡片可「保存到本地」或「重新倾诉」，完全本机保存、不自动分享"
+      ]
+    },
     {
       "version": "1.0.0-RC",
       "date": "2026-09-30",

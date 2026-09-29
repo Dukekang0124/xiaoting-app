@@ -538,6 +538,187 @@ const MOCK_SDK = `(function(){
   check('开心转委屈·上下文无页面 JS 错误', errorsW.length === 0, errorsW.slice(0, 3).join(' | '));
   await ctxW.close();
 
+  /* ================= C3. 情绪时间线卡片（v1.1.0） =================
+     ① 引擎单元：buildTimeline 由对话流生成节点（≤2 并存情绪 / ≤6 节点 / 无情绪简化）；
+     ② UI：模拟「开心 → 委屈 → 愤怒」多轮对话 → 点「结束倾诉」→ 自动生成时间线卡片；
+     ③ 边界：全程无情绪 → 简化卡；命中高危阻断 → 不生成时间线，走危机提示。 */
+  sec('C3. 情绪时间线卡片（v1.1.0）');
+
+  // ① 引擎单元（浏览器内导入真实模块，确定性、离线）
+  const TL = await page.evaluate(async () => {
+    const ai = await import('/js/ai.js');
+    const conv3 = [
+      { role: 'user', text: '今天项目终于有进展了，我挺开心的' },
+      { role: 'ai', text: '（回应）' },
+      { role: 'user', text: '可是刚才被同事误解了，心里好委屈' },
+      { role: 'user', text: '越想越生气，我真的很愤怒' },
+    ];
+    const t3 = ai.buildTimeline(conv3);
+    const contradictory = ai.buildTimeline([
+      { role: 'user', text: '我一方面为他高兴，另一方面又觉得心里酸酸的，有点不甘' },
+    ]);
+    const noEmo = ai.buildTimeline([{ role: 'user', text: '今天我去超市买了点菜，回家做了饭，然后看了会电视。' }]);
+    const many = ai.buildTimeline(Array.from({ length: 9 }, (_, i) => ({ role: 'user', text: `第${i + 1}轮 我有点委屈` })));
+    return {
+      t3,
+      contradictory,
+      noEmo,
+      many,
+      allowed: (await import('/js/prompts.js')).TIMELINE_EMOTIONS,
+    };
+  });
+  check('时间线·每轮 ≤2 并存情绪，按出现顺序抽取', TL.t3.nodes.length === 3
+    && TL.t3.nodes[0].emotions.join('+') === '开心'
+    && TL.t3.nodes[1].emotions.join('+') === '委屈'
+    && TL.t3.nodes[2].emotions.join('+') === '愤怒',
+    TL.t3.nodes.map((n) => n.emotions.join('+')).join(' → '));
+  check('时间线·矛盾情绪支持「A+B」并存（喜悦+不甘）',
+    TL.contradictory.nodes.length === 1 && TL.contradictory.nodes[0].emotions.length === 2
+    && TL.contradictory.nodes[0].emotions.includes('开心') && TL.contradictory.nodes[0].emotions.includes('不甘'),
+    TL.contradictory.nodes[0].emotions.join('+'));
+  check('时间线·只用普通人情绪词（无心理学术语）',
+    TL.t3.nodes.every((n) => n.emotions.every((e) => TL.allowed.includes(e))), TL.allowed.join('、'));
+  check('时间线·全程无情绪 → 简化（type=no-emotion）',
+    TL.noEmo.type === 'no-emotion' && TL.noEmo.summary.includes('陈述事件'), TL.noEmo.summary);
+  check('时间线·最多 6 节点（超出合并）', TL.many.nodes.length === 6 && TL.many.nodes[5].merged === true,
+    String(TL.many.nodes.length));
+  check('时间线·小结描述流动、不评判不鸡汤',
+    /流动/.test(TL.t3.summary) && !/你应该|想开点|加油|没什么大不了/.test(TL.t3.summary), TL.t3.summary);
+  check('时间线·微小停靠提示来自既有微小行动卡库',
+    !!(TL.t3.actionHint && TL.t3.actionHint.title && TL.t3.actionHint.step), (TL.t3.actionHint || {}).title);
+
+  // ② UI：模拟「开心 → 委屈 → 愤怒」多轮对话
+  const ctxT = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'zh-CN', isMobile: true, hasTouch: true });
+  const pageT = await ctxT.newPage();
+  await ctxT.addInitScript(() => { try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1'); } catch (e) {} });
+  const errorsT = [];
+  pageT.on('pageerror', (e) => errorsT.push('pageerror: ' + e.message));
+  pageT.on('console', (m) => { if (m.type() === 'error') errorsT.push('console: ' + m.text()); });
+  const gotoT = (h) => pageT.goto(BASE + h, { waitUntil: 'domcontentloaded' });
+
+  const runRoundT = async (text) => {
+    await gotoT('/#/record?mode=text');
+    await pageT.waitForSelector('#recInput');
+    await pageT.fill('#recInput', text);
+    await pageT.click('#recDone');
+    let reached = false;
+    for (let i = 1; i <= 3; i++) {
+      await pageT.waitForSelector('.fu-question, .cf-lead, .gentle__title', { timeout: 20000 });
+      if ((await pageT.locator('.cf-lead').count()) > 0) { reached = true; break; }
+      if ((await pageT.locator('.gentle__title').count()) > 0) { await pageT.click('#gProceed'); await pageT.waitForTimeout(400); continue; }
+      await pageT.fill('#fuInput', '当时心里挺复杂的，说不清。');
+      await pageT.click('#fuNext');
+      await pageT.waitForTimeout(700);
+    }
+    if (!reached && (await pageT.locator('.cf-lead').count()) > 0) reached = true;
+    return reached;
+  };
+
+  const r1 = await runRoundT('今天项目终于有进展了，我挺开心的');
+  const r2 = await runRoundT('可是刚才被同事误解了，心里好委屈');
+  const r3 = await runRoundT('越想越生气，我真的很愤怒');
+  check('时间线·三轮对话均到达确认页', r1 && r2 && r3, `${r1}/${r2}/${r3}`);
+
+  // 回到首页 → 「结束倾诉」入口出现 → 点击自动生成时间线
+  await gotoT('/#/say');
+  await pageT.waitForSelector('.say', { timeout: 9000 });
+  check('时间线·首页出现「结束倾诉」入口', (await pageT.locator('#endVent').count()) === 1);
+  await pageT.click('#endVent');
+  await pageT.waitForSelector('.timeline .tl-title', { timeout: 12000 });
+
+  const tlTitle = (await pageT.textContent('.tl-title')).trim();
+  check('时间线·标题逐字 = 「本次深海情绪记录」', tlTitle === '本次深海情绪记录', tlTitle);
+  const tlSub = (await pageT.textContent('.tl-sub')).trim();
+  check('时间线·副标题逐字 = 「情绪本来就会起伏波动，没有好坏」', tlSub === '情绪本来就会起伏波动，没有好坏', tlSub);
+
+  const tlNodes = await pageT.evaluate(() => Array.from(document.querySelectorAll('.tl-node')).map((n) => ({
+    no: (n.querySelector('.tl-node__no') || {}).textContent || '',
+    emo: (n.querySelector('.tl-node__emo') || {}).textContent || '',
+  })));
+  check('时间线·节点数 = 3（开心/委屈/愤怒各一段）', tlNodes.length === 3, JSON.stringify(tlNodes.map((n) => n.emo)));
+  check('时间线·每节点情绪 ≤2 且只用普通词',
+    tlNodes.every((n) => n.emo.split('+').map((s) => s.trim()).filter(Boolean).length <= 2
+      && n.emo.split('+').map((s) => s.trim()).filter(Boolean).every((e) => TL.allowed.includes(e))),
+    JSON.stringify(tlNodes.map((n) => n.emo)));
+  check('时间线·节点情绪序列 = 开心 → 委屈 → 愤怒',
+    /开心/.test(tlNodes[0].emo) && /委屈/.test(tlNodes[1].emo) && /愤怒/.test(tlNodes[2].emo),
+    tlNodes.map((n) => n.emo).join(' → '));
+
+  // 软曲线：path 用三次贝塞尔 C，非尖锐折线；节点圆点与节点数一致
+  const curve = await pageT.evaluate(() => {
+    const p = document.querySelector('.tl-curve path');
+    return { d: p ? p.getAttribute('d') : '', cap: p ? getComputedStyle(p).strokeLinecap : '', dots: document.querySelectorAll('.tl-curve .tl-dot').length };
+  });
+  check('时间线·曲线柔和（贝塞尔 C 曲线 + 圆头描边）', /C/.test(curve.d) && curve.cap === 'round', curve.d.slice(0, 40) + ' | cap=' + curve.cap);
+  check('时间线·曲线圆点与节点数一致', curve.dots === 3, String(curve.dots));
+
+  const tlSummary = (await pageT.textContent('.tl-summary')).trim();
+  check('时间线·小结描述流动、不评判不鸡汤',
+    tlSummary.length > 0 && /流动/.test(tlSummary) && !/你应该|想开点|加油|没什么大不了/.test(tlSummary), tlSummary.slice(0, 30));
+  check('时间线·含【保存卡片】按钮', (await pageT.locator('#tlSave').count()) === 1);
+  check('时间线·含【重新倾诉】按钮', (await pageT.locator('#tlRestart').count()) === 1);
+  const disc = (await pageT.textContent('.tl-disclaimer')).trim();
+  check('时间线·底部静态免责小字（非心理评估）',
+    disc.includes('不是心理评估') && disc.includes('仅供你自我看见'), disc.slice(0, 24));
+  await shot(pageT, 'timeline-happy-wronged-anger.png');
+  check('时间线·上下文无页面 JS 错误', errorsT.length === 0, errorsT.slice(0, 3).join(' | '));
+  await ctxT.close();
+
+  // ③ 边界：无情绪 → 简化卡
+  const ctxE = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'zh-CN', isMobile: true, hasTouch: true });
+  const pageE = await ctxE.newPage();
+  await ctxE.addInitScript(() => { try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1'); } catch (e) {} });
+  const gotoE = (h) => pageE.goto(BASE + h, { waitUntil: 'domcontentloaded' });
+  await gotoE('/#/record?mode=text');
+  await pageE.waitForSelector('#recInput');
+  await pageE.fill('#recInput', '今天我去超市买了点菜，回家做了饭，然后看了会电视，很普通的周末。');
+  await pageE.click('#recDone');
+  for (let i = 1; i <= 3; i++) {
+    await pageE.waitForSelector('.fu-question, .cf-lead, .gentle__title', { timeout: 20000 });
+    if ((await pageE.locator('.cf-lead').count()) > 0) break;
+    if ((await pageE.locator('.gentle__title').count()) > 0) { await pageE.click('#gProceed'); await pageE.waitForTimeout(400); continue; }
+    await pageE.fill('#fuInput', '没什么特别的，就是很普通的一天。');
+    await pageE.click('#fuNext');
+    await pageE.waitForTimeout(700);
+  }
+  await gotoE('/#/say');
+  await pageE.waitForSelector('#endVent', { timeout: 9000 });
+  await pageE.click('#endVent');
+  await pageE.waitForSelector('.timeline .tl-title', { timeout: 12000 });
+  const emptySummary = (await pageE.textContent('.tl-summary')).trim();
+  check('时间线·全程无情绪 → 简化卡（提示只陈述事实）',
+    (await pageE.locator('.tl-card--empty').count()) === 1 && (await pageE.locator('.tl-node').count()) === 0
+    && emptySummary.includes('陈述事件'), emptySummary);
+  await shot(pageE, 'timeline-no-emotion.png');
+  await ctxE.close();
+
+  // ③ 边界：命中高危阻断 → 不生成时间线，走危机提示
+  const ctxX = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'zh-CN', isMobile: true, hasTouch: true });
+  const pageX = await ctxX.newPage();
+  await ctxX.addInitScript(() => { try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1'); } catch (e) {} });
+  const gotoX = (h) => pageX.goto(BASE + h, { waitUntil: 'domcontentloaded' });
+  await gotoX('/#/record?mode=text');
+  await pageX.waitForSelector('#recInput');
+  await pageX.fill('#recInput', '今天项目有进展，我挺开心的');
+  await pageX.click('#recDone');
+  for (let i = 1; i <= 3; i++) {
+    await pageX.waitForSelector('.fu-question, .cf-lead', { timeout: 20000 });
+    if ((await pageX.locator('.cf-lead').count()) > 0) break;
+    await pageX.fill('#fuInput', '还好。');
+    await pageX.click('#fuNext');
+    await pageX.waitForTimeout(700);
+  }
+  await gotoX('/#/say');
+  await pageX.waitForSelector('#endVent', { timeout: 9000 });
+  // 模拟本次会话命中高危阻断（真实流程中由安全识别置入）
+  await pageX.evaluate(async () => { const s = await import('/js/store.js'); s.setState({ risk: { level: 'high', action: 'refer', hit: true, evidence: '模拟高危' } }); });
+  await pageX.click('#endVent');
+  await pageX.waitForTimeout(500);
+  check('时间线·命中高危阻断时不生成时间线（走危机提示）',
+    (await pageX.locator('.timeline .tl-title').count()) === 0 && (await pageX.locator('.risk').count()) === 1,
+    `timeline=${await pageX.locator('.timeline .tl-title').count()} risk=${await pageX.locator('.risk').count()}`);
+  await ctxX.close();
+
   /* ================= D. 分级安全 UI（gentle_check / refer / emergency） ================= */
   sec('D. 分级安全 UI');
   await goto('/#/record?mode=text');
@@ -1289,11 +1470,11 @@ const MOCK_SDK = `(function(){
   check('版本API·/api/version/latest 含 5 字段',
     ['latest_version', 'release_notes', 'download_url', 'force_update', 'web_url'].every((k) => k in HAPI.latest),
     JSON.stringify(Object.keys(HAPI.latest)));
-  check('版本API·latest_version=1.0.0-RC', HAPI.latest.latest_version === '1.0.0-RC', HAPI.latest.latest_version);
+  check('版本API·latest_version=1.1.0', HAPI.latest.latest_version === '1.1.0', HAPI.latest.latest_version);
   check('版本API·release_notes 为非空数组', Array.isArray(HAPI.latest.release_notes) && HAPI.latest.release_notes.length >= 1, String((HAPI.latest.release_notes || []).length));
   check('版本API·force_update 为布尔', typeof HAPI.latest.force_update === 'boolean', String(HAPI.latest.force_update));
   check('版本API·/api/version/history 含 versions 数组', Array.isArray(HAPI.hist.versions) && HAPI.hist.versions.length >= 1, String((HAPI.hist.versions || []).length));
-  check('版本API·history 最新项=1.0.0-RC 且含 notes', HAPI.hist.versions[0].version === '1.0.0-RC' && Array.isArray(HAPI.hist.versions[0].notes), HAPI.hist.versions[0].version);
+  check('版本API·history 最新项=1.1.0 且含 notes', HAPI.hist.versions[0].version === '1.1.0' && Array.isArray(HAPI.hist.versions[0].notes), HAPI.hist.versions[0].version);
 
   // H2. update.js 纯函数（直接 import 模块）
   const H2 = await page.evaluate(async () => {
@@ -1419,8 +1600,8 @@ const MOCK_SDK = `(function(){
     hasCheck: !!document.getElementById('clCheck'),
   }));
   check('更新日志·渲染历史条目（≥1）', H6.items >= 1, String(H6.items));
-  check('更新日志·最新条目=1.0.0-RC', H6.topVer.includes('1.0.0-RC'), H6.topVer);
-  check('更新日志·当前版本显示 1.0.0-RC', H6.ver.includes('1.0.0-RC'), H6.ver);
+  check('更新日志·最新条目=1.1.0', H6.topVer.includes('1.1.0'), H6.topVer);
+  check('更新日志·当前版本显示 1.1.0', H6.ver.includes('1.1.0'), H6.ver);
   check('更新日志·有「检查更新」按钮', H6.hasCheck, String(H6.hasCheck));
   await shot(page6, '25-changelog.png');
 

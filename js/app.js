@@ -327,6 +327,7 @@ async function endCapture() {
 function pageSay() {
   const s = store.getState();
   const last = s.cards[0];
+  const sessionUser = (s.sessionLog || []).filter((m) => m.role === 'user' && m.text).length;
   return `
   <section class="say">
     <header class="say__head">
@@ -341,6 +342,7 @@ function pageSay() {
         ${wave('wave--btn')}
       </button>
       <p class="say__hint">不用组织语言，想到哪说到哪</p>
+      ${sessionUser ? `<button class="endvent-btn" id="endVent" type="button">结束倾诉</button>` : ''}
       <a class="say__type" href="#/record?mode=text">不方便说？打字也行</a>
     </div>
     <div class="say__live" id="liveWrap" hidden><div class="live-label">正在听</div><div class="live-text" id="liveText">……</div></div>
@@ -374,6 +376,8 @@ function bindSay() {
   const btn = document.getElementById('talkbtn');
   const liveWrap = document.getElementById('liveWrap');
   if (!btn) return;
+  const endVent = document.getElementById('endVent');
+  if (endVent) endVent.addEventListener('click', onEndVent);
   const start = (e) => {
     e.preventDefault();
     btn.classList.add('talkbtn--press');
@@ -389,6 +393,27 @@ function bindSay() {
   btn.addEventListener('pointercancel', stop);
   btn.addEventListener('pointerleave', () => { btn.classList.remove('talkbtn--press'); if (rec.active) endCapture(); });
   btn.addEventListener('click', (e) => { if (!CAP.canRecord) e.preventDefault(); });
+}
+
+/**
+ * 「结束倾诉」→ 生成情绪时间线卡片（v1.1.0）。
+ * 铁律：对话过程中绝不自动弹出，只有用户主动点「结束倾诉」才生成；
+ *      若本次会话命中高危阻断（自伤/伤人高危），不生成时间线卡，只保留危机提示与热线。
+ */
+async function onEndVent() {
+  const st = store.getState();
+  const log = (st.sessionLog || []).filter((m) => m.role === 'user' && m.text);
+  if (!log.length) { go('say'); return; }
+  if (isBlockingAction(st.risk && st.risk.action)) { go('risk?level=high'); return; }
+  let tl;
+  try {
+    tl = await api.timelineGenerate({ conversation: log });
+  } catch (e) {
+    const { buildTimeline } = await import('./ai.js');
+    tl = buildTimeline(log); // 降级：本地规则引擎，绝不让流程断在这里
+  }
+  store.setState({ timeline: tl });
+  go('timeline');
 }
 
 /* ---------------- 页面：录音 / 输入 ---------------- */
@@ -821,6 +846,112 @@ async function saveCardFromForm() {
   go('say');
 }
 
+/* ---------------- 页面：情绪时间线卡片（v1.1.0） ----------------
+ * 复盘载体：对话结束后生成，可视化「情绪本来就是流动、矛盾、来回摇摆的」。
+ * 底线：不是心理评估、不打分，只做记录与呈现。 */
+
+/** 柔和曲线路径：用三次贝塞尔（C）连接各节点，水平出入，像水流而非尖锐折线 */
+function timelineCurve(nodes) {
+  const W = 320, H = 140, padX = 30, baseY = H / 2 + 6, amp = 18;
+  const n = nodes.length;
+  const xs = nodes.map((_, i) => (n === 1 ? W / 2 : padX + (W - 2 * padX) * (i / (n - 1))));
+  const ys = nodes.map((_, i) => (n === 1 ? baseY : baseY - amp * Math.sin((Math.PI * i) / Math.max(1, n - 1))));
+  let d = `M ${xs[0].toFixed(1)} ${ys[0].toFixed(1)}`;
+  for (let i = 1; i < n; i++) {
+    const cx = ((xs[i - 1] + xs[i]) / 2).toFixed(1);
+    d += ` C ${cx} ${ys[i - 1].toFixed(1)} ${cx} ${ys[i].toFixed(1)} ${xs[i].toFixed(1)} ${ys[i].toFixed(1)}`;
+  }
+  const dots = xs.map((x, i) => {
+    const emo = (nodes[i].emotions && nodes[i].emotions.length) ? nodes[i].emotions[0] : '·';
+    return `<circle class="tl-dot" cx="${x.toFixed(1)}" cy="${ys[i].toFixed(1)}" r="7"/>`
+      + `<circle class="tl-dot--inner" cx="${x.toFixed(1)}" cy="${ys[i].toFixed(1)}" r="2.6"/>`
+      + `<text x="${x.toFixed(1)}" y="${(ys[i] + 22).toFixed(1)}" text-anchor="middle">${esc(emo)}</text>`;
+  }).join('');
+  return `<svg class="tl-curve" viewBox="0 0 ${W} ${H}" role="img" aria-label="情绪时间线">
+    <path d="${d}" stroke-linecap="round" stroke-linejoin="round"/>
+    ${dots}
+  </svg>`;
+}
+
+const TIMELINE_DISCLAIMER = '提示：这只是本次倾诉过程中情绪的简单记录，不是心理评估。情绪会随场景变化，仅供你自我看见。';
+
+function timelineActions() {
+  return `<div class="tl-btns">
+    <button class="primary tl-save" id="tlSave" type="button">保存卡片</button>
+    <button class="ghost-btn tl-restart" id="tlRestart" type="button">重新倾诉</button>
+  </div>`;
+}
+
+/** 时间线正文（有情绪）：柔和曲线 + 节点说明 + 小结 + 微小停靠提示 */
+function timelineBody(tl) {
+  const nodes = tl.nodes || [];
+  const rows = nodes.map((nd, i) => {
+    const emo = (nd.emotions && nd.emotions.length) ? nd.emotions.join(' + ') : '（没捕捉到明显情绪）';
+    const tail = nd.merged && nd.count > 1 ? `　（后面 ${nd.count} 轮合在这里）` : '';
+    return `<div class="tl-node">
+      <div class="tl-node__no">第 ${i + 1} 段</div>
+      <div class="tl-node__emo">${esc(emo)}</div>
+      <div class="tl-node__cap">${esc(nd.text || '')}${tail}</div>
+    </div>`;
+  }).join('');
+  const hint = tl.actionHint || {};
+  return `
+    <div class="tl-card">
+      <div class="tl-corner">${miniFace('empathy', 26)}</div>
+      ${timelineCurve(nodes)}
+      <div class="tl-nodes">${rows}</div>
+      <div class="tl-summary">${esc(tl.summary || '')}</div>
+      ${hint.title ? `<div class="tl-hint">
+        <div class="tl-hint__label">一个很小的停靠（不强制）</div>
+        <div class="tl-hint__title">${esc(hint.title)}</div>
+        <div class="tl-hint__step">${esc(hint.step || '')}</div>
+        ${hint.note ? `<div class="tl-hint__note">${esc(hint.note)}</div>` : ''}
+      </div>` : ''}
+    </div>
+    <p class="tl-disclaimer">${esc(TIMELINE_DISCLAIMER)}</p>
+    ${timelineActions()}`;
+}
+
+/** 时间线正文（全程无情绪）：简化卡，只留一句说明 */
+function timelineEmptyBody(tl) {
+  return `
+    <div class="tl-card tl-card--empty">
+      <div class="tl-corner">${miniFace('idle', 26)}</div>
+      <div class="tl-summary">${esc(tl.summary || '本次对话更多是陈述事件，没有捕捉到明显情绪')}</div>
+    </div>
+    <p class="tl-disclaimer">${esc(TIMELINE_DISCLAIMER)}</p>
+    ${timelineActions()}`;
+}
+
+function pageTimeline() {
+  const tl = store.getState().timeline;
+  if (!tl || !tl.type) {
+    return `<section class="timeline"><div class="page-title center">情绪时间线</div>
+      <div class="empty-state">${mascot('idle', 120)}<p>还没有可以回看的这一次倾诉。<br/>先回首页说一次吧。</p>
+      <a class="primary small" href="#/say">去说一次</a></div></section>`;
+  }
+  const body = tl.type === 'no-emotion' ? timelineEmptyBody(tl) : timelineBody(tl);
+  return `
+  <section class="timeline">
+    <div class="page-title center">情绪时间线</div>
+    <h2 class="tl-title">本次深海情绪记录</h2>
+    <p class="tl-sub">情绪本来就会起伏波动，没有好坏</p>
+    ${body}
+  </section>`;
+}
+
+function bindTimeline() {
+  const save = document.getElementById('tlSave');
+  if (save) save.addEventListener('click', async () => {
+    const tl = store.getState().timeline;
+    if (!tl) return;
+    await api.saveTimeline(tl);
+    store.toast('已保存到本地，只有你能看到');
+  });
+  const restart = document.getElementById('tlRestart');
+  if (restart) restart.addEventListener('click', () => { store.startSession(); go('say'); });
+}
+
 /* ---------------- 页面：卡片列表 ---------------- */
 
 function pageCards() {
@@ -1021,7 +1152,7 @@ function pageSettings() {
       <div class="set-title">重要声明</div>
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.0.0-RC')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.1.0')}</p>
   </section>`;
 }
 
@@ -1049,14 +1180,14 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.0.0-RC')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.1.0')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
     <div class="disclaimer-box">${esc(COPY.about.disclaimer)}</div>
     <div class="changelog__list" id="clList"><p class="set-sub">正在加载更新历史…</p></div>
     <button class="primary" id="clCheck" type="button">检查更新</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.0.0-RC')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.1.0')}</p>
   </section>`;
 }
 
@@ -1189,6 +1320,7 @@ const PAGES = {
   followup: { render: pageFollowup, bind: bindFollowup, nav: false },
   gentle: { render: pageGentle, bind: bindGentle, nav: false },
   confirm: { render: pageConfirm, bind: bindConfirm, nav: false },
+  timeline: { render: pageTimeline, bind: bindTimeline, nav: false },
   cards: { render: pageCards, tab: 'cards', nav: true },
   card: { render: pageCardDetail, bind: bindCardDetail, nav: true },
   weekly: { render: pageWeekly, mount: mountWeekly, nav: true },

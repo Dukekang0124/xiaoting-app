@@ -16,6 +16,12 @@ let state = {
   draft: null,
   // conversation: 当前这次倾诉的对话流（用户原话 + 墨小溟回应 / 安全同步），用于 v1.1 §3.3 对话区同步输出
   conversation: [],
+  // sessionLog: 本次会话累积的用户原话（每轮 startDraft 追加），是情绪时间线卡片的数据源；只保留本次会话、不跨会话合并
+  sessionLog: [],
+  // timelines: 已保存的情绪时间线卡片（完全本地，隐私优先）
+  timelines: [],
+  // timeline: 当前正在查看的时间线卡片（瞬时，不持久化）
+  timeline: null,
   cards: [],
   // risk: { level:none|low|medium|high|critical, action:continue|gentle_check|refer|emergency, hit, evidence }
   risk: { level: 'none', action: 'continue', hit: false, evidence: '' },
@@ -29,7 +35,7 @@ const freshRisk = () => ({ level: 'none', action: 'continue', hit: false, eviden
 
 function persist() {
   try {
-    localStorage.setItem(KEY, JSON.stringify({ user: state.user, cards: state.cards, draft: state.draft }));
+    localStorage.setItem(KEY, JSON.stringify({ user: state.user, cards: state.cards, draft: state.draft, timelines: state.timelines }));
   } catch (e) { /* 隐私模式等场景静默失败 */ }
 }
 
@@ -41,6 +47,7 @@ function restore() {
     if (data.user) state.user = { ...state.user, ...data.user, settings: { ...state.user.settings, ...(data.user.settings || {}) } };
     if (Array.isArray(data.cards)) state.cards = data.cards;
     if (data.draft) state.draft = data.draft;
+    if (Array.isArray(data.timelines)) state.timelines = data.timelines;
   } catch (e) { /* ignore */ }
 }
 
@@ -72,6 +79,7 @@ export function deriveIpState(route, risk) {
     case 'followup': return 'empathy';
     case 'gentle': return 'empathy';
     case 'confirm': return 'empathy';
+    case 'timeline': return 'tender';
     case 'risk': return 'worried';
     case 'say': return state.toast ? 'happy' : 'idle';
     default: return 'idle';
@@ -95,8 +103,10 @@ export function startDraft(transcript, recordId) {
       createdAt: Date.now(),
     },
     risk: freshRisk(),
-    // 一次新的倾诉：清空旧对话，记录用户原话作为对话区首条（§3.3 对话区同步输出）
+    // 一次新的倾诉（本轮）：清空本轮对话区，记录用户原话作为对话区首条（§3.3 对话区同步输出）
     conversation: [{ role: 'user', text: transcript, at: Date.now() }],
+    // 本次会话累积：追加用户原话，作为情绪时间线卡片的数据源（v1.1.0）
+    sessionLog: [...(state.sessionLog || []), { role: 'user', text: transcript, at: Date.now() }],
   });
 }
 
@@ -108,6 +118,11 @@ export function appendConvo(role, text) {
 }
 
 export function clearConvo() { state.conversation = []; emit(); }
+
+/** 开启一段全新会话：清空轮次对话、会话累积与临时时间线（不碰已保存的时间线与卡片） */
+export function startSession() {
+  setState({ conversation: [], sessionLog: [], draft: null, risk: freshRisk(), timeline: null });
+}
 
 export function patchDraft(patch) {
   if (!state.draft) return;
@@ -140,6 +155,17 @@ export function addCard(card) {
 
 export function getCard(id) { return state.cards.find((c) => c.id === id) || null; }
 
+/** 保存一张情绪时间线卡片到本机（隐私优先，完全本地，不自动分享） */
+export function addTimeline(tl) {
+  const full = {
+    ...tl,
+    id: 'tl_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    saved_at: new Date().toISOString(),
+  };
+  setState({ timelines: [full, ...(state.timelines || [])] });
+  return full;
+}
+
 /* ---------- 隐私 ---------- */
 
 export function deleteAllData() {
@@ -148,6 +174,9 @@ export function deleteAllData() {
   state.draft = null;
   state.risk = freshRisk();
   state.conversation = [];
+  state.sessionLog = [];
+  state.timelines = [];
+  state.timeline = null;
   state.user = freshUser();
   persist();
   emit();
