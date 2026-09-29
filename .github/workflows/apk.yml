@@ -31,7 +31,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'   # Capacitor CLI 8.x requires Node >= 22 (fatal otherwise)
-          cache: 'npm'
+          # 注意：仓库无 package-lock.json，故不启用 setup-node 的 npm 缓存
+          # （否则会报 "Dependencies lock file is not found" 导致构建失败）
 
       # 小听无 package-lock.json，用 npm install（非 npm ci）
       - name: Install deps
