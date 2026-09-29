@@ -17,3 +17,7 @@ _selftest/*.log
 _selftest/*.mp4
 _selftest/*.webm
 data/
+
+keystore/
+*.p12
+keystore/.creds.json
