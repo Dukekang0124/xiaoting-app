@@ -52,8 +52,9 @@ export function normalizeIpState(raw, fallback = 'empathy') {
 const RISK_LEVELS = ['none', 'low', 'medium', 'high', 'critical'];
 const ACTIONS = ['continue', 'gentle_check', 'refer', 'emergency', 'redirect_professional', 'reject_diagnosis', 'dependency_redirect', 'harm_others'];
 const ACTION_BY_LEVEL = { none: 'continue', low: 'continue', medium: 'gentle_check', high: 'refer', critical: 'emergency' };
-/** 触发「立即阻断常规流程 + 切到担忧态 + 弹应急卡片」的动作集合（§3.2 / §4.7） */
-const BLOCKING_ACTIONS = ['refer', 'emergency', 'redirect_professional', 'reject_diagnosis', 'dependency_redirect', 'harm_others'];
+/** 触发「立即阻断常规流程 + 切到担忧态 + 弹应急卡片（强制·我已了解）」的动作集合（§3.2 / §4.7）
+ *  注意：reject_diagnosis / dependency_redirect 按 §4.8 为非强制弹窗、正常走对话流，不阻断。 */
+const BLOCKING_ACTIONS = ['refer', 'emergency', 'redirect_professional', 'harm_others'];
 export const isBlockingAction = (a) => BLOCKING_ACTIONS.includes(a);
 
 /* ==================== 小工具 ==================== */

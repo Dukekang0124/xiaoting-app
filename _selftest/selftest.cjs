@@ -422,34 +422,38 @@ const MOCK_SDK = `(function(){
   await page.waitForSelector('.risk__title', { timeout: 8000 });
   check('温和确认→专业帮助 可进入转介页（轻度风险脚本）', (await page.textContent('.risk__title')) === A.riskMildTitle);
 
-  // 高风险（refer）
+  // 高风险（refer）→ v1.1 强制弹窗（§3.3 / §4.7）：弹窗 + 我已了解必点 + 对话区同步
   await goto('/#/record?mode=text');
   await page.waitForSelector('#recInput');
   await page.fill('#recInput', '我不想活了，感觉撑不下去了');
   await page.click('#recDone');
-  await page.waitForSelector('.risk__title', { timeout: 15000 });
-  check('高风险 → 转介页且停常规分析', (await page.textContent('.risk__title')) === A.riskSuicideTitle);
-  check('转介页 IP=担心 worried', (await page.getAttribute('.mascot', 'data-state')) === 'worried');
-  check('转介页正文∈高危文案库', A.riskSuicideLines.includes((await page.textContent('.risk__lead')).trim()));
-  check('转介页底部含 120/110', (await page.textContent('.risk__footer')).includes('120'));
-  check('转介页非不可跳过（有返回入口）', (await page.locator('#riskBack').count()) > 0);
-  // 量算真实取值（CSSOM 不解析 var()，只能在这里量）
-  const riskBtnBg = await page.evaluate(() => getComputedStyle(document.querySelector('#riskBack')).backgroundImage);
-  check('转介页按钮真实渲染为灰蓝', riskBtnBg.includes('rgb(168, 200, 232)') && !riskBtnBg.includes('158, 140, 216'), riskBtnBg.slice(0, 62));
+  await page.waitForSelector('.risk-modal', { timeout: 15000 });
+  check('高风险 → 强制弹窗（温馨提示卡片，低饱和暗紫）', (await page.textContent('.risk-modal__badge')).trim() === '温馨提示');
+  check('强制弹窗按钮=「我已了解」（必须点击才能继续对话）', (await page.textContent('#riskModalConfirm')).trim() === '我已了解');
+  check('强制弹窗 IP=担心 worried', (await page.getAttribute('.risk-modal__ip .mascot', 'data-state')) === 'worried');
+  const modalBody = (await page.textContent('.risk-modal__body')).trim();
+  check('弹窗正文∈高危文案库（对话区同步输出）', A.riskSuicideLines.includes(modalBody));
+  check('弹窗固定展示热线 400-161-9995', (await page.textContent('.risk-modal')).includes('400-161-9995'));
+  check('弹窗固定展示热线 010-82951332', (await page.textContent('.risk-modal')).includes('010-82951332'));
+  check('对话区同步输出墨小溟安抚文字（§3.3 第3条）', (await page.textContent('.convo')).includes(modalBody));
   await shot(page, '14-risk-refer.png');
+  await page.click('#riskModalConfirm');
+  await page.waitForSelector('.say__greet', { timeout: 5000 });
+  check('点击「我已了解」后弹窗关闭并回到对话', (await page.locator('.risk-modal').count()) === 0);
 
-  // 紧急（emergency）
+  // 紧急（emergency）→ 同 A 版强制弹窗
   await goto('/#/record?mode=text');
   await page.waitForSelector('#recInput');
   await page.fill('#recInput', '我正在割腕，现在就想结束');
   await page.click('#recDone');
-  await page.waitForSelector('.risk__title', { timeout: 15000 });
-  check('critical → 紧急页（risk--emergency）', (await page.locator('.risk--emergency').count()) > 0);
-  check('紧急页按钮=「立即联系专业帮助」', (await page.textContent('#riskBack')) === '立即联系专业帮助');
-  check('紧急页含热线与 120/110', (await page.textContent('.risk')).includes('12356') && (await page.textContent('.risk')).includes('110'));
+  await page.waitForSelector('.risk-modal', { timeout: 15000 });
+  check('critical → 强制弹窗（risk-modal）', (await page.locator('.risk-modal').count()) > 0);
+  check('紧急弹窗按钮=「我已了解」', (await page.textContent('#riskModalConfirm')).trim() === '我已了解');
+  check('紧急弹窗 IP=担心 worried', (await page.getAttribute('.risk-modal__ip .mascot', 'data-state')) === 'worried');
+  check('紧急弹窗含热线 400-161-9995 与 010-82951332', (await page.textContent('.risk-modal')).includes('400-161-9995') && (await page.textContent('.risk-modal')).includes('010-82951332'));
   await shot(page, '15-risk-emergency.png');
-  await page.click('#riskBack');
-  await page.waitForSelector('.say__greet');
+  await page.click('#riskModalConfirm');
+  await page.waitForSelector('.say__greet', { timeout: 5000 });
 
   /* ================= E. v1.1 视觉精装修 ================= */
   sec('E. 视觉精装修（v1.1 + v1.2 §1）');

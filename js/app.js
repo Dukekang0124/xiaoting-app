@@ -3,13 +3,14 @@
 // 安全分支：continue / gentle_check(温和确认) / refer(转介) / emergency(紧急)
 
 import * as store from './store.js';
+import { appendConvo } from './store.js';
 import { mascot, miniFace, avatar } from './ip.js';
 import { api, isBlockingAction } from './api.js';
 import * as asr from './asr.js';
 import * as voice from './voice.js';
 import * as update from './update.js';
 import { parseHash, go, onChange } from './router.js';
-import { COPY, greetByHour, findForbidden, pickRiskScript, pickEmotionResponse, pickSilence } from './prompts.js';
+import { COPY, greetByHour, findForbidden, pickRiskScript, pickEmotionResponse, pickSilence, pickBy } from './prompts.js';
 import { AI, ASR } from './config.js';
 
 const $view = () => document.getElementById('view');
@@ -343,6 +344,7 @@ function pageSay() {
       <a class="say__type" href="#/record?mode=text">不方便说？打字也行</a>
     </div>
     <div class="say__live" id="liveWrap" hidden><div class="live-label">正在听</div><div class="live-text" id="liveText">……</div></div>
+    ${renderConvo(s.conversation)}
     ${last ? `
     <a class="recent" href="#/card/${esc(last.id)}">
       <div class="recent__label">最近一张卡片</div>
@@ -355,6 +357,17 @@ function pageSay() {
       </div>
     </a>` : `<div class="empty-hint">还没有卡片。说一次，就会有一张。</div>`}
   </section>`;
+}
+
+/** 渲染对话区（§3.3）：用户原话 + 墨小溟回应 / 安全同步文字 */
+function renderConvo(convo) {
+  if (!convo || !convo.length) return '';
+  const rows = convo.map((m) => {
+    const role = m.role === 'user' ? 'convo__user' : 'convo__ai';
+    const who = m.role === 'user' ? '我' : '墨小溟';
+    return `<div class="convo__row ${role}"><div class="convo__who">${esc(who)}</div><div class="convo__bubble">${esc(m.text)}</div></div>`;
+  }).join('');
+  return `<div class="convo" id="convo">${rows}</div>`;
 }
 
 function bindSay() {
@@ -535,7 +548,14 @@ function mountAnalyzing() {
     if (rest > 0) await wait(rest);
     if (token !== analyzingToken) return;
 
-    if (isBlockingAction(safety.action)) { go('risk?action=' + encodeURIComponent(safety.action)); return; }
+    // §4.7 / §3.3：高危阻断 → 强制弹窗（我已了解 必点关闭）+ 对话区同步输出
+    if (isBlockingAction(safety.action)) { handleBlocking(safety); return; }
+    // §4.8：索要诊断/开药、过度依赖 → 非强制弹窗，正常走对话流（墨小溟输出边界话术后继续）
+    if (safety.action === 'reject_diagnosis' || safety.action === 'dependency_redirect') {
+      const script = pickRiskScript(safety.action);
+      appendConvo('ai', (script.title ? script.title + ' ' : '') + script.line);
+      // 继续主分析流程，正常产出卡片
+    }
     if (safety.action === 'gentle_check') { go('gentle'); return; }
 
     await runAnalysisAndContinue();
@@ -594,6 +614,9 @@ async function toConfirm() {
     return;
   }
   store.patchDraft({ card });
+  // 对话区同步：墨小溟的情绪回应 + 收尾短句（§4.4 / §4.5），用户原话已在 startDraft 写入
+  appendConvo('ai', pickEmotionResponse(card.emotion_primary));
+  appendConvo('ai', pickBy(COPY.closing));
   go('confirm');
 }
 
@@ -1060,6 +1083,68 @@ function bindRisk() {
   if (b) b.addEventListener('click', () => {
     store.setState({ risk: { level: 'none', action: 'continue', hit: false, evidence: '' }, draft: null });
     go('say');
+  });
+}
+
+/* ---------------- 高危阻断 · 强制弹窗（v1.1 §3.3 / §4.7） ---------------- */
+
+/**
+ * 触发高危阻断：立刻阻断常规流程（不调用主分析、不生成卡片），对话区同步输出安抚文字，
+ * 并居中弹出强制「温馨提示」卡片（低饱和暗紫底色），用户必须点击【我已了解】才能关闭并继续对话。
+ * IP 切换为「担心」状态（弹窗内墨小溟为担忧态）。
+ * 版本映射：A=自伤/轻生(emergency/refer)，B=伤害他人(harm_others)，C=长期重度痛苦无轻生(redirect_professional)。
+ */
+function handleBlocking(safety) {
+  const action = safety.action || 'emergency';
+  const version = action === 'harm_others' ? 'B' : (action === 'redirect_professional' ? 'C' : 'A');
+  const script = pickRiskScript(action);
+  const evidence = (store.getState().draft && store.getState().draft.transcript) || '';
+  // 对话区同步输出对应版本安抚与引导文字（§3.3 第 3 条）
+  appendConvo('ai', script.line);
+  // 记录风险态（供兜底 / 埋点）
+  store.setRisk({
+    level: action === 'harm_others' ? 'high' : (action === 'redirect_professional' ? 'medium' : 'critical'),
+    action,
+    evidence: evidence.slice(0, 60),
+  });
+  // 回到对话页（对话区已含同步文字），再弹强制卡片
+  go('say');
+  setTimeout(() => showRiskModal(version, script, evidence), 60);
+}
+
+/**
+ * 强制「温馨提示」弹窗（低饱和暗紫底色，绝不使用红色/爆炸/警报）。
+ * 仅能通过点击【我已了解】关闭（不响应背景点击），关闭后用户回到对话继续。
+ */
+function showRiskModal(version, script, evidence) {
+  // 若已存在则先移除，避免重复
+  const old = document.getElementById('riskModal');
+  if (old && old.parentNode) old.parentNode.removeChild(old);
+
+  const overlay = document.createElement('div');
+  overlay.className = 'risk-modal';
+  overlay.id = 'riskModal';
+  overlay.setAttribute('role', 'alertdialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.innerHTML = `
+    <div class="risk-modal__card">
+      <div class="risk-modal__ip">${mascot('worried', 150)}</div>
+      <div class="risk-modal__badge">温馨提示</div>
+      <div class="risk-modal__title">${esc(script.title)}</div>
+      ${evidence ? `<div class="risk-modal__ev">你刚才提到：「${esc(evidence.slice(0, 40))}……」</div>` : ''}
+      <div class="risk-modal__body">${esc(script.line)}</div>
+      <div class="risk-modal__hotlines">
+        <a class="risk-modal__item" href="tel:400-161-9995"><span>全国24小时心理危机咨询热线</span><b>400-161-9995</b></a>
+        <a class="risk-modal__item" href="tel:010-82951332"><span>北京心理危机研究与干预中心</span><b>010-82951332</b></a>
+      </div>
+      <button class="risk-modal__confirm" id="riskModalConfirm" type="button">我已了解</button>
+      <div class="risk-modal__foot">你的痛苦是真实的，请一定好好保护自己。</div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const btn = document.getElementById('riskModalConfirm');
+  if (btn) btn.addEventListener('click', () => {
+    if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    // 关闭后保持对话页；风险态保留供后续路由派生（不自动清零，避免重复弹窗）
   });
 }
 

@@ -547,7 +547,7 @@ export function pickRiskScript(action) {
   const map = {
     emergency: 'suicide', refer: 'suicide',
     harm_others: 'harmOthers',
-    redirect_professional: 'diagnosis', reject_diagnosis: 'diagnosis',
+    redirect_professional: 'mild', reject_diagnosis: 'diagnosis',
     dependency_redirect: 'dependency',
   };
   const key = map[action] || 'mild';

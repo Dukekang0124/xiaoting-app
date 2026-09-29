@@ -14,6 +14,8 @@ let state = {
   },
   // draft: { recordId, transcript, safety, analysis, asked[], currentQuestion, empathy, card, round, createdAt }
   draft: null,
+  // conversation: 当前这次倾诉的对话流（用户原话 + 墨小溟回应 / 安全同步），用于 v1.1 §3.3 对话区同步输出
+  conversation: [],
   cards: [],
   // risk: { level:none|low|medium|high|critical, action:continue|gentle_check|refer|emergency, hit, evidence }
   risk: { level: 'none', action: 'continue', hit: false, evidence: '' },
@@ -93,8 +95,19 @@ export function startDraft(transcript, recordId) {
       createdAt: Date.now(),
     },
     risk: freshRisk(),
+    // 一次新的倾诉：清空旧对话，记录用户原话作为对话区首条（§3.3 对话区同步输出）
+    conversation: [{ role: 'user', text: transcript, at: Date.now() }],
   });
 }
+
+/** 向对话区追加一条消息（role: 'user' | 'ai'），§3.3 强制弹窗时同步输出安抚文字用 */
+export function appendConvo(role, text) {
+  if (!text) return;
+  state.conversation = [...(state.conversation || []), { role, text, at: Date.now() }];
+  emit();
+}
+
+export function clearConvo() { state.conversation = []; emit(); }
 
 export function patchDraft(patch) {
   if (!state.draft) return;
@@ -134,6 +147,7 @@ export function deleteAllData() {
   state.cards = [];
   state.draft = null;
   state.risk = freshRisk();
+  state.conversation = [];
   state.user = freshUser();
   persist();
   emit();
