@@ -1,0 +1,224 @@
+name: Build 小听 APK
+
+# 触发方式（与 Sinoky 同思路：APK 不在本地造，交给 CI 用 Android SDK 构建）：
+# 1. push tag v*（发版：bump 版本 -> git tag v0.8.0 -> git push --tags -> 出 release APK：
+#     挂 GitHub Release + 推 Cloudflare Pages /apk/ 供应用内更新）
+# 2. workflow_dispatch 手动（默认 release；debug 仅调试用——debug 签名随机，不可覆盖安装）
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      buildType:
+        description: 'release (fixed keystore, in-app update compatible) or debug (random signature)'
+        required: true
+        default: 'release'
+        type: choice
+        options: [release, debug]
+
+permissions:
+  contents: write   # 创建 Release 并上传 APK
+
+env:
+  BUILD_TYPE: ${{ github.event.inputs.buildType || 'release' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'   # Capacitor CLI 8.x requires Node >= 22 (fatal otherwise)
+          cache: 'npm'
+
+      # 小听无 package-lock.json，用 npm install（非 npm ci）
+      - name: Install deps
+        run: npm install
+
+      - name: Build web assets into www/
+        run: npm run build:web
+
+      - name: Create android project (not committed — generated each run)
+        run: |
+          rm -rf android
+          node ./node_modules/@capacitor/cli/bin/capacitor add android > cap_add.log 2>&1 || echo "CAP_FAILED=1" >> "$GITHUB_ENV"
+          # cap add 自带 sync（copy web assets + update plugins），此处只验证产物
+          test -f android/app/build.gradle || {
+            echo "::error::log-size:$(wc -c < cap_add.log 2>/dev/null || echo NOFILE)"
+            echo "::error::log-tail:$(tail -c 350 cap_add.log 2>/dev/null | tr '\n' '~')"
+            exit 1
+          }
+          echo "android project OK: $(ls android | tr '\n' ' ')"
+
+      - name: Inject RECORD_AUDIO + MODIFY_AUDIO_SETTINGS (getUserMedia 录音做 ASR 必需)
+        run: |
+          M=android/app/src/main/AndroidManifest.xml
+          grep -q "RECORD_AUDIO" $M || sed -i 's#<uses-permission android:name="android.permission.INTERNET"#<uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>\n    <uses-permission android:name="android.permission.INTERNET"#' $M
+          grep -o 'android.permission.[A-Z_]*' $M | sort -u
+
+      - name: Resolve version from index.html (single source of truth)
+        id: ver
+        run: |
+          # 小听用 window.APP_VERSION = 'x.y.z' 或 'x.y.z-RC'（不是 var APP_VERSION），正则须兼容 -RC 后缀
+          V=$(node -e "const h=require('fs').readFileSync('index.html','utf8');const m=h.match(/APP_VERSION\s*=\s*'([\d.]+(-RC)?)'/);process.stdout.write(m[1])")
+          # versionCode 只能取整，去掉 -RC 后缀再算（1.0.0-RC → 10000）
+          VB=${V%-RC}
+          IFS='.' read -r MA MI PA <<< "$VB"
+          CODE=$((MA*10000 + MI*100 + PA))
+          echo "version=$V" >> $GITHUB_OUTPUT
+          echo "code=$CODE" >> $GITHUB_OUTPUT
+          echo "versionName/versionCode = $V / $CODE"
+
+      - name: Stamp versionName & versionCode
+        run: |
+          sed -i "s/versionCode 1/versionCode ${{ steps.ver.outputs.code }}/" android/app/build.gradle
+          sed -i "s/versionName \"1.0\"/versionName \"${{ steps.ver.outputs.version }}\"/" android/app/build.gradle
+          grep -E "versionCode|versionName" android/app/build.gradle
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Grant gradlew
+        run: chmod +x android/gradlew
+
+      - name: Build APK
+        run: |
+          cd android
+          set +e
+          ./gradlew assemble${{ env.BUILD_TYPE == 'debug' && 'Debug' || 'Release' }} --no-daemon 2>&1 | tee /tmp/gradle.log
+          RC=${PIPESTATUS[0]}
+          if [ "$RC" -ne 0 ]; then
+            ERR=$(grep -nE "error:|错误:|cannot find symbol|Execution failed|What went wrong|> Task .*FAILED|Unresolved reference|lint found|NewApi|requires API level|is not abstract|incompatible" /tmp/gradle.log | head -25 | tr '\n' '~')
+            echo "::error title=gradle-build-failed::${ERR}"
+            TAIL=$(tail -45 /tmp/gradle.log | tr '\n' '~')
+            echo "::error title=gradle-tail::${TAIL}"
+          fi
+          exit "$RC"
+
+      - name: Sign release with fixed keystore (in-app update requires same signature forever)
+        if: env.BUILD_TYPE == 'release'
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          test -n "$KEYSTORE_B64" || { echo "::error::KEYSTORE_BASE64 secret 未配置"; exit 1; }
+          echo "$KEYSTORE_B64" | base64 -d > keystore.jks
+          BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          echo "build-tools: $BT"
+          SRC=android/app/build/outputs/apk/release/app-release-unsigned.apk
+          test -f "$SRC"
+          "$BT/zipalign" -p -f 4 "$SRC" android/app/build/outputs/apk/release/app-release-aligned.apk
+          "$BT/apksigner" sign --ks keystore.jks --ks-key-alias "$KEY_ALIAS" --ks-pass pass:"$KS_PASS" --key-pass pass:"$KEY_PASS" --out android/app/build/outputs/apk/release/app-release.apk android/app/build/outputs/apk/release/app-release-aligned.apk
+          "$BT/apksigner" verify android/app/build/outputs/apk/release/app-release.apk
+          rm -f keystore.jks
+          echo "signed + verified OK"
+
+      - name: Rename & expose artifact
+        run: |
+          T=${BUILD_TYPE}
+          if [ "$T" = "debug" ]; then SRC=android/app/build/outputs/apk/debug/app-debug.apk; else SRC=android/app/build/outputs/apk/release/app-release.apk; fi
+          mkdir -p dist
+          cp "$SRC" "dist/Xiaoting-v${{ steps.ver.outputs.version }}-$T.apk"
+          ls -lh dist
+
+      - name: Verify APK contents (in-package web version must match release version)
+        run: |
+          V=${{ steps.ver.outputs.version }}
+          unzip -p dist/*.apk assets/public/index.html | grep -o "APP_VERSION = '$V'" || { echo "::error::APK 内网页 APP_VERSION != $V"; exit 1; }
+          echo "APK 内资产版本 = $V ✓"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Xiaoting-v${{ steps.ver.outputs.version }}-${{ env.BUILD_TYPE }}
+          path: dist/*.apk
+          if-no-files-found: error
+
+      # ── 发布到 Cloudflare Pages /apk/ + 把 md5/size 回写 server/version.json ──
+      # ⚠️ 硬前置：小听后端（server.cjs 的 /api/*）必须先部署到可达地址
+      #    （CF Pages Functions 端口 或 Node 主机 + CORS）。本步只部署前端 www/ 到 Pages；
+      #    若后端尚未同在 Pages，APK 内 /api/asr、/api/version/* 会失败。
+      #    首次发版前务必确认后端已上线（详见《APK 发布 SOP（参考 Sinoky）》）。
+      - name: Publish APK to Cloudflare Pages /apk/ + inject apk metadata into server/version.json
+        if: env.BUILD_TYPE == 'release'
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          V=${{ steps.ver.outputs.version }}
+          CODE=${{ steps.ver.outputs.code }}
+          mkdir -p www/apk
+          cp dist/Xiaoting-v${V}-release.apk www/apk/Xiaoting-v${V}-release.apk
+          MD5=$(md5sum "www/apk/Xiaoting-v${V}-release.apk" | cut -d' ' -f1)
+          SIZE=$(stat -c%s "www/apk/Xiaoting-v${V}-release.apk")
+          APK_URL="https://xiaoting.app.workbuddy.host/apk/Xiaoting-v${V}-release.apk"
+          node -e "const fs=require('fs');const p='server/version.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.apk={versionCode:Number(process.argv[1]),version:process.argv[2],url:process.argv[3],md5:process.argv[4],size:Number(process.argv[5]),force:false};j.download_url=process.argv[3];fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n');console.log('injected apk into',p,JSON.stringify(j.apk))" "$CODE" "$V" "$APK_URL" "$MD5" "$SIZE"
+          npx --yes wrangler@4 pages deploy www --project-name=xiaoting --branch=main
+          echo "published $APK_URL (md5=${MD5:0:8}... size=$SIZE)"
+
+      - name: Sync apk metadata to main (server/version.json)
+        if: env.BUILD_TYPE == 'release'
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add server/version.json
+          if git diff --cached --quiet; then
+            echo "server/version.json already in sync"
+          else
+            git commit -q -m "[skip ci] sync apk metadata v${{ steps.ver.outputs.version }} (md5+size)"
+            REMOTE="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+            if [ -n "$GH_PAT" ]; then REMOTE="https://x-access-token:${GH_PAT}@github.com/${{ github.repository }}.git"; fi
+            PUSHED=0
+            for i in 1 2 3; do
+              if git push -q "$REMOTE" HEAD:main; then PUSHED=1; break; fi
+              sleep $(( i == 1 ? 5 : 15 ))
+            done
+            if [ "$PUSHED" = "1" ]; then echo "pushed apk metadata sync to main"; else echo "::error::CI could not push server/version.json sync to main"; fi
+          fi
+
+      - name: Push APK to dist branch (git-protocol reachable copy)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p pub
+          cp dist/*.apk pub/
+          cd pub
+          git init -q -b dist
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "apk v${{ steps.ver.outputs.version }} (${BUILD_TYPE})"
+          git push -q --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" dist:dist
+          echo "pushed to dist branch"
+
+      - name: Attach APK to GitHub Release (tag builds only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.apk
+          generate_release_notes: true
+
+      - name: Assert apk metadata landed on main (release only)
+        if: startsWith(github.ref, 'refs/tags/v') && env.BUILD_TYPE == 'release'
+        run: |
+          V=${{ steps.ver.outputs.version }}
+          git fetch -q --depth=1 origin main
+          MAIN_RAW=$(git show origin/main:server/version.json)
+          MAIN_MD5=$(printf '%s' "$MAIN_RAW" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{console.log((JSON.parse(d).apk||{}).md5||'')}catch(e){console.log('')}})")
+          LOCAL_MD5=$(node -e "console.log((require('./server/version.json').apk||{}).md5||'')")
+          echo "main : md5=$MAIN_MD5"
+          echo "local: md5=$LOCAL_MD5"
+          if [ -z "$MAIN_MD5" ] || [ "$MAIN_MD5" != "$LOCAL_MD5" ]; then
+            echo "::error::INVARIANT BROKEN — v${V} apk metadata did NOT land on main. Web/APK are already live and correct, but origin/main still holds stale metadata; the next 'push main' deploy would overwrite the live version.json with it. Fix: set server/version.json apk segment to md5=$LOCAL_MD5 size=$LOCAL_SIZE and push main manually (GH_PAT likely expired/revoked)."
+            exit 1
+          fi
+          echo "✅ invariant OK — origin/main apk metadata == deployed v${V}"

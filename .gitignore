@@ -1,0 +1,19 @@
+node_modules/
+android/
+www/
+dist/
+cap_add.log
+keystore.jks
+*.jks
+server/asr.keys.json
+*.keystore
+.wrangler/
+.DS_Store
+# 工具/内部与产物（不进源码仓库）
+.workbuddy/
+.wbapp_*.genie
+_selftest/shots/
+_selftest/*.log
+_selftest/*.mp4
+_selftest/*.webm
+data/

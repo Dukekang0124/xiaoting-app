@@ -1,0 +1,7 @@
+{
+  "_说明": "把下面两个值换成百度智能云语音识别应用的 API Key / Secret Key，然后把这个文件另存为 asr.keys.json（同目录）。asr.keys.json 不在静态白名单内，永远不会被浏览器取到。",
+  "baidu": {
+    "apiKey": "在这里填 API Key",
+    "secretKey": "在这里填 Secret Key"
+  }
+}

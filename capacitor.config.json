@@ -1,0 +1,21 @@
+{
+  "appId": "app.xiaoting.pwa",
+  "appName": "墨小溟",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "loggingBehavior": "none",
+  "android": {
+    "allowMixedContent": true,
+    "webContentsDebuggingEnabled": false
+  },
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchAutoHide": true,
+      "backgroundColor": "#FFF8F0",
+      "showSpinner": false
+    }
+  }
+}

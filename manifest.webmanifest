@@ -1,0 +1,21 @@
+{
+  "name": "墨小溟 · 情绪倾诉陪伴",
+  "short_name": "墨小溟",
+  "description": "一个会追问、会记住、不评判的情绪倾诉陪伴。说出来，就轻一点。",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FFF8F0",
+  "theme_color": "#FFF8F0",
+  "lang": "zh-CN",
+  "version": "1.0.0-RC",
+  "icons": [
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

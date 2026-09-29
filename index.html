@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<title>墨小溟 · 说出来，就轻一点</title>
+<meta name="description" content="墨小溟 —— 一个会追问、会记住、不评判的语音情绪复盘教练。"/>
+<link rel="manifest" href="./manifest.webmanifest"/>
+<meta name="theme-color" content="#FFF8F0"/>
+<link rel="icon" href="./icons/icon.svg" type="image/svg+xml"/>
+<link rel="apple-touch-icon" href="./icons/icon.svg"/>
+<link rel="stylesheet" href="./styles.css"/>
+<script>window.APP_VERSION = '1.0.0-RC';</script>
+</head>
+<body>
+  <div class="app">
+    <main id="view" class="view" role="main"></main>
+    <nav id="tabbar" class="tabbar" aria-label="主导航"></nav>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </div>
+  <script type="module">
+    import { boot } from './js/app.js';
+    boot();
+  </script>
+</body>
+</html>
