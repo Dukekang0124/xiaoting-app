@@ -21,7 +21,6 @@ import * as diag from './diag.js';
 /* ---------------- 常量 ---------------- */
 
 const SNOOZE_KEY = 'xiaoting:update_snooze_day'; // 当天"稍后再说"过的日期
-const SNOOZE_DAY_KEY = 'xiaoting:update_snooze_day';
 
 /**
  * 版本清单的两个候选路径，按顺序试（v1.1.4 修）。
@@ -162,7 +161,7 @@ function closeModal() {
 
 function subCopy(p, data) {
   if (p.isWeChat) return '微信里没法直接更新，点右上角「···」在浏览器中打开，就能装最新版啦。';
-  if (p.isApk) return '点击立即更新，墨小溟会下载并安装最新安装包。';
+  if (p.isApk) return '点「立即更新」会跳到浏览器下载并安装最新安装包，装完回到这里就是新版。';
   return '点击立即更新，墨小溟会自动刷新到最新版。';
 }
 

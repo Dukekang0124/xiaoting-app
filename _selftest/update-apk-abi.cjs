@@ -14,8 +14,8 @@
  *   ③ 真浏览器（本机 Chrome）加载真实页面，跑真实 boot → initUpdate → checkUpdate。
  *
  * 两臂：
- *   A 控制臂：清单版本 == 当前版本（1.1.4）→ **不该**弹
- *   B 处理臂：清单版本 >  当前版本（1.1.5）→ **必须**弹
+ *   A 控制臂：清单版本 == 当前版本（从 index.html 读）→ **不该**弹
+ *   B 处理臂：清单版本 >  当前版本（补丁位 +1）→ **必须**弹
  *   A/B 同时成立才说明「弹窗是按版本号比较出来的」，而不是"永远弹"或"永远不弹"。
  *
  * A/B 鉴别力校验（variant=old）：
@@ -34,7 +34,24 @@ const ROOT = path.join(__dirname, '..');
 const PORT = Number(process.env.PORT || 4210); // 安全端口（避开 WHATWG 不良端口黑名单，4190 在内）
 const BASE = `http://127.0.0.1:${PORT}`;
 const HOSTED = 'https://xiaoting.app.workbuddy.host';
-const CURRENT = '1.1.4';
+
+/* 🔴 版本号必须从真相源读，绝不写死。
+ * 踩过的坑（v1.1.5 升版时实测）：这里原本写死 `CURRENT = '1.1.4'`，升到 1.1.5 后就漂了 ——
+ * 页面真实版本变成 1.1.5，而 B 臂还拿 1.1.5 当"更高的版本"，等于"清单==当前"，
+ * 弹窗按定义就不该弹，于是 5 条断言集体变红，看着像功能坏了，其实只是测试常量过期。
+ * 写死的版本常量一定会漂；真相源只有一个：index.html 的 APP_VERSION。 */
+const CURRENT = (fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')
+  .match(/APP_VERSION\s*=\s*'([\d.]+)/) || [])[1];
+if (!CURRENT) {
+  console.error('✗ 无法从 index.html 读到 APP_VERSION —— 版本真相源缺失，测试无法进行');
+  process.exit(1);
+}
+/** B 臂用的"更高版本"：补丁位 +1，必然 > CURRENT */
+const BUMPED = (() => {
+  const p = CURRENT.split('.').map((n) => Number(n) || 0);
+  p[2] = (p[2] || 0) + 1;
+  return p.join('.');
+})();
 
 const out = [];
 const log = (...a) => { const s = a.join(' '); out.push(s); console.log(s); };
@@ -143,7 +160,7 @@ async function runSwCacheArm(browser) {
   });
   const page = await context.newPage();
 
-  let manifestVersion = '1.1.4';
+  let manifestVersion = CURRENT;
   const jsonHeaders = { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' };
   await page.route('**/version.json', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', headers: jsonHeaders, body: JSON.stringify({ latest_version: manifestVersion }) }));
@@ -168,7 +185,7 @@ async function runSwCacheArm(browser) {
     const r = await fetch('/version.json', { cache: 'no-store' });
     return (await r.json()).latest_version;
   });
-  manifestVersion = '1.1.5';                       // 服务端"发了新版"
+  manifestVersion = BUMPED;                          // 服务端"发了新版"
   const second = await page.evaluate(async () => {
     const r = await fetch('/version.json', { cache: 'no-store' });
     return (await r.json()).latest_version;
@@ -216,7 +233,7 @@ async function runSwCacheArm(browser) {
 
       log(`──────── variant = ${variant} ${variant === 'old' ? '（修复前，期望红）' : '（当前，期望全绿）'} ────────`);
       const a = await runArm(browser, variant, CURRENT, 'A 控制臂（清单==当前）');
-      const b = await runArm(browser, variant, '1.1.5', 'B 处理臂（清单>当前）');
+      const b = await runArm(browser, variant, BUMPED, 'B 处理臂（清单>当前）');
       results[variant] = { a, b };
 
       log(`  [A] 清单=${a.manifestVersion} → shown=${a.shown}  title="${a.title}"`);
@@ -236,11 +253,11 @@ async function runSwCacheArm(browser) {
   log('');
   log('=== Service Worker 不缓存版本清单（行为验证）===');
   const sw = await runSwCacheArm(browser);
-  log(`  SW 是否接管页面：${sw.controlled}   第一次读到：${sw.first}   服务端改成 ${'1.1.5'} 后再读：${sw.second}`);
+  log(`  SW 是否接管页面：${sw.controlled}   第一次读到：${sw.first}   服务端改成 ${BUMPED} 后再读：${sw.second}`);
   ok(sw.controlled === true, 'SW 已注册并接管页面（否则这条验证不成立，不能算通过）', String(sw.controlled));
   if (sw.controlled) {
-    ok(sw.first === '1.1.4', '第一次读到的就是服务端清单', sw.first);
-    ok(sw.second === '1.1.5', '★ 服务端发新版后能立刻读到新值（清单没被 SW 缓存住）', sw.second);
+    ok(sw.first === CURRENT, '第一次读到的就是服务端清单', sw.first);
+    ok(sw.second === BUMPED, '★ 服务端发新版后能立刻读到新值（清单没被 SW 缓存住）', sw.second);
   }
 
   // ───────────────── 断言 ─────────────────
@@ -249,7 +266,7 @@ async function runSwCacheArm(browser) {
     log('=== 新版（当前代码）断言 ===');
     ok(N.a.shown === false, 'A 控制臂：清单版本 == 当前版本 → 不弹（不是"永远弹"）');
     ok(N.b.shown === true, 'B 处理臂：清单版本 > 当前版本 → **启动即自动弹出**');
-    ok(/1\.1\.5/.test(N.b.title), 'B 弹窗标题带上了新版本号（用户看得到"更新到什么"）', N.b.title);
+    ok(new RegExp(BUMPED.replace(/\./g, '\\.')).test(N.b.title), 'B 弹窗标题带上了新版本号（用户看得到"更新到什么"）', N.b.title);
     ok(N.b.hasNowBtn === true, 'B 弹窗有「立即更新」按钮');
     ok(N.b.hasLaterBtn === true, 'B 弹窗有「稍后再说」（非强制，不强推）');
     ok(N.b.force === false, 'B 弹窗是非强制模式（清单 force_update=false）');

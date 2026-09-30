@@ -33,7 +33,7 @@ const path = require('node:path');
 const ROOT = __dirname;
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
-const VERSION = '1.1.4';
+const VERSION = '1.1.5';
 
 /* ==================== 静态资源白名单 ==================== */
 
@@ -47,7 +47,7 @@ const PUBLIC_FILES = new Set([
 // '/vendor/'（v1.1.3）：云服务 SDK 的随包副本。之前只有 /js/ /icons/ /assets/，
 // 加了 vendor/ 却忘了开白名单 ⇒ 本地副本 404 ⇒ SDK 静默回退 CDN ⇒ 一旦外网不可达整条 AI 链路降级。
 // 这类"加了新目录没同步白名单"的失败不会报错，只会让功能悄悄变差。
-const PUBLIC_PREFIXES = ['/js/', '/icons/', '/assets/', '/vendor/'];
+const PUBLIC_PREFIXES = ['/js/', '/icons/', '/assets/', '/vendor/', '/apk/'];
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -64,6 +64,7 @@ const MIME = {
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
   '.txt': 'text/plain; charset=utf-8',
+  '.apk': 'application/vnd.android.package-archive',
 };
 
 /** 把 URL pathname 解析成磁盘绝对路径；不在白名单内一律返回 null（404）。 */
@@ -77,6 +78,18 @@ function resolvePublic(pathname) {
   // 这里直接映到单一真相源 server/version.json —— 不复制副本，本地与线上行为因此完全一致，
   // 「走静态清单」这条分支才可能在自测里被真跑（否则本地 404、线上 200，等于没测）。
   if (p === '/version.json') return path.join(ROOT, 'server', 'version.json');
+  // '/apk/'（v1.1.5）：安装包。线上是构建产物 www/apk/，这里直接映射过去，
+  // 让「点立即更新能不能真下到包」在本地自测里可被真跑。
+  // 🔴 之前漏了这条：线上清单里 download_url 指向 /apk/xxx.apk，而本地一律 404 ——
+  //    「本地 404、线上 200」等于这条分支压根没被验证过，正是更新按钮曾经点了没反应的原因。
+  if (p.startsWith('/apk/')) {
+    const rel = p.slice('/apk/'.length);
+    if (!rel || rel.includes('..') || rel.includes('\0')) return null;
+    const absApk = path.join(ROOT, 'www', 'apk', rel);
+    const dist = path.join(ROOT, 'www', 'apk');
+    if (!absApk.startsWith(dist + path.sep)) return null;
+    return absApk;
+  }
   const abs = path.join(ROOT, p);
   // 双保险：解析后仍必须在项目目录内（防符号链接/拼接绕过）
   if (abs !== ROOT && !abs.startsWith(ROOT + path.sep)) return null;

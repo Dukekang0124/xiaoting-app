@@ -1,7 +1,7 @@
 // 把"真正属于 App 的前端静态资产"拷贝到 www/，供 Capacitor 打包。
 // 目的：webDir 不能指向仓库根（会把 node_modules / server / _selftest 一起塞进 APK）。
 // 注：墨小溟后端（server.cjs 的 /api/*）不在包内 —— APK 走网络调用已部署的后端（见 APK 发布 SOP）。
-import { cp, mkdir, rm, readdir, readFile, writeFile } from 'node:fs/promises';
+import { cp, mkdir, rm, readdir, readFile, writeFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -19,7 +19,7 @@ const EXCLUDE = new Set([
   'node_modules', 'android', 'www', 'scripts', '_selftest', 'data', '.workbuddy',
   'server', 'server.cjs', 'package.json', 'package-lock.json',
   'capacitor.config.json', 'README.md', '.assetsignore', 'apk-icons',
-  'android-assets', 'assets', 'keystore',
+  'android-assets', 'assets', 'keystore', 'apk-dist',
 ]);
 
 /* 归类断言：仓库根新加一个条目后若忘了归类，构建直接失败
@@ -62,6 +62,42 @@ try {
   console.error('[build:web] ✗ 无法生成 www/version.json：' + (e && e.message));
   console.error('   → 更新检测会静默失效（用户永远看不到「有新版本」）。先修 server/version.json。');
   throw e;
+}
+
+/* 安装包暂存：apk-dist/*.apk → www/apk/
+ *
+ * 🔴 为什么必须做这一步：应用内更新的「立即更新」按钮，最终加载的是
+ *     https://xiaoting.app.workbuddy.host/apk/Xiaoting-vX.Y.Z-release.apk
+ *   这个地址必须真实存在。v1.1.4 之前它是 404 —— 弹窗弹得出来、按钮点下去却什么都没有，
+ *   属于「看起来闭环、实际断在最后一步」的静默失效（同一类问题这个项目已经踩过三次：
+ *   更新取数、ASR 取数、SDK 加载）。
+ *
+ * 为什么放在 apk-dist/ 而不是直接放 www/：www/ 每次构建都被整目录重建，
+ *   而且它整个会被 Capacitor 打进 APK —— 安装包套安装包，白白多 3MB+。
+ *
+ * 🔴 为什么 CI 里要跳过：CI 也跑 build:web（那台机器上的仓库是干净检出，本来就没有
+ *   apk-dist；这里显式短路是为了防止将来有人把 apk-dist 提交进仓库后，出包凭空变胖）。
+ *   GitHub Actions 自带 CI=true，用它自动区分，不需要额外开关。 */
+if (process.env.CI === 'true') {
+  console.log('[build:web] · CI 环境：跳过安装包暂存（避免安装包被套进安装包）');
+} else {
+  const apkSrc = path.join(src, 'apk-dist');
+  let apkFiles = [];
+  try {
+    apkFiles = (await readdir(apkSrc)).filter((n) => n.toLowerCase().endsWith('.apk'));
+  } catch (e) {
+    console.warn('[build:web] ⚠ 没有 apk-dist/ 目录 ⇒ www/apk/ 为空');
+    console.warn('   → 线上 /apk/*.apk 会 404，用户点「立即更新」下不到包。');
+    console.warn('   → 发布前请先执行：node scripts/fetch-dist-apk.mjs');
+  }
+  if (apkFiles.length) {
+    await mkdir(path.join(out, 'apk'), { recursive: true });
+    for (const f of apkFiles) {
+      await cp(path.join(apkSrc, f), path.join(out, 'apk', f));
+      const { size } = await stat(path.join(apkSrc, f));
+      console.log(`[build:web] ✓ www/apk/${f}（${(size / 1048576).toFixed(2)} MB）`);
+    }
+  }
 }
 
 console.log('[build:web] ✓ www/ 已生成（前端静态资产，不含后端 /api/*）');

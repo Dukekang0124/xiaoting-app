@@ -1,24 +1,35 @@
 {
-  "latest_version": "1.1.4",
+  "latest_version": "1.1.5",
   "force_update": false,
-  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.4-release.apk",
+  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.5-release.apk",
   "web_url": "https://xiaoting.app.workbuddy.host/#/say",
   "apk": {
-    "versionCode": 10104,
-    "version": "1.1.4",
-    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.4-release.apk",
-    "md5": "0cb5671c9ffd4bb22c7a2b5a114499e3",
-    "size": 3367544,
+    "versionCode": 10105,
+    "version": "1.1.5",
+    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.5-release.apk",
+    "md5": "",
+    "size": 0,
     "force": false
   },
   "release_notes": [
-    "修好了「应用内更新」：以前装上 App 之后永远等不到新版提示，现在每次打开都会自动检查",
-    "更新包下载地址改为真实可达，点「立即更新」就能装上新版",
-    "版本信息不再依赖后端接口，静态托管和离线也能读到",
-    "修掉了更新检查被本地缓存挡住的问题（缓存住就永远显示「已是最新」）",
-    "内部模型调度与语音顺句机制随版本一并发布（可在设置页的链路诊断里看到全过程）"
+    "「立即更新」现在真的能下到安装包了：之前那个下载地址是空的，点下去只有 404",
+    "安装包放进了墨小溟自己的站内地址，安卓手机拿到一个链接就能装，不用再绕第三方",
+    "下载后会跳到系统浏览器，装完回来打开就是新版",
+    "顺手清掉一处重复定义的常量（对使用没有任何影响）"
   ],
   "history": [
+    {
+      "version": "1.1.5",
+      "date": "2026-09-30",
+      "title": "安装包真正可下载：更新链路闭环",
+      "notes": [
+        "修复：更新包下载地址此前是空的（点「立即更新」必 404）—— 安装包真正放到墨小溟站内 /apk/ 下，可直接下载",
+        "分发：站内直接提供安卓安装包下载地址（不再依赖第三方网盘或 Release 页），这是「应用内更新」按钮能走完的最后一步",
+        "文案：安卓更新提示改得更准确——点击后会跳到系统浏览器下载安装包，装完返回即可",
+        "清理：去掉 js/update.js 里一处重复定义的常量（无功能影响）",
+        "说明：本版应用主体逻辑与 v1.1.4 一致，主要补齐「下载 → 安装 → 下次打开收到新版提示」这条链路；它同时是「已装 1.1.4 的用户会收到更新提示」的那个更新目标版本"
+      ]
+    },
     {
       "version": "1.1.4",
       "date": "2026-09-30",

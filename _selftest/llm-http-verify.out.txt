@@ -1,7 +1,7 @@
 ==============================================
  内部模型调度 · HTTP 集成验证
  BASE = http://127.0.0.1:4173
- 时间 = 2026-09-30T02:27:23.368Z
+ 时间 = 2026-09-30T02:46:25.458Z
 ==============================================
 
 ① GET /api/llm/config —— 配置快照与脱敏
@@ -44,34 +44,34 @@
   ✅ 响应带 degraded 布尔（降没降档）
   ✅ 响应带 ms（耗时）
   ✅ 响应带 tried[]（每一档的尝试轨迹）
-     本次：model=glm-4-flash channel=zhipu degraded=false ms=825 端到端=829ms
+     本次：model=glm-4-flash channel=zhipu degraded=false ms=465 端到端=469ms
      尝试轨迹：
-       - glm-4-flash  ok=true  code=-  825ms  attempt#1
+       - glm-4-flash  ok=true  code=-  465ms  attempt#1
   ✅ 响应体不含上游 endpoint
   ✅ 响应体不含任何密钥片段
   ✅ ok 字段是布尔（无论成败都有明确结果）
 
 ④ POST /api/llm（不传 module）—— default 档
   ✅ default 返回 200
-     default：model=deepseek-v4.1-flash ms=1526 ok=true
+     default：model=deepseek-v4.1-flash ms=1344 ok=true
 
 ⑤ GET /api/llm/stats —— 独立进程内的日志聚合
   ✅ stats 返回 200
   ✅ stats ok:true
      stats：total=3 ok=3 fail=0 degraded=0
-     byModel：{"workbuddy:deepseek-v4.1-flash":{"calls":2,"ok":2,"fail":0,"ms":3006},"zhipu:glm-4-flash":{"calls":1,"ok":1,"fail":0,"ms":825}}
-     byModule：{"default":{"calls":2,"ok":2,"fail":0,"degraded":0,"ms":3006},"safety":{"calls":1,"ok":1,"fail":0,"degraded":0,"ms":825}}
+     byModel：{"workbuddy:deepseek-v4.1-flash":{"calls":2,"ok":2,"fail":0,"ms":3081},"zhipu:glm-4-flash":{"calls":1,"ok":1,"fail":0,"ms":465}}
+     byModule：{"default":{"calls":2,"ok":2,"fail":0,"degraded":0,"ms":3081},"safety":{"calls":1,"ok":1,"fail":0,"degraded":0,"ms":465}}
   ✅ stats.total 是数字
   ✅ stats.total=3 ≥ 2（本次至少打了 2 次）
      recent 条数=3
-     最近一条：ts=2026-09-30T02:27:27.228Z module=default ok=true provider=workbuddy model=deepseek-v4.1-flash ms=1526 degraded=false attempts=1
+     最近一条：ts=2026-09-30T02:46:29.074Z module=default ok=true provider=workbuddy model=deepseek-v4.1-flash ms=1344 degraded=false attempts=1
      字段集：ts, module, ok, provider, model, ms, degraded, attempts, failReasons
   ✅ recent 不含用户正文/Prompt（只留可观测字段）
   ✅ recent 含 model 与 module
   ✅ recent 含 degraded(是否降级) 与 ms(耗时) —— 第 4 条要求
 
 ⑤b server/logs/*.jsonl —— 落盘日志字段与脱敏
-     日志文件：server/logs/llm-20260930.jsonl（40 行）
+     日志文件：server/logs/llm-20260930.jsonl（48 行）
      末行字段：ts, module, ok, provider, model, ms, degraded, attempts, failReasons
   ✅ 日志含 model（用了哪个模型）
   ✅ 日志含 ms（耗时）
@@ -83,9 +83,9 @@
 ⑥ POST /api/llm/ping?key=*** —— 真探活
   ✅ 带正确 key 的 ping → 200
   ✅ ping 回 results[]
-       - glm-4-flash  ok=true  467ms  
-       - deepseek-v4.1-flash  ok=true  1141ms  
-       - glm-5.0  ok=true  3044ms  
+       - glm-4-flash  ok=true  690ms  
+       - deepseek-v4.1-flash  ok=true  1423ms  
+       - glm-5.0  ok=true  1675ms  
 
 ==============================================
  HTTP 集成验证：39 通过 / 0 失败

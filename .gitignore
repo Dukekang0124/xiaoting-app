@@ -2,6 +2,8 @@ node_modules/
 android/
 www/
 dist/
+# 待发布安装包（由 CI 产物取回，见 scripts/fetch-dist-apk.mjs）
+apk-dist/
 cap_add.log
 keystore.jks
 *.jks
