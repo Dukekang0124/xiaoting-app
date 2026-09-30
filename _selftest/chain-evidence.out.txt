@@ -1,3 +1,11 @@
+页面版本 = v1.1.3（本地 index.html = 1.1.3）
+本地回填的资源：icons/icon.svg, index.html, js/ai.js, js/api.js, js/app.js, js/asr.js, js/config.js, js/diag.js, js/ip.js, js/llm.js, js/native-asr.js, js/prompts.js, js/router.js, js/store.js, js/update.js, js/voice.js, styles.css
+
+=== 点击「用「我今天很烦。」跑一次真实链路」 ===
+
+整条链路真实耗时：19137ms（19.1s）
+
+========== 链路诊断日志（原样输出）==========
 墨小溟 · 链路诊断日志
 生成时间：2026-09-30 08:58:40.042
 应用版本：1.1.3    平台：Web    网络：在线
@@ -117,5 +125,33 @@
 [OK]   2026-09-30 08:58:40.033  + 18794ms  diag/selfrun
       -
       自检完成：安全=low/continue；主分析情绪=愤怒、无力 强度=6；追问=已生成；卡片=已生成；时间线=已生成（3 个节点）
+========== 日志结束 ==========
 
-耗时：19137ms
+=== 控制台 [墨小溟·diag] 输出（21 条，真机上可用 adb logcat 抓）===
+  [墨小溟·diag] 2026-09-30 08:58:19.962 +    19ms      asr/probe | 探测服务端识别能力 /api/health
+  [墨小溟·diag] 2026-09-30 08:58:19.962 +    19ms OK   asr/probe 14ms | http=200 结果=unconfigured 后端版本=0.0.0-nobackend
+  [墨小溟·diag] 2026-09-30 08:58:21.240 +     1ms      ai/safety | tier=fast temp=0 输入=我今天很烦。
+  [墨小溟·diag] 2026-09-30 08:58:21.250 +    11ms OK   llm/sdk | 云服务客户端已就绪（先本地副本，失败回 CDN）
+  [墨小溟·diag] 2026-09-30 08:58:21.376 +   137ms OK   llm/ranking model=deepseek-v4.1-flash | tier=fast 目录=30 命中优先序=deepseek-v4.1-flash,glm-5.0,hunyuan-chat 实际序前3=deepseek-v4.1-flash,glm-5.0,hunyuan-chat
+  [墨小溟·diag] 2026-09-30 08:58:21.240 +     1ms OK   ai/safety 2048ms model=deepseek-v4.1-flash | 模型返回已解析为 JSON
+  [墨小溟·diag] 2026-09-30 08:58:23.289 +  2050ms OK   ai/safety.verdict | 风险等级=low 动作=continue
+  [墨小溟·diag] 2026-09-30 08:58:23.289 +  2050ms      ai/main | tier=strong temp=0.3 maxTokens=1200
+  [墨小溟·diag] 2026-09-30 08:58:23.290 +  2051ms OK   llm/ranking model=glm-5.0 | tier=strong 目录=30 命中优先序=glm-5.0,deepseek-v4.1-flash,hunyuan-chat 实际序前3=glm-5.0,deepseek-v4.1-flash,hunyuan-chat
+  [墨小溟·diag] 2026-09-30 08:58:23.289 +  2050ms OK   ai/main 6510ms model=glm-5.0 | 模型返回已解析为 JSON
+  [墨小溟·diag] 2026-09-30 08:58:29.800 +  8561ms OK   ai/main.json
+  [墨小溟·diag] 2026-09-30 08:58:29.801 +  8562ms      ai/followup | tier=strong temp=0.5 maxTokens=400
+  [墨小溟·diag] 2026-09-30 08:58:29.801 +  8562ms OK   ai/followup 2218ms model=glm-5.0 | 模型返回已解析为 JSON
+  [墨小溟·diag] 2026-09-30 08:58:32.019 + 10780ms OK   ai/followup.json
+  [墨小溟·diag] 2026-09-30 08:58:32.020 + 10781ms      ai/card | tier=strong temp=0.4 maxTokens=900
+  [墨小溟·diag] 2026-09-30 08:58:32.020 + 10781ms OK   ai/card 4243ms model=glm-5.0 | 模型返回已解析为 JSON
+  [墨小溟·diag] 2026-09-30 08:58:36.264 + 15025ms OK   ai/card.json
+  [墨小溟·diag] 2026-09-30 08:58:36.265 + 15026ms      ai/timeline | tier=strong temp=0.4 maxTokens=900
+  [墨小溟·diag] 2026-09-30 08:58:36.265 + 15026ms OK   ai/timeline 3767ms model=glm-5.0 | 模型返回已解析为 JSON
+  [墨小溟·diag] 2026-09-30 08:58:40.033 + 18794ms OK   ai/timeline.json
+  [墨小溟·diag] 2026-09-30 08:58:40.033 + 18794ms OK   diag/selfrun | 自检完成：安全=low/continue；主分析情绪=愤怒、无力 强度=6；追问=已生成；卡片=已生成；时间线=已生成（3 个节点）
+
+=== 各阶段汇总 ===
+  ai       5 次  成功 5  失败 0  均值 3757ms  峰值 6510ms  模型 deepseek-v4.1-flash/glm-5.0
+  环境：{"platform":"Web","provider":"cloud-pending","appVersion":"1.1.3","ua":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/154.0.0.0 Safari/537.36","origin":"https://xiaoting.app.workbuddy.host","online":true,"lang":"zh-CN","at":"2026-09-30 08:58:21.239"}
+
+日志已写入：D:\写作工具\知识管理\08-九思-工作空间\小听App\_selftest\chain-evidence.txt

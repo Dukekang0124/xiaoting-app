@@ -1653,19 +1653,28 @@ function bindDiag() {
       refresh();
 
       if (stageEl) stageEl.textContent = '情绪时间线…';
+      // 给一段真有情绪起伏的对话：只有一句「我今天很烦。」时，时间线会正确地给出"无明显情绪"简版，
+      // 那是正确行为，但看不出时间线到底会不会生成 —— 自检要证明的是「能生成」，所以这里补一句转折。
       const tl = await api.timelineGenerate({
         conversation: [
-          { role: 'user', text: T },
-          { role: 'ai', text: (follow && follow.question) || '' },
-          { role: 'user', text: '就是工作上的事，说不上来。' },
+          { role: 'user', text: '今天一早还挺高兴的，出门前还哼了两句歌。' },
+          { role: 'ai', text: '听起来开头不错，后来呢？' },
+          { role: 'user', text: '中午开会的时候被领导当众说了一顿，特别难堪。' },
+          { role: 'ai', text: (follow && follow.question) || '那之后你怎么样？' },
+          { role: 'user', text: '后来就一直很烦，晚上回到家还是闷的。' },
         ],
       });
       refresh();
 
+      // 「有没有生成」用各自阶段的产出特征判断，不能用同一个字段：
+      // 时间线在无明显情绪时会正确地返回 {type:'no-emotion'}（没有 title），
+      // 只认 title 会把「正确生成的简版」误报成「没生成」。
+      const tlOk = !!(tl && (tl.title || tl.type || tl.summary));
       diag.note('diag', 'selfrun', {
         ok: true,
         detail: `自检完成：安全=${safety.risk_level}/${safety.action}；主分析情绪=${(analysis.emotion || []).join('、')} 强度=${analysis.intensity}；` +
-          `追问=${follow && follow.question ? '已生成' : '未生成'}；卡片=${card && card.summary ? '已生成' : '未生成'}；时间线=${tl && tl.title ? '已生成' : '未生成'}`,
+          `追问=${follow && follow.question ? '已生成' : '未生成'}；卡片=${card && card.summary ? '已生成' : '未生成'}；` +
+          `时间线=${tlOk ? '已生成' + (tl && tl.nodes && tl.nodes.length ? `（${tl.nodes.length} 个节点）` : '（无明显情绪·简版）') : '未生成'}`,
       });
     } catch (e) {
       diag.note('diag', 'selfrun', { ok: false, code: 'exception', detail: String((e && e.message) || e) });
