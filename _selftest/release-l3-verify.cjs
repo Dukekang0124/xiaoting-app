@@ -131,15 +131,35 @@ async function getAsBrowser(pathname, extra = {}) {
   check('线上（浏览器头）/js/app.js 含本版特征串', bApp.text.includes('replayIpColors'),
     `含 replayIpColors=${bApp.text.includes('replayIpColors')}  lm=${bApp.lm} age=${bApp.age}`);
 
-  // 诊断：同一路径换编码/打断缓存键，用来区分「源上没有」还是「缓存盖住」
-  const dGzip = await getAsBrowser('/index.html', { 'accept-encoding': 'gzip' });
-  const dIdent = await getAsBrowser('/index.html', { 'accept-encoding': 'identity' });
-  const dTrick = await getAsBrowser('//index.html');
-  const pick = (r) => { const m = /APP_VERSION\s*=\s*'([^']+)'/.exec(r.text || ''); return `${m ? m[1] : '?'}(age=${r.age || '-'})`; };
-  console.log(`   诊断：gzip=${pick(dGzip)}  identity=${pick(dIdent)}  双斜杠路径=${pick(dTrick)}`);
-  if (mB && mB[1] !== V && pick(dGzip).startsWith(V)) {
-    console.log('   ⚠ 判定：**源上已经是 ' + V + '，是网关按 Accept-Encoding=br 分桶缓存了旧快照**（gzip/identity 桶是新的）。');
-    console.log('     这不是代码问题，重新发布不会清除它；受影响的是真实 Chrome 用户的首屏。');
+  // 诊断：枚举 **Accept-Encoding 各个桶**，区分「源上没有」还是「某个桶被缓存盖住」
+  // 🔴 2026-09-30 定死的根因：网关按 (路径, 完整 Accept-Encoding 串) 分桶缓存。
+  //    Chrome 实际发 `gzip, deflate, br, zstd` —— 恰好这一个桶里存着上一版快照，
+  //    而 `br` / `gzip, deflate, br` / `zstd` / `identity` 桶都是新的。
+  //    ⇒ 用户拿旧页，而 `?cb=` 或换编码写的校验会全绿。判「真的上线了没」必须用 Chrome 那个组合打裸路径。
+  const AE_BUCKETS = [
+    ['gzip, deflate, br, zstd', 'Chrome 实际发送 ← 用户首屏走这条'],
+    ['br', ''],
+    ['gzip, deflate, br', ''],
+    ['zstd', ''],
+    ['identity', ''],
+  ];
+  const pick = (r) => { const m = /APP_VERSION\s*=\s*'([^']+)'/.exec(r.text || ''); return { v: m ? m[1] : '?', lm: r.lm || '-', age: r.age || '-', enc: r.enc || '-' }; };
+  const staleBuckets = [];
+  let freshLm = '';
+  console.log('   Accept-Encoding 分桶诊断（裸路径 /index.html，无 ?cb=）：');
+  for (const [ae, note] of AE_BUCKETS) {
+    const r = await getAsBrowser('/index.html', { 'accept-encoding': ae });
+    const p = pick(r);
+    const fresh = p.v === V;
+    if (fresh && !freshLm) freshLm = p.lm;
+    if (!fresh) staleBuckets.push({ ae, ...p });
+    console.log(`     ${fresh ? '✓' : '✗'} ${ae.padEnd(24)} v${p.v}  lm=${p.lm}  age=${p.age}  enc=${p.enc}  ${note}`);
+  }
+  if (staleBuckets.length) {
+    const codes = staleBuckets.map((s) => s.enc).join('/');
+    console.log(`   ⚠ 判定：源上已经是 v${V}（其余桶皆新），是网关缓存里存着旧快照，陈旧桶的响应编码 = ${codes}。`);
+    console.log(`     受影响的是真实 Chrome 用户的首屏；APK 用户不受影响（资源打包在壳内，只走 /version.json 与 /apk/）。`);
+    console.log(`     这不是代码问题，重新发布不会清除它，只能等网关缓存 TTL 过期后重跑本脚本复核。`);
   }
 
   // ④ 打断缓存再读一次 /index.html（作为「源上有没有」的旁证，不作为通过判据）
@@ -172,35 +192,53 @@ async function getAsBrowser(pathname, extra = {}) {
   let browser;
   try {
     browser = await chromium.launch({ channel: 'chrome', headless: true });
-    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: 'zh-CN' });
+    // 🔴 必须用「全新 context」：前面的 ?cb= 请求会污染同一 context 的 HTTP 缓存，
+    //    那样测出来的「浏览器看到的就是新版」是假的（正是它盖住了 br 桶陈旧问题）。
+    const ctx = await browser.newContext({
+      viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: 'zh-CN',
+      serviceWorkers: 'block',
+    });
     await ctx.addInitScript(() => {
       try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1'); } catch (e) {}
-      const tick = setInterval(() => {
-        if (!window.__t) import('/js/app.js').then((m) => { window.__t = m.__test__; }).catch(() => {});
-        else clearInterval(tick);
-      }, 50);
-      setTimeout(() => clearInterval(tick), 8000);
     });
     const page = await ctx.newPage();
     const errs = [];
     page.on('pageerror', (e) => errs.push(e.message));
+    const firstPaint = [];
+    page.on('response', (res) => {
+      const u = res.url();
+      if (u.startsWith(LIVE)) {
+        const h = res.headers();
+        firstPaint.push({ u: u.replace(LIVE, '') || '/', lm: h['last-modified'] || '', ae: h['content-encoding'] || '' });
+      }
+    });
     await page.goto(LIVE + '/#/say', { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForSelector('.mascot', { timeout: 20000 });
-    await page.waitForFunction(() => !!window.__t, null, { timeout: 10000 }).catch(() => {});
 
     const rt = await page.evaluate(() => window.APP_VERSION);
     check('线上运行时 APP_VERSION == 本地版本（浏览器看到的就是新版）', rt === V, String(rt));
+    // 首屏 HTML 的来源时间戳：和「运行时版本」互证。
+    // 判据不用硬编码时间，而是拿它跟上面诊断出的「干净桶 lm」比 —— 不同就说明首屏来自缓存旧快照。
+    const rootRes = firstPaint.find((r) => r.u === '/' || r.u === '/index.html');
+    if (rootRes) {
+      check('线上·首屏 HTML 与干净桶同源（不是网关缓存里的旧快照）',
+        !freshLm || rootRes.lm === freshLm,
+        `首屏 lm=${rootRes.lm} 干净桶 lm=${freshLm || '-'} enc=${rootRes.ae || '-'}`);
+    }
 
     const tr = await page.evaluate(async () => {
       const st = await import('/js/store.js');
+      const app = await import('/js/app.js');
+      const t = app.__test__; // 项目约定：__test__ 只能 import 拿，不存在 window.__test__
+      if (!t || typeof t.render !== 'function') return { err: '__test__.render 不可用' };
       const node = () => document.querySelector('.say__mascot .mascot');
       if (!node()) return { err: 'no mascot' };
       st.setState({ emotionKey: 'default', emotionIntensity: 5, risk: { level: 'none', action: 'continue', hit: false, evidence: '' } });
-      window.__t.render();
+      t.render();
       await new Promise((r) => setTimeout(r, 950));
       const before = getComputedStyle(node()).getPropertyValue('--ip-body-in').trim();
       st.setEmotion('sad', 8);
-      window.__t.render();
+      t.render();
       await new Promise((r) => setTimeout(r, 140));
       const mid = getComputedStyle(node()).getPropertyValue('--ip-body-in').trim();
       await new Promise((r) => setTimeout(r, 950));
