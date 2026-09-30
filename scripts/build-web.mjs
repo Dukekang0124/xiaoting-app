@@ -52,9 +52,10 @@ for (const f of FILES) {
  *   不生成它 = 更新弹窗永远不会出现，且不会报错——静默失效最难查。
  *
  * 失败一律抛错，不吞：清单缺失属于"发出去也是坏的"，应当在构建期就红。 */
+let manifest; // 提到外层：下面生成「安装包稳定别名」时还要用它的 latest_version
 try {
   const raw = await readFile(path.join(src, 'server', 'version.json'), 'utf8');
-  const manifest = JSON.parse(raw);
+  manifest = JSON.parse(raw);
   if (!manifest.latest_version) throw new Error('latest_version 缺失');
   await writeFile(path.join(out, 'version.json'), JSON.stringify(manifest, null, 2) + '\n');
   console.log(`[build:web] ✓ www/version.json（latest_version=${manifest.latest_version}）`);
@@ -96,6 +97,17 @@ if (process.env.CI === 'true') {
       await cp(path.join(apkSrc, f), path.join(out, 'apk', f));
       const { size } = await stat(path.join(apkSrc, f));
       console.log(`[build:web] ✓ www/apk/${f}（${(size / 1048576).toFixed(2)} MB）`);
+    }
+    // 稳定别名：`/apk/xiaoting-latest.apk` 永远指向最新版。
+    // 为什么要它：应用里给用户的下载入口必须是个**不会过期**的地址 ——
+    // 写死版本号的话，下次发版那个链接就指向旧包了（或者干脆没了）。
+    const latestApk = `Xiaoting-v${manifest.latest_version}-release.apk`;
+    if (apkFiles.includes(latestApk)) {
+      await cp(path.join(apkSrc, latestApk), path.join(out, 'apk', 'xiaoting-latest.apk'));
+      console.log('[build:web] ✓ www/apk/xiaoting-latest.apk → 指向最新版（稳定别名）');
+    } else {
+      console.warn(`[build:web] ⚠ apk-dist/ 里没有最新版 ${latestApk} ⇒ 稳定别名没生成`);
+      console.warn('   → 站内「下载安卓安装包」会 404。先 node scripts/fetch-dist-apk.mjs 取包。');
     }
   }
 }

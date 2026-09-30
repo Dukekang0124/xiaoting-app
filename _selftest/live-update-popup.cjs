@@ -159,6 +159,53 @@ const ok = (name, cond, detail) => {
   ok('B·清单请求走绝对地址（APK 里不打 WebView 本地资产）',
     /^https?:\/\//.test(B.manifestHit) && B.manifestHit.includes(host), B.manifestHit || '(未捕获)');
 
+  /* ---------- 4. 站内安装包入口（网页版；壳里刻意不显示） ---------- */
+  // 为什么要专门验：没有任何下载入口时，站上等于"只有已经装了的人才知道有 App"，
+  // 新用户拿不到包 —— 「上线为 APK」这一环其实是断的。
+  // 这条断言同时守住两件事：入口在不在，以及它指向的那个文件**真的存在**。
+  console.log('\n  —— 站内安装包入口（网页版）——');
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: 'zh-CN' });
+    const page = await ctx.newPage();
+    await page.goto(`${ORIGIN}/#/changelog`, { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('#clList', { timeout: 9000 }).catch(() => {});
+    const dl = await page.evaluate(() => {
+      const a = document.getElementById('clDl');
+      return a ? { href: a.getAttribute('href'), text: (a.textContent || '').trim(), abs: a.href } : null;
+    });
+    ok('网页版「关于」页有安卓安装包下载入口', !!dl, JSON.stringify(dl));
+    if (dl) {
+      ok('入口文案写明是安卓安装包', /安卓/.test(dl.text), dl.text);
+      const target = dl.abs || '';
+      const aliasHit = /\/apk\/xiaoting-latest\.apk$/.test(target);
+      ok('入口指向稳定别名（不会随版本号过期）', aliasHit, target);
+      if (aliasHit) {
+        const r = await fetch(target);
+        const buf = Buffer.from(await r.arrayBuffer());
+        ok('稳定别名可下载且是 APK',
+          r.status === 200 && buf.length > 4 && buf.readUInt32LE(0) === 0x04034b50,
+          `HTTP ${r.status} / ${buf.length}B`);
+        if (live.apk && live.apk.md5) {
+          const md5 = createHash('md5').update(buf).digest('hex');
+          ok('稳定别名取到的就是最新版包（md5 对齐）', md5 === live.apk.md5, `${md5} vs ${live.apk.md5}`);
+        }
+      }
+    }
+
+    // 壳里必须不显示这个入口（已经装着 App 了，再让下载安装包很奇怪）
+    const ctxNat = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: 'zh-CN' });
+    await ctxNat.addInitScript(() => {
+      window.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'android', platform: 'android' };
+    });
+    const pageNat = await ctxNat.newPage();
+    await pageNat.goto(`${ORIGIN}/#/changelog`, { waitUntil: 'domcontentloaded' });
+    await pageNat.waitForSelector('#clList', { timeout: 9000 }).catch(() => {});
+    const inNative = await pageNat.evaluate(() => !!document.getElementById('clDl'));
+    ok('壳里不显示该入口（只在网页版出现）', inNative === false, String(inNative));
+    await ctxNat.close();
+    await ctx.close();
+  }
+
   await browser.close();
 
   console.log(`\n==== 汇总：${pass} 通过 / ${fail} 失败 ====`);

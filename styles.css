@@ -767,6 +767,8 @@ body.thinking--stuck .stuck-bubble{opacity:1;transform:translateY(0)}
 .disclaimer-box{text-align:left;font-size:13px;color:var(--ink-2);line-height:1.75;background:var(--card);border-radius:var(--radius);padding:14px 16px;margin:14px 0;box-shadow:0 0 0 1px var(--card-line)}
 .cf-emotion{text-align:center;font-size:15px;color:var(--primary-deep);line-height:1.8;margin:4px 0 14px;font-weight:500}
 .changelog__list{margin-bottom:4px}
+/* 关于页的安卓安装包入口（v1.1.7）：只在网页版显示，壳里不显示（已经装着 App 了） */
+.cl-dl{display:block;text-align:center;margin:16px auto 0;font-size:13.5px;color:var(--primary-deep);font-weight:600}
 .cl-item{
   background:var(--card);border-radius:var(--radius);padding:16px 18px;margin-bottom:14px;
   box-shadow:0 6px 22px rgba(160,140,200,.12),0 0 0 1px var(--card-line);
