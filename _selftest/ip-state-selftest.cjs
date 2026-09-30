@@ -329,11 +329,23 @@ const waitRoute = async (page, name) => {
     const realErrors = errors.filter((e) => !/version\/history|version\.json|ERR_FAILED|更新检测|api\/health|favicon/i.test(e));
     check('无意外运行时报错', realErrors.length === 0, realErrors.slice(0, 5).join(' | '));
 
-    // 保存录屏（Playwright recordVideo 原生为 webm，浏览器可直接播放）
-    const video = page.video ? await page.video().saveAs(path.join(VIDEO_DIR, 'ip-emotion-chain.webm')) : null;
-    check('屏幕录制已生成', !!video, video || 'no video');
-
+    // 屏幕录制（Playwright recordVideo 原生 webm，浏览器可直接播放）。
+    // 🔴 两个坑都在 `page.video()` 上：
+    //   ① 不要 saveAs() 再复制一份 —— 本上下文录十来分钟、390x844，自动 webm 上百 MB，
+    //      saveAs 会长时间不返回，把整套自测挂死（实测卡 24 分钟、日志停在最后一条断言）。
+    //   ② video.path() 返回的是 **Promise<string>**，直接当字符串用会 ERR_INVALID_ARG_TYPE。
+    // 所以：先 close（此时才会 flush 落盘），再扫目录取最新那份。
     await browser.close();
+
+    let recFile = '', recSize = 0;
+    try {
+      const cands = fs.readdirSync(VIDEO_DIR).filter((n) => n.endsWith('.webm'))
+        .map((n) => ({ n, m: fs.statSync(path.join(VIDEO_DIR, n)).mtimeMs }))
+        .sort((a, b) => b.m - a.m);
+      if (cands.length) { recFile = cands[0].n; recSize = fs.statSync(path.join(VIDEO_DIR, cands[0].n)).size; }
+    } catch (e) { /* ignore */ }
+    check('屏幕录制已生成（Web/Playwright 真跑录像，非真机）', recSize > 0,
+      recFile ? `${recFile}（${(recSize / 1048576).toFixed(1)} MB）` : 'no video');
   } finally {
     try { if (srv) srv.kill('SIGTERM'); } catch (e) {}
   }
