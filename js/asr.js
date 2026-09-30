@@ -18,10 +18,14 @@
 // 【复用来源】重采样与 WAV 编码（含 ASR 预处理：去直流 + 预加重 + 峰值归一化）对齐
 //   「英语开口练」已线上验证的实现（index.html encodeWav16kBase64 / preprocessForAsr），不重造。
 
-import { ASR } from './config.js';
+import { ASR, apiBase } from './config.js';
 import { getState } from './store.js';
 
 /* ==================== 能力探测 ==================== */
+
+/** 端点解析：原生容器里必须拼绝对基址（见 config.js 的 HOSTED_ORIGIN 注释）——
+ *  WebView 的源是 https://localhost，相对路径的 /api/* 永远打不到真服务端。 */
+const url = (path) => apiBase() + path;
 
 const AC = typeof window !== 'undefined' ? (window.AudioContext || window.webkitAudioContext) : null;
 const OFFLINE = typeof window !== 'undefined' ? (window.OfflineAudioContext || window.webkitOfflineAudioContext) : null;
@@ -78,7 +82,7 @@ let cloudState = { state: 'unknown', checkedAt: 0, version: '' };
 export async function probeCloud(force = false) {
   if (!force && cloudState.state !== 'unknown' && Date.now() - cloudState.checkedAt < 60000) return cloudState.state;
   try {
-    const r = await fetch(ASR.health, { method: 'GET', cache: 'no-store' });
+    const r = await fetch(url(ASR.health), { method: 'GET', cache: 'no-store' });
     const j = await r.json();
     cloudState = {
       state: j && j.asr === 'ready' ? 'ready' : 'unconfigured',
@@ -214,7 +218,7 @@ export async function recognize(blob, { lang = ASR.lang, signal } = {}) {
 
   let res;
   try {
-    res = await fetch(ASR.endpoint, {
+    res = await fetch(url(ASR.endpoint), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ speech: b64, lang }),
@@ -292,7 +296,7 @@ export function flushEvents() {
   if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
   if (!queue.length) return Promise.resolve();
   const events = queue.splice(0, 50);
-  return fetch(ASR.events, {
+  return fetch(url(ASR.events), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ events }),

@@ -477,11 +477,15 @@ body.thinking--stuck .stuck-bubble{opacity:1;transform:translateY(0)}
 .tab--on{color:var(--primary-deep);font-weight:600}
 
 /* ---------- Toast ---------- */
+/* 墨小溟的柔和提示气泡（v1.1.2）：原来是 rgba(58,58,58,.92) 的黑条，真机上像系统报错，
+   和「不评判、温柔承接」的产品调性完全相反。改成暖奶油白 + 淡紫描边的圆角气泡。 */
 .toast{
   position:fixed;left:50%;bottom:96px;transform:translate(-50%,14px);
-  background:rgba(58,58,58,.92);color:#fff;font-size:13.5px;
-  padding:11px 18px;border-radius:999px;opacity:0;pointer-events:none;transition:.28s ease;z-index:40;
-  max-width:86vw;text-align:center;
+  background:#FFF8F0;color:var(--ink);font-size:14px;line-height:1.65;
+  padding:12px 18px;border-radius:18px;opacity:0;pointer-events:none;transition:.28s ease;z-index:40;
+  max-width:82vw;text-align:center;
+  border:1px solid rgba(184,169,232,.55);
+  box-shadow:0 8px 24px rgba(93,79,140,.14);
 }
 .toast--on{opacity:1;transform:translate(-50%,0)}
 

@@ -719,10 +719,10 @@ const MOCK_SDK = `(function(){
     `timeline=${await pageX.locator('.timeline .tl-title').count()} risk=${await pageX.locator('.risk').count()}`);
   await ctxX.close();
 
-  /* ================= C4. 审计修复回归（v1.1.1） =================
+  /* ================= C4. 审计修复回归（v1.1.2） =================
      背景：v1.1.0 自测 334/334 全绿，但审计仍查出 1 P0 + 4 P1。原因是 mock 模式下云端分支一行都跑不到、
      高危边界用 setState 手工注入只测了判定函数没测链路。本分区专守这五条，防止回归。 */
-  sec('C4. 审计修复回归（v1.1.1）');
+  sec('C4. 审计修复回归（v1.1.2）');
   const ctxY = await browser.newContext({
     viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'zh-CN',
     isMobile: true, hasTouch: true, acceptDownloads: true, serviceWorkers: 'block',
@@ -874,6 +874,101 @@ const MOCK_SDK = `(function(){
 
   check('[护栏] C4 全程无未捕获异常', errsY.length === 0, JSON.stringify(errsY));
   await ctxY.close();
+
+  /* ================= C5. 真机修复回归（v1.1.2：图标 + 原生识别 + 柔和提示） ================= */
+  sec('C5. 真机修复回归（v1.1.2）');
+  const fsC5 = require('fs');
+  const pathC5 = require('path');
+  const rootC5 = pathC5.join(__dirname, '..');
+  const readC5 = (p) => { try { return fsC5.readFileSync(pathC5.join(rootC5, p), 'utf8'); } catch (e) { return ''; } };
+
+  // ① 图标资源：全分辨率三件套 + 背景色
+  const iconDensities = ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi'];
+  const iconFiles = [];
+  for (const d of iconDensities) {
+    for (const f of ['ic_launcher.png', 'ic_launcher_round.png', 'ic_launcher_foreground.png']) {
+      const rel = `android-assets/res/mipmap-${d}/${f}`;
+      const buf = fsC5.existsSync(pathC5.join(rootC5, rel)) ? fsC5.readFileSync(pathC5.join(rootC5, rel)) : null;
+      iconFiles.push({ rel, ok: !!buf && buf.length > 300 });
+    }
+  }
+  check('[图标] 5 个密度 × 3 件套全部存在且非空', iconFiles.every((x) => x.ok),
+    iconFiles.filter((x) => !x.ok).map((x) => x.rel).join(',') || `${iconFiles.length} 个文件`);
+  check('[图标] 自适应前景最大 432px（xxxhdpi）',
+    fsC5.existsSync(pathC5.join(rootC5, 'android-assets/res/mipmap-xxxhdpi/ic_launcher_foreground.png'))
+    && fsC5.statSync(pathC5.join(rootC5, 'android-assets/res/mipmap-xxxhdpi/ic_launcher_foreground.png')).size > 1000);
+  check('[图标] 自适应背景=暖奶油白 #FFF8F0', readC5('android-assets/res/values/ic_launcher_background.xml').includes('#FFF8F0'));
+
+  // ② CI：图标替换步骤 + 原生权限 + 明文兜底开关
+  const yml = readC5('.github/workflows/apk.yml');
+  check('[CI] 工作流包含「Apply 墨小溟 app icon」替换步骤', yml.includes('Apply 墨小溟 app icon') && yml.includes('android-assets/res'));
+  check('[CI] RECORD_AUDIO 权限注入仍在', yml.includes('RECORD_AUDIO') && yml.includes('MODIFY_AUDIO_SETTINGS'));
+  check('[CI] usesCleartextTraffic 兜底已注入', yml.includes('usesCleartextTraffic'));
+
+  // ③ 原生识别插件已声明为依赖
+  let pkgC5 = {};
+  try { pkgC5 = JSON.parse(readC5('package.json')); } catch (e) { /* ignore */ }
+  check('[依赖] @capacitor-community/speech-recognition 已声明', !!(pkgC5.dependencies && pkgC5.dependencies['@capacitor-community/speech-recognition']));
+
+  // ④ 原生识别模块：Web 环境（无 Capacitor）必须安全降级，绝不抛错
+  const ctxZ = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+  const pageZ = await ctxZ.newPage();
+  const errsZ = [];
+  pageZ.on('pageerror', (e) => errsZ.push(e.message));
+  await pageZ.goto(BASE + '/#/say', { waitUntil: 'domcontentloaded' });
+  await pageZ.waitForTimeout(300);
+  const Z4 = await pageZ.evaluate(async () => {
+    const m = await import('/js/native-asr.js');
+    const out = { present: m.nativeSpeechPresent(), available: await m.nativeSpeechAvailable(), perm: await m.nativeSpeechPermission() };
+    const L = m.nativeListen({});
+    const r = await Promise.race([L.done, new Promise((res) => setTimeout(() => res({ ok: false, code: 'no_plugin' }), 1500))]);
+    out.listen = r;
+    return out;
+  });
+  check('[原生识别] Web 环境恒不可用（present/available=false）', Z4.present === false && Z4.available === false, JSON.stringify(Z4));
+  check('[原生识别] 无插件时 nativeListen 安全返回 no_plugin（不抛错）', Z4.listen && Z4.listen.ok === false && Z4.listen.code === 'no_plugin', JSON.stringify(Z4.listen));
+
+  // ⑤ 模拟原生容器：apiBase 必须给绝对基址（真机 ASR 失效的根因就是相对路径打不到服务端）
+  const ctxN = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+  await ctxN.addInitScript(() => { window.Capacitor = { isNativePlatform: () => true, Plugins: {} }; });
+  const pageN = await ctxN.newPage();
+  let capturedUrl = '';
+  await ctxN.route('**/api/health*', (route) => { capturedUrl = route.request().url(); route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, version: 'x', asr: 'unconfigured' }) }); });
+  await pageN.goto(BASE + '/#/say', { waitUntil: 'domcontentloaded' });
+  await pageN.waitForTimeout(300);
+  const Z5 = await pageN.evaluate(async () => {
+    const { apiBase } = await import('/js/config.js');
+    const asr = await import('/js/asr.js');
+    const st = await asr.probeCloud(true);
+    return { base: apiBase(), probe: st };
+  });
+  check('[原生基址] 原生容器 apiBase → 线上域名（不再打 https://localhost）',
+    Z5.base === 'https://xiaoting.app.workbuddy.host', JSON.stringify(Z5));
+  check('[原生基址] probeCloud 实际请求的是绝对地址', capturedUrl.startsWith('https://xiaoting.app.workbuddy.host/api/health'), capturedUrl);
+
+  // ⑥ 提示气泡：不再是黑条（柔和奶油白 + 深色字）
+  await pageZ.evaluate(async () => { const s = await import('/js/store.js'); s.toast('测试提示'); });
+  await pageZ.waitForTimeout(200);
+  const Z6 = await pageZ.evaluate(() => {
+    const t = document.querySelector('.toast');
+    if (!t) return null;
+    const cs = getComputedStyle(t);
+    return { bg: cs.backgroundColor, color: cs.color, radius: cs.borderRadius };
+  });
+  check('[体验] 提示气泡不再是黑色系统警告（奶油白底 + 深色字）',
+    !!Z6 && Z6.bg === 'rgb(255, 248, 240)' && Z6.color !== 'rgb(255, 255, 255)', JSON.stringify(Z6));
+
+  // ⑦ 失败文案：区分「没录上」与「没听清」，且不再出现吓人的旧黑条措辞
+  const appSrcC5 = readC5('js/app.js');
+  check('[文案] 短录音（<1 秒）单独提示「好像没录上，再按一下试试」', appSrcC5.includes('好像没录上，再按一下试试'));
+  check('[文案] 超时/没听清用墨小溟的语气（水里有点吵）', appSrcC5.includes('水里有点吵，我没听清，你愿意再说一次或者打字告诉我吗？'));
+  check('[文案] 旧的「没听清，再说一次」黑条措辞已下线', !appSrcC5.includes("没听清，再说一次，或者打字也行"));
+  check('[文案] 「不方便说？打字也行」入口保留', appSrcC5.includes('不方便说？打字也行'));
+
+  // ⑧ 按住/松手逻辑未被破坏（Web 链路行为回归）
+  await ctxN.close();
+  check('[护栏] C5 全程无未捕获异常', errsZ.length === 0, JSON.stringify(errsZ));
+  await ctxZ.close();
 
   /* ================= D. 分级安全 UI（gentle_check / refer / emergency） ================= */
   sec('D. 分级安全 UI');
@@ -1160,7 +1255,7 @@ const MOCK_SDK = `(function(){
     };
   });
   check('我的页头像=墨小溟 IP（非系统默认）', me.avatar, String(me.avatar));
-  // v1.1.1：「我的」页新增「情绪时间线」入口 ⇒ 5 项 5 图标
+  // v1.1.2：「我的」页新增「情绪时间线」入口 ⇒ 5 项 5 图标
   check('我的页列表 5 项且各有线性图标（含「情绪时间线」「关于墨小溟」）', me.rows === 5 && me.iconN === 5, `rows=${me.rows} icons=${me.iconN}`);
   check('图标为线性描边（fill:none）', me.fill.every((f) => f === 'none'), me.fill.join('|'));
   check('图标用辅助色点缀（4 色互不相同）', new Set(me.strokes).size === 4, me.strokes.join(' | '));
@@ -1627,11 +1722,11 @@ const MOCK_SDK = `(function(){
   check('版本API·/api/version/latest 含 5 字段',
     ['latest_version', 'release_notes', 'download_url', 'force_update', 'web_url'].every((k) => k in HAPI.latest),
     JSON.stringify(Object.keys(HAPI.latest)));
-  check('版本API·latest_version=1.1.1', HAPI.latest.latest_version === '1.1.1', HAPI.latest.latest_version);
+  check('版本API·latest_version=1.1.2', HAPI.latest.latest_version === '1.1.2', HAPI.latest.latest_version);
   check('版本API·release_notes 为非空数组', Array.isArray(HAPI.latest.release_notes) && HAPI.latest.release_notes.length >= 1, String((HAPI.latest.release_notes || []).length));
   check('版本API·force_update 为布尔', typeof HAPI.latest.force_update === 'boolean', String(HAPI.latest.force_update));
   check('版本API·/api/version/history 含 versions 数组', Array.isArray(HAPI.hist.versions) && HAPI.hist.versions.length >= 1, String((HAPI.hist.versions || []).length));
-  check('版本API·history 最新项=1.1.1 且含 notes', HAPI.hist.versions[0].version === '1.1.1' && Array.isArray(HAPI.hist.versions[0].notes), HAPI.hist.versions[0].version);
+  check('版本API·history 最新项=1.1.2 且含 notes', HAPI.hist.versions[0].version === '1.1.2' && Array.isArray(HAPI.hist.versions[0].notes), HAPI.hist.versions[0].version);
 
   // H2. update.js 纯函数（直接 import 模块）
   const H2 = await page.evaluate(async () => {
@@ -1757,8 +1852,8 @@ const MOCK_SDK = `(function(){
     hasCheck: !!document.getElementById('clCheck'),
   }));
   check('更新日志·渲染历史条目（≥1）', H6.items >= 1, String(H6.items));
-  check('更新日志·最新条目=1.1.1', H6.topVer.includes('1.1.1'), H6.topVer);
-  check('更新日志·当前版本显示 1.1.0', H6.ver.includes('1.1.1'), H6.ver);
+  check('更新日志·最新条目=1.1.2', H6.topVer.includes('1.1.2'), H6.topVer);
+  check('更新日志·当前版本显示 1.1.0', H6.ver.includes('1.1.2'), H6.ver);
   check('更新日志·有「检查更新」按钮', H6.hasCheck, String(H6.hasCheck));
   await shot(page6, '25-changelog.png');
 

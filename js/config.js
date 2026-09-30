@@ -32,10 +32,33 @@ export const AI = {
 export const AI_OVERRIDE_KEY = 'xiaoting:ai';
 
 /**
+ * 服务端可达基址（v1.1.2 真机修复的关键）。
+ *
+ * 🔴 为什么必须有这个：APK 里网页跑在 WebView 的 `https://localhost` 上（Capacitor androidScheme=https），
+ * 而 `/api/asr`、`/api/health` 是**相对路径** ⇒ 请求打的是 WebView 本地资产服务，永远 404。
+ * 表现是：`probeCloud()` 拿到 'unavailable' ⇒ 云端识别**一次都不尝试** ⇒ 直接弹「没听清」。
+ * 真机上「按住说完全没反应」就是这么来的，跟录音权限、音频格式都没关系。
+ * 所以：原生容器里一律走绝对基址；Web 上保持同源（本地起 server.cjs 联调时不受影响）。
+ */
+export const HOSTED_ORIGIN = 'https://xiaoting.app.workbuddy.host';
+
+export function isNativeApp() {
+  try {
+    return !!(typeof window !== 'undefined' && window.Capacitor
+      && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  } catch (e) { return false; }
+}
+
+/** 惰性求值：Capacitor 的 bridge 可能在页面脚本之后才就绪，不能在模块加载时算死。 */
+export function apiBase() {
+  try { return isNativeApp() ? HOSTED_ORIGIN : ''; } catch (e) { return ''; }
+}
+
+/**
  * 语音识别（v0.5.0）。
  * 说明：浏览器内置 Web Speech 在 iOS Safari / 微信内置浏览器里不可用，而这两处是国内真机流量的大头，
  * 所以「按住说」改走同源服务端的专业云端 ASR（密钥在服务端，前端拿不到）。
- * 三个端点都由 server.cjs 提供；纯静态托管时它们会 404，asr.js 会自动降级，不会白屏。
+ * 三个端点都由 server.cjs 提供；拿不到时 asr.js 会自动降级到原生识别 / 打字，不会白屏。
  */
 export const ASR = {
   endpoint: '/api/asr',      // POST { speech: base64, lang } → { ok, text }

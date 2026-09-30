@@ -1,25 +1,35 @@
 {
-  "latest_version": "1.1.1",
+  "latest_version": "1.1.2",
   "force_update": false,
-  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.1-release.apk",
+  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.2-release.apk",
   "web_url": "https://xiaoting.app.workbuddy.host/#/say",
   "apk": {
-    "versionCode": 10101,
-    "version": "1.1.1",
-    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.1-release.apk",
-    "md5": "c9b3d37a37b6e502417f4a84e6e7028b",
-    "size": 3326221,
+    "versionCode": 10102,
+    "version": "1.1.2",
+    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.2-release.apk",
+    "md5": "",
+    "size": 0,
     "force": false
   },
   "release_notes": [
-    "时间线卡片可以「保存为图片」了：除了存到本机，还能导出一张 PNG 自己留着",
-    "「我的」页新增「情绪时间线」入口，保存过的每一次起伏都能随时回看、可删除",
-    "修复：倾诉中途刷新后「结束倾诉」入口消失，本次会话现在能安全续上（超过 6 小时自动算新会话）",
-    "修复：保存按钮重复点击会存出多份相同记录，现在保存后按钮直接变「已保存」",
-    "安全加固：命中高危后再倾诉一轮，也不会生成时间线卡，只保留危机提示与热线",
-    "修复若干稳定性问题（含云端生成时的页面异常）"
+    "App 换上墨小溟专属图标了：紫色小墨鱼 + 暖奶油白底，桌面一眼认出",
+    "修复真机「按住说」识别不了的问题：安卓上改用设备自带语音识别，不再依赖服务器转写",
+    "麦克风权限申请改为原生弹窗，拒绝时会给出去设置的引导，不再默默失败",
+    "识别失败不再弹黑色警告条，换成墨小溟的柔和气泡，并区分「没录上」和「没听清」",
+    "「按住说」「不方便说？打字也行」的入口文案保持不变"
   ],
   "history": [
+    {
+      "version": "1.1.2",
+      "date": "2026-09-30",
+      "title": "墨小溟图标 + 真机语音修复",
+      "notes": [
+        "新增墨小溟专属 App 图标（全分辨率 + 自适应图标，暖奶油白底）",
+        "真机修复：安卓改用设备自带语音识别，按住说不再「没听清」",
+        "麦克风权限改为原生申请，拒绝时有设置引导",
+        "识别失败提示换成柔和气泡，短录音（<1 秒）单独提示「好像没录上」"
+      ]
+    },
     {
       "version": "1.1.1",
       "date": "2026-09-30",

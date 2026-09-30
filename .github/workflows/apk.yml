@@ -53,11 +53,27 @@ jobs:
           }
           echo "android project OK: $(ls android | tr '\n' ' ')"
 
-      - name: Inject RECORD_AUDIO + MODIFY_AUDIO_SETTINGS (getUserMedia 录音做 ASR 必需)
+      - name: Apply 墨小溟 app icon (replace default Capacitor launcher, all densities)
+        run: |
+          # 产物由 _selftest/gen-icons.cjs 预生成并提交（尺寸表对齐 Capacitor 8 模板实测值）
+          cp -r android-assets/res/. android/app/src/main/res/
+          echo "--- ic_launcher files ---"
+          ls -l android/app/src/main/res/mipmap-*/ic_launcher*.png
+          test -f android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png \
+            && test -f android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png \
+            && test -f android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png \
+            || { echo "::error::墨小溟图标资源缺失"; exit 1; }
+          grep -o 'ic_launcher_background">[^<]*' android/app/src/main/res/values/ic_launcher_background.xml
+
+      - name: Inject RECORD_AUDIO + MODIFY_AUDIO_SETTINGS + cleartext opt-out (录音做 ASR 必需)
         run: |
           M=android/app/src/main/AndroidManifest.xml
           grep -q "RECORD_AUDIO" $M || sed -i 's#<uses-permission android:name="android.permission.INTERNET"#<uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>\n    <uses-permission android:name="android.permission.INTERNET"#' $M
+          # 明文流量兜底开关（我们全链路 HTTPS；开关只是防止个别 ROM 拦本地回环）。
+          # 与康哥真机排查指令 §2.4 对应；HTTPS 不受影响。
+          grep -q "usesCleartextTraffic" $M || sed -i 's#<application#<application\n        android:usesCleartextTraffic="true"#' $M
           grep -o 'android.permission.[A-Z_]*' $M | sort -u
+          grep -o 'usesCleartextTraffic="[a-z]*"' $M
 
       - name: Resolve version from index.html (single source of truth)
         id: ver

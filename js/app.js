@@ -9,6 +9,7 @@ import { api, isBlockingAction } from './api.js';
 import * as asr from './asr.js';
 import * as voice from './voice.js';
 import * as update from './update.js';
+import * as nativeAsr from './native-asr.js';
 import { parseHash, go, onChange } from './router.js';
 import { COPY, greetByHour, findForbidden, pickRiskScript, pickEmotionResponse, pickSilence, pickBy } from './prompts.js';
 import { AI, ASR } from './config.js';
@@ -92,7 +93,12 @@ const rec = {
   transcript: '', srText: '', mime: '', stopWait: null,
   volumeProbe: null, volIv: 0,
   lowSince: 0, breathing: false, stuckTimer: null, silentState: null,
+  // v1.1.2：'native' = 走设备自带语音识别；'web' = 录音 + 服务端 ASR（旧链路）
+  mode: 'web', native: null,
 };
+
+/** 柔和提示（v1.1.2）：原来是黑条系统警告，真机上很吓人；现在走柔和气泡样式 */
+function softSay(msg) { store.toast(msg, 3200); }
 
 /** 等 MediaRecorder 把最后一块数据交出来（onstop 之后 chunks 才是完整的） */
 function waitForBlob(media) {
@@ -160,7 +166,24 @@ function setLiveText(s) { const el = document.getElementById('liveText'); if (el
 
 async function beginCapture() {
   if (rec.active) return;
-  if (!CAP.canRecord) {
+  rec.mode = 'web';
+  rec.native = null;
+
+  // ⓪ 原生容器优先：设备自带语音识别（不需要服务端、不需要密钥，录音与转写都在设备上）
+  if (nativeAsr.nativeSpeechPresent() && (await nativeAsr.nativeSpeechAvailable())) {
+    const perm = await nativeAsr.nativeSpeechPermission();
+    if (perm === 'denied') {
+      asr.logEvent('native_asr_denied', {});
+      softSay('需要麦克风权限，墨小溟才听得到你。可以在系统设置里打开，或者先打字告诉我。');
+      go('record?mode=text');
+      return;
+    }
+    rec.mode = 'native';
+    rec.native = nativeAsr.nativeListen({
+      lang: 'zh-CN',
+      onPartial: (t) => setLiveText(t || COPY.recording[0]),
+    });
+  } else if (!CAP.canRecord) {
     // 连录音都做不到（极老的 iOS / 拿不到麦克风权限）→ 直接送打字，并说清为什么
     store.toast('这个环境拿不到麦克风，我们打字聊好吗');
     go('record?mode=text');
@@ -176,20 +199,22 @@ async function beginCapture() {
   const timer = document.getElementById('recTimer');
   rec.iv = setInterval(() => { if (timer) timer.textContent = ((Date.now() - rec.t0) / 1000).toFixed(1) + 's'; }, 100);
 
-  // ① 录音（云端识别的原料；也是所有浏览器里最可靠的一环）
+  // ① 录音（云端识别的原料）。原生模式已经在设备层录音了，这里跳过 Web 录制。
   let micErr = null;
-  try {
-    rec.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    rec.mime = asr.pickMime();
-    rec.media = rec.mime ? new MediaRecorder(rec.stream, { mimeType: rec.mime }) : new MediaRecorder(rec.stream);
-    rec.media.ondataavailable = (e) => { if (e.data && e.data.size) rec.chunks.push(e.data); };
-    rec.media.start();
-  } catch (e) { rec.media = null; micErr = e; }
+  if (rec.mode !== 'native') {
+    try {
+      rec.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      rec.mime = asr.pickMime();
+      rec.media = rec.mime ? new MediaRecorder(rec.stream, { mimeType: rec.mime }) : new MediaRecorder(rec.stream);
+      rec.media.ondataavailable = (e) => { if (e.data && e.data.size) rec.chunks.push(e.data); };
+      rec.media.start();
+    } catch (e) { rec.media = null; micErr = e; }
+  }
 
   // 录音都没建起来（没设备 / 拒绝授权）→ 立刻说清楚并送去打字。
   // 这一条是端到端测试逼出来的：旧写法会让人对着一个假按钮说半分钟，最后只得到一句"没听清"，
   // 用户会以为是自己没说清楚 —— 这是最伤人的一种失败。
-  if (!rec.media) {
+  if (rec.mode !== 'native' && !rec.media) {
     rec.active = false;
     document.body.classList.remove('recording');
     if (rec.iv) clearInterval(rec.iv);
@@ -208,9 +233,12 @@ async function beginCapture() {
     return;
   }
 
-  // ②b 实时音量探针（只读 tap 录音流，不接 destination ⇒ 不影响录音链路），驱动墨小溟触角随音量发光/摆动
-  rec.volumeProbe = voice.createVolumeProbe(rec.stream);
-  rec.volIv = (typeof requestAnimationFrame !== 'undefined') ? requestAnimationFrame(volumeTick) : 0;
+  // ②b 实时音量探针（只读 tap 录音流，不接 destination ⇒ 不影响录音链路），驱动墨小溟触角随音量发光/摆动。
+  //     原生模式下没有 Web 流（设备在录），探针拿不到数据也必须安全返回，不能抛错。
+  if (rec.mode !== 'native') {
+    rec.volumeProbe = voice.createVolumeProbe(rec.stream);
+    rec.volIv = (typeof requestAnimationFrame !== 'undefined') ? requestAnimationFrame(volumeTick) : 0;
+  }
 
   // ②b-2 首页「按住说」浮层里的墨小溟切到倾听态（录音页本身已是倾听态，这里只处理首页浮层）；复位静音/呼吸追踪
   rec.lowSince = 0;
@@ -229,8 +257,9 @@ async function beginCapture() {
   setLiveText(COPY.recording[0]);
   rec.hintIv = setInterval(() => { setLiveText(COPY.recording[++hintI % COPY.recording.length]); }, 2500);
 
-  // ③ 内置识别：有就做实时字幕（顺带当兜底），没有也不影响主链路
-  const sr = asr.createWebSpeech();
+  // ③ 内置识别：有就做实时字幕（顺带当兜底），没有也不影响主链路。
+  //    原生模式已经由设备识别在跑，不要再叠一层 Web Speech（会抢麦、也会给出第二份互相打架的字幕）。
+  const sr = (rec.mode === 'native') ? null : asr.createWebSpeech();
   if (sr) {
     sr.onresult = (ev) => {
       let s = '';
@@ -264,6 +293,14 @@ async function endCapture() {
   try { rec.sr && rec.sr.stop(); } catch (e) { /* ignore */ }
   const media = rec.media;
   const blob = media ? await waitForBlob(media) : null;   // 先取音频
+
+  // 原生模式：向设备收尾，拿它转写好的文字
+  let nativeRes = null;
+  if (rec.mode === 'native' && rec.native) {
+    try { rec.native.stop(); } catch (e) { /* ignore */ }
+    nativeRes = await rec.native.done;
+    rec.native = null;
+  }
   try { rec.stream && rec.stream.getTracks().forEach((t) => t.stop()); } catch (e) { /* ignore */ } // 再关音轨
   rec.sr = null; rec.media = null; rec.stream = null;
 
@@ -278,7 +315,13 @@ async function endCapture() {
   // 隐私设置真的生效：关掉「允许把录音发给云端转写」后，这段音频一个字都不上传。
   const cloudAllowed = store.getState().user.settings.cloudAsr !== false;
 
-  if (blob && blob.size > 0 && cloudAllowed && (await asr.probeCloud()) !== 'unavailable') {
+  if (nativeRes && nativeRes.ok && nativeRes.text) {
+    text = nativeRes.text;   // 设备识别结果优先：它不需要网络往返，也最贴近设备麦克风的实际采样
+    asr.logEvent('asr_ok', { engine: 'native', ms: 0, totalMs: Date.now() - (rec.t0 || Date.now()), chars: text.length });
+  } else if (nativeRes && !nativeRes.ok) {
+    fail = { code: nativeRes.code || 'native_failed' };
+    asr.logEvent('asr_fail', { engine: 'native', code: fail.code, totalMs: Date.now() - (rec.t0 || Date.now()) });
+  } else if (blob && blob.size > 0 && cloudAllowed && (await asr.probeCloud()) !== 'unavailable') {
     if (label) label.textContent = '识别中…';
     setLiveText(COPY.analyzing[0]);
     const r = await asr.recognize(blob);
@@ -296,9 +339,14 @@ async function endCapture() {
   if (label) label.textContent = '按住说';
   if (!text) {
     asr.logEvent('asr_empty', { reason: fail ? (fail.code || 'failed') : (blob ? 'no_speech' : 'no_audio'),
-      had_sr: srText ? 1 : 0 });
+      had_sr: srText ? 1 : 0, mode: rec.mode });
     store.setState({ ipState: 'idle' });
-    store.toast(fail ? `${asr.describeError(fail.code)}，打字也一样可以` : '没听清，再说一次，或者打字也行');
+    // v1.1.2：原来这里弹的是黑色系统警告条，真机上很吓人。改成墨小溟的柔和提示，
+    // 并区分「压根没录上」和「录上了但没听清」—— 前者是自责感最强的失败，必须说得具体。
+    const durMs = Date.now() - (rec.t0 || Date.now());
+    softSay(durMs < 1000
+      ? '好像没录上，再按一下试试'
+      : '水里有点吵，我没听清，你愿意再说一次或者打字告诉我吗？');
     render();
     return;
   }
@@ -398,7 +446,7 @@ function bindSay() {
 }
 
 /**
- * 「结束倾诉」→ 生成情绪时间线卡片（v1.1.1）。
+ * 「结束倾诉」→ 生成情绪时间线卡片（v1.1.2）。
  * 铁律：对话过程中绝不自动弹出，只有用户主动点「结束倾诉」才生成；
  *      若本次会话命中高危阻断（自伤/伤人高危），不生成时间线卡，只保留危机提示与热线。
  */
@@ -406,7 +454,7 @@ async function onEndVent() {
   const st = store.getState();
   const log = (st.sessionLog || []).filter((m) => m.role === 'user' && m.text);
   if (!log.length) { go('say'); return; }
-  // 🔴 v1.1.1 修复：阻断判定不能只看 store.risk —— startDraft 每轮都会把 risk 重置回 continue，
+  // 🔴 v1.1.2 修复：阻断判定不能只看 store.risk —— startDraft 每轮都会把 risk 重置回 continue，
   // 高危后再倾诉一轮就会漏判，时间线卡照样生成（违反蓝图「触发危机弹窗不生成时间线」）。
   // 改为双保险：risk 命中 **或** 本次会话任一用户轮次本地复检命中高危，都走危机提示。
   const { safetyCheck } = await import('./ai.js');
@@ -853,7 +901,7 @@ async function saveCardFromForm() {
   go('say');
 }
 
-/* ---------------- 页面：情绪时间线卡片（v1.1.1） ----------------
+/* ---------------- 页面：情绪时间线卡片（v1.1.2） ----------------
  * 复盘载体：对话结束后生成，可视化「情绪本来就是流动、矛盾、来回摇摆的」。
  * 底线：不是心理评估、不打分，只做记录与呈现。 */
 
@@ -949,7 +997,7 @@ function timelineEmptyBody(tl) {
     ${timelineActions(tl)}`;
 }
 
-/** 支持 #/timeline?id=xxx 回看已保存的时间线（v1.1.1 补：否则存了永远看不到） */
+/** 支持 #/timeline?id=xxx 回看已保存的时间线（v1.1.2 补：否则存了永远看不到） */
 function currentTimeline(p) {
   const id = (p && p.q && p.q.id) || '';
   const s = store.getState();
@@ -981,7 +1029,7 @@ function bindTimeline(p) {
   const save = document.getElementById('tlSave');
   if (save) save.addEventListener('click', async () => {
     const tl = currentTimeline(p);
-    if (!tl || tl.id) return;               // 已保存过就不再重复存（v1.1.1：防连点存出 N 份）
+    if (!tl || tl.id) return;               // 已保存过就不再重复存（v1.1.2：防连点存出 N 份）
     const full = await api.saveTimeline(tl);
     store.setState({ timeline: full });     // 让当前页立刻认领 id，按钮原地变「已保存 ✓」
     store.toast('已保存到本地，只有你能看到');
@@ -1345,7 +1393,7 @@ function pageSettings() {
       <div class="set-title">重要声明</div>
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.1.1')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.1.2')}</p>
   </section>`;
 }
 
@@ -1373,14 +1421,14 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.1.1')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.1.2')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
     <div class="disclaimer-box">${esc(COPY.about.disclaimer)}</div>
     <div class="changelog__list" id="clList"><p class="set-sub">正在加载更新历史…</p></div>
     <button class="primary" id="clCheck" type="button">检查更新</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.1.1')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.1.2')}</p>
   </section>`;
 }
 
