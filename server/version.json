@@ -1,22 +1,33 @@
 {
-  "latest_version": "1.1.7",
+  "latest_version": "1.1.8",
   "force_update": false,
-  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.7-release.apk",
+  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.8-release.apk",
   "web_url": "https://xiaoting.app.workbuddy.host/#/say",
   "apk": {
-    "versionCode": 10107,
-    "version": "1.1.7",
-    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.7-release.apk",
-    "md5": "71d3e261ef72957204ff770c0d8ccfa3",
-    "size": 3367544,
+    "versionCode": 10108,
+    "version": "1.1.8",
+    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.8-release.apk",
+    "md5": "",
+    "size": 0,
     "force": false
   },
   "release_notes": [
+    "把上线审计里还能在纯前端闭环的问题都修了：埋点不再丢数据（远端不可用时自动存本地、可在「关于」页导出）、清掉一批只定义没调用的死代码、去掉悬空的 favicon 白名单条目",
     "「关于墨小溟」页多了一个「下载安卓安装包」入口：用手机浏览器打开就能直接装，不用再找人要包",
     "下载地址用的是永久链接，以后发新版它会自动指向最新版，不会过期",
     "这次也顺便验证了「打开就提示更新 → 点一下就装上新版」这条链路，装 1.1.6 的手机会收到提示"
   ],
   "history": [
+    {
+      "version": "1.1.8",
+      "date": "2026-09-30",
+      "title": "审计闭环：埋点不再丢、清死代码",
+      "notes": [
+        "修复 P1-1：埋点在远端 /api/events 不可达（纯静态托管下本就不存在）时，自动回退存进 localStorage，可在「关于墨小溟」页一键导出 JSON，不再把用户行为数据丢进黑洞（也不伤用户链路）",
+        "清理 P2-2：删除全仓只定义无调用的死代码（describeVoice / cloudStatus / __pendingEvents / setRoute / clearConvo）",
+        "修复 P2-1：移除 server.cjs 里悬空的 /favicon.ico 白名单条目（前端早已改用 /icons/icon.svg）"
+      ]
+    },
     {
       "version": "1.1.7",
       "date": "2026-09-30",

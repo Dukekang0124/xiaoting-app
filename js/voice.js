@@ -32,19 +32,6 @@ export function speechRate(transcript = '', durationMs = 0) {
   return Math.round((chars / sec) * 10) / 10;
 }
 
-/** 把特征翻译成一句给人看的提示（也便于自测断言） */
-export function describeVoice(f) {
-  if (!f) return '';
-  const parts = [];
-  if (f.speech_rate_chars_per_sec >= 5) parts.push('语速偏快（焦躁/愤怒信号）');
-  else if (f.speech_rate_chars_per_sec > 0 && f.speech_rate_chars_per_sec < 2) parts.push('语速偏慢（悲伤/无力信号）');
-  if (f.pause_count_over_2s >= 2) parts.push(`停顿 ${f.pause_count_over_2s} 次（犹豫/崩溃信号）`);
-  if (f.volume_peak >= 0.6) parts.push('音量偏大（宣泄/失控信号）');
-  else if (f.volume_peak > 0 && f.volume_peak < 0.15) parts.push('音量偏小（压抑/退缩信号）');
-  if (f.filler_count >= 3) parts.push(`语气词 ${f.filler_count} 次（疲惫/混乱信号）`);
-  return parts.join('；');
-}
-
 /* ==================== 音频：音量峰值 + 静音停顿 ==================== */
 
 /**

@@ -84,8 +84,6 @@ function emit() { listeners.forEach((fn) => { try { fn(state); } catch (e) { con
 
 /* ---------- 路由 ---------- */
 
-export function setRoute(route) { setState({ route }); }
-
 /** IP 状态为派生状态：由路由/风险推导 */
 export function deriveIpState(route, risk) {
   if (risk && (risk.level === 'high' || risk.level === 'critical')) return 'worried';
@@ -133,8 +131,6 @@ export function appendConvo(role, text) {
   state.conversation = [...(state.conversation || []), { role, text, at: Date.now() }];
   emit();
 }
-
-export function clearConvo() { state.conversation = []; emit(); }
 
 /** 开启一段全新会话：清空轮次对话、会话累积与临时时间线（不碰已保存的时间线与卡片） */
 export function startSession() {

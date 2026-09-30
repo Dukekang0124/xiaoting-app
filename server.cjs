@@ -33,12 +33,12 @@ const path = require('node:path');
 const ROOT = __dirname;
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
-const VERSION = '1.1.7';
+const VERSION = '1.1.8';
 
 /* ==================== 静态资源白名单 ==================== */
 
 const PUBLIC_FILES = new Set([
-  '/index.html', '/styles.css', '/sw.js', '/manifest.webmanifest', '/favicon.ico',
+  '/index.html', '/styles.css', '/sw.js', '/manifest.webmanifest',
   // '/version.json'（v1.1.4）：静态版本清单。必须与后端 /api/version/latest 同源可达，
   // 理由见 js/update.js 顶部——APK 里读不到后端时就靠它。本地放行它，是为了让
   // "走静态清单"这条分支在自测里能真跑（否则本地行为与线上不一致，等于没测）。

@@ -103,7 +103,6 @@ export async function probeCloud(force = false) {
   return cloudState.state;
 }
 
-export function cloudStatus() { return { ...cloudState }; }
 
 /* ==================== 音频：解码 → 重采样 → 16k 单声道 WAV → base64 ==================== */
 
@@ -328,8 +327,33 @@ export function flushEvents() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ events }),
     keepalive: true,
-  }).catch(() => { /* 埋点失败绝不影响用户链路 */ });
+  }).catch(() => {
+    // v1.1.8：远端 /api/events 不可达（纯静态托管下本就不存在）时，别把用户行为数据直接丢进黑洞。
+    // 先回退存进 localStorage 环形缓冲，保证「至少本地可留存、可在「关于」页导出分析」，且不伤用户链路。
+    stashLocalEvents(events);
+  });
 }
 
-/** 自测用：把队列取出来看，不发送 */
-export function __pendingEvents() { return queue.slice(); }
+/* ── 本地埋点兜底：远端不可用时也不丢数据（P1-1） ── */
+const EVENTS_KEY = 'xiaoting:events';
+const EVENTS_MAX = 500;
+
+// 把没发成功的事件存进 localStorage，最多保留最近 500 条（环形缓冲）。
+export function stashLocalEvents(events) {
+  try {
+    const raw = localStorage.getItem(EVENTS_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    for (const e of events) arr.push(e);
+    while (arr.length > EVENTS_MAX) arr.shift();
+    localStorage.setItem(EVENTS_KEY, JSON.stringify(arr));
+  } catch (e) { /* localStorage 也写不了就彻底放弃，绝不抛错 */ }
+}
+
+// 给「关于」页的导出按钮用：返回本地留存的全部事件。
+export function getLocalEvents() {
+  try {
+    const raw = localStorage.getItem(EVENTS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) { return []; }
+}
+

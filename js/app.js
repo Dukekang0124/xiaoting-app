@@ -1413,7 +1413,7 @@ function pageSettings() {
       <div class="set-title">重要声明</div>
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.1.7')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.1.8')}</p>
   </section>`;
 }
 
@@ -1441,7 +1441,7 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.1.7')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.1.8')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -1449,7 +1449,8 @@ function pageChangelog() {
     <div class="changelog__list" id="clList"><p class="set-sub">正在加载更新历史…</p></div>
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.1.7')}</p>
+    <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.1.8')}</p>
   </section>`;
 }
 
@@ -1475,6 +1476,19 @@ async function bindChangelog() {
   if (check) check.addEventListener('click', () => {
     // 手动检查：总是尝试弹（除非已无新版）
     update.checkUpdate({ manual: true }).catch(() => {});
+  });
+  // P1-1：远端 /api/events 不可用时，本地兜底存了行为数据；这里提供导出入口（本地可读，解决「只写不读」）。
+  const exp = document.getElementById('clExport');
+  if (exp) exp.addEventListener('click', () => {
+    const events = asr.getLocalEvents();
+    if (!events.length) { store.toast('本地还没有留存的行为数据'); return; }
+    const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), count: events.length, events }, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `xiaoting-events-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    store.toast(`已导出 ${events.length} 条本地行为数据`);
   });
 }
 
