@@ -1000,25 +1000,39 @@ function timelineActions(tl) {
   </div>` : ''}`;
 }
 
-/** 时间线正文（有情绪）：柔和曲线 + 节点说明 + 小结 + 微小停靠提示 */
+/** 时间线正文（有情绪）：柔和曲线 + 节点说明 + 小结 + 微小停靠提示
+ *  v1.2.1：优先渲染标准化 timeline_list（emotion_text 支持「喜悦 + 委屈」双情绪并列 + desc_text ≤15 字）；
+ *          旧数据无 timeline_list 时回退到 legacy nodes。 */
 function timelineBody(tl) {
   const nodes = tl.nodes || [];
-  const rows = nodes.map((nd, i) => {
-    const emo = (nd.emotions && nd.emotions.length) ? nd.emotions.join(' + ') : '（没捕捉到明显情绪）';
-    const tail = nd.merged && nd.count > 1 ? `　（后面 ${nd.count} 轮合在这里）` : '';
+  const list = (tl.timeline_list && tl.timeline_list.length)
+    ? tl.timeline_list
+    : (nodes || []).map((n, i) => ({
+        node_index: i + 1,
+        emotion_text: (n.emotions && n.emotions.length) ? n.emotions.join(' + ') : '（没捕捉到明显情绪）',
+        desc_text: (n.text || ''),
+      }));
+  const rows = list.map((it) => {
+    const emo = it.emotion_text || ((it.emotions && it.emotions.length) ? it.emotions.join(' + ') : '（没捕捉到明显情绪）');
+    const no = it.node_index || '';
+    const desc = (it.desc_text != null && it.desc_text !== '') ? it.desc_text : (it.text || '');
+    const tail = (it.merged && it.count > 1) ? `　（后面 ${it.count} 轮合在这里）` : '';
+    const dual = / \+ /.test(emo); // 双情绪并列节点（如「喜悦 + 委屈」）
     return `<div class="tl-node">
-      <div class="tl-node__no">第 ${i + 1} 段</div>
-      <div class="tl-node__emo">${esc(emo)}</div>
-      <div class="tl-node__cap">${esc(nd.text || '')}${tail}</div>
+      <div class="tl-node__no">第 ${no} 段</div>
+      <div class="tl-node__emo${dual ? ' tl-node__emo--dual' : ''}">${esc(emo)}</div>
+      <div class="tl-node__cap">${esc(desc)}${tail}</div>
     </div>`;
   }).join('');
   const hint = tl.actionHint || {};
+  const summaryTxt = tl.summary_text || tl.summary || '';
+  const footer = tl.footer_note || TIMELINE_DISCLAIMER;
   return `
     <div class="tl-card">
       <div class="tl-corner">${miniFace('empathy', 26)}</div>
       ${timelineCurve(nodes)}
       <div class="tl-nodes">${rows}</div>
-      <div class="tl-summary">${esc(tl.summary || '')}</div>
+      <div class="tl-summary">${esc(summaryTxt || '')}</div>
       ${hint.title ? `<div class="tl-hint">
         <div class="tl-hint__label">一个很小的停靠（不强制）</div>
         <div class="tl-hint__title">${esc(hint.title)}</div>
@@ -1026,18 +1040,19 @@ function timelineBody(tl) {
         ${hint.note ? `<div class="tl-hint__note">${esc(hint.note)}</div>` : ''}
       </div>` : ''}
     </div>
-    <p class="tl-disclaimer">${esc(TIMELINE_DISCLAIMER)}</p>
+    <p class="tl-disclaimer">${esc(footer)}</p>
     ${timelineActions(tl)}`;
 }
 
 /** 时间线正文（全程无情绪）：简化卡，只留一句说明 */
 function timelineEmptyBody(tl) {
+  const footer = tl.footer_note || TIMELINE_DISCLAIMER;
   return `
     <div class="tl-card tl-card--empty">
       <div class="tl-corner">${miniFace('idle', 26)}</div>
-      <div class="tl-summary">${esc(tl.summary || '本次对话更多是陈述事件，没有捕捉到明显情绪')}</div>
+      <div class="tl-summary">${esc(tl.summary_text || tl.summary || '本次对话更多是陈述事件，没有捕捉到明显情绪')}</div>
     </div>
-    <p class="tl-disclaimer">${esc(TIMELINE_DISCLAIMER)}</p>
+    <p class="tl-disclaimer">${esc(footer)}</p>
     ${timelineActions(tl)}`;
 }
 
@@ -1061,8 +1076,8 @@ function pageTimeline(p) {
   return `
   <section class="timeline">
     <div class="page-title center">情绪时间线</div>
-    <h2 class="tl-title">${tl.id ? '深海情绪记录' : '本次深海情绪记录'}</h2>
-    <p class="tl-sub">情绪本来就会起伏波动，没有好坏${when}</p>
+    <h2 class="tl-title">${esc(tl.card_title || (tl.id ? '深海情绪记录' : '本次深海情绪记录'))}</h2>
+    <p class="tl-sub">${esc(tl.card_subtitle || '情绪本来就会起伏波动，没有好坏')}${when}</p>
     ${body}
   </section>`;
 }
@@ -1438,7 +1453,7 @@ function pageSettings() {
       <div class="set-title">重要声明</div>
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.2.0')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.2.1')}</p>
   </section>`;
 }
 
@@ -1466,7 +1481,7 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.2.0')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.2.1')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -1475,7 +1490,7 @@ function pageChangelog() {
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.2.0')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.2.1')}</p>
   </section>`;
 }
 

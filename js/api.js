@@ -15,6 +15,7 @@
 import {
   safetyCheck, analyzeMain, nextFollowup, generateCard, weeklyReport, validateShape,
   buildScenarioCard, selectCardType, pickActionVariant, buildTimeline, detectTimelineEmotions,
+  withTimelineMeta, descForNode,
 } from './ai.js';
 import { callJson, isStructural, debug as llmDebug, stats as llmStats } from './llm.js';
 import {
@@ -316,34 +317,51 @@ export function normalizeTimeline(raw, conversation) {
   // 🔴 P0 修复（v1.1.1 审计）：本地判定「全程无情绪」时必须原样返回简化卡。
   // 否则 rule.nodes 为空 ⇒ 页面 timelineCurve([]) 抛 TypeError（xs[0].toFixed 读 undefined）。
   // 自测走 mock（ask 返回 null）永远走不到这里，只有真实云端会崩。
-  if (!raw || typeof raw !== 'object' || rule.type === 'no-emotion') return rule;
+  // v1.2.1：统一经 withTimelineMeta 补齐 UI 标准化字段（含新格式兜底）。
+  if (!raw || typeof raw !== 'object' || rule.type === 'no-emotion') return withTimelineMeta(rule);
 
   // 节点条数 / 顺序 / 关键词命中以本地规则引擎为准，保证确定性；只覆盖模型给的 emotions / caption
-  const rawNodes = Array.isArray(raw.nodes) ? raw.nodes : [];
+  // 模型可给旧格式（nodes[].emotions / caption）或新格式（timeline_list[].emotion_text / desc_text）。
+  const rawList = Array.isArray(raw.timeline_list) ? raw.timeline_list
+    : (Array.isArray(raw.nodes) ? raw.nodes : []);
   const nodes = (rule.nodes || []).map((n, i) => {
-    const rn = rawNodes[i] || {};
+    const rn = rawList[i] || {};
+    // 模型给的标签：可能是数组（旧）或 emotion_text 字符串（新，如「喜悦 + 委屈」）
+    let modelEmos = [];
+    if (Array.isArray(rn.emotions)) modelEmos = rn.emotions;
+    else if (typeof rn.emotion_text === 'string') modelEmos = rn.emotion_text.split('+').map((s) => s.trim()).filter(Boolean);
     // 蓝图「禁止 AI 脑补」：模型给的标签必须在该轮原话里有关键词支撑才能采用，
     // 否则退回本地结果。模型可以在「本地全部候选」里改取舍/顺序，但不能凭空造一个。
     const supported = detectTimelineEmotions(n.text, { limit: TIMELINE_EMOTIONS.length });
-    const picked = pickFrom(rn.emotions, TIMELINE_EMOTIONS, n.emotions, 2);
+    const picked = pickFrom(modelEmos, TIMELINE_EMOTIONS, n.emotions, 2);
     const emos = picked.filter((e) => supported.includes(e));
-    return { ...n, emotions: emos.length ? emos : n.emotions, caption: guard(rn.caption, 'timeline.caption') || n.caption };
+    const desc = (typeof rn.desc_text === 'string' && rn.desc_text.trim()) ? rn.desc_text.trim() : descForNode(n);
+    const caption = (typeof rn.caption === 'string' && rn.caption.trim()) ? rn.caption.trim() : (n.caption || '');
+    return { ...n, emotions: emos.length ? emos : n.emotions, caption, desc_text: desc };
   });
 
-  const summary = guard(raw.summary, 'timeline.summary') || rule.summary;
+  const summary = guard(raw.summary_text, 'timeline.summary') || guard(raw.summary, 'timeline.summary') || rule.summary;
 
   const ah = raw.action_hint || {};
   const hint = rule.actionHint || {};
-  return {
+  const actionHint = {
+    title: guard(ah.title, 'timeline.ah.title') || hint.title,
+    step: guard(ah.step, 'timeline.ah.step') || hint.step,
+    note: guard(ah.note, 'timeline.ah.note') || hint.note,
+  };
+
+  // 新字段：模型给的优先，否则由 withTimelineMeta 用本地兜底（标题/副标题/footer/按钮）。
+  return withTimelineMeta({
     type: 'timeline',
     nodes,
     summary,
-    actionHint: {
-      title: guard(ah.title, 'timeline.ah.title') || hint.title,
-      step: guard(ah.step, 'timeline.ah.step') || hint.step,
-      note: guard(ah.note, 'timeline.ah.note') || hint.note,
-    },
-  };
+    actionHint,
+    ...(typeof raw.card_title === 'string' && raw.card_title ? { card_title: raw.card_title } : {}),
+    ...(typeof raw.card_subtitle === 'string' && raw.card_subtitle ? { card_subtitle: raw.card_subtitle } : {}),
+    ...(typeof raw.footer_note === 'string' && raw.footer_note ? { footer_note: raw.footer_note } : {}),
+    ...(typeof raw.btn_left === 'string' && raw.btn_left ? { btn_left: raw.btn_left } : {}),
+    ...(typeof raw.btn_right === 'string' && raw.btn_right ? { btn_right: raw.btn_right } : {}),
+  });
 }
 
 function normalizeWeekly(raw, cards) {

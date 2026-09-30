@@ -568,13 +568,13 @@ const MOCK_SDK = `(function(){
     };
   });
   check('时间线·每轮 ≤2 并存情绪，按出现顺序抽取', TL.t3.nodes.length === 3
-    && TL.t3.nodes[0].emotions.join('+') === '开心'
+    && TL.t3.nodes[0].emotions.join('+') === '喜悦'
     && TL.t3.nodes[1].emotions.join('+') === '委屈'
     && TL.t3.nodes[2].emotions.join('+') === '愤怒',
     TL.t3.nodes.map((n) => n.emotions.join('+')).join(' → '));
   check('时间线·矛盾情绪支持「A+B」并存（喜悦+不甘）',
     TL.contradictory.nodes.length === 1 && TL.contradictory.nodes[0].emotions.length === 2
-    && TL.contradictory.nodes[0].emotions.includes('开心') && TL.contradictory.nodes[0].emotions.includes('不甘'),
+    && TL.contradictory.nodes[0].emotions.includes('喜悦') && TL.contradictory.nodes[0].emotions.includes('不甘'),
     TL.contradictory.nodes[0].emotions.join('+'));
   check('时间线·只用普通人情绪词（无心理学术语）',
     TL.t3.nodes.every((n) => n.emotions.every((e) => TL.allowed.includes(e))), TL.allowed.join('、'));
@@ -586,6 +586,30 @@ const MOCK_SDK = `(function(){
     /流动/.test(TL.t3.summary) && !/你应该|想开点|加油|没什么大不了/.test(TL.t3.summary), TL.t3.summary);
   check('时间线·微小停靠提示来自既有微小行动卡库',
     !!(TL.t3.actionHint && TL.t3.actionHint.title && TL.t3.actionHint.step), (TL.t3.actionHint || {}).title);
+
+  // v1.2.1 模块三：标准化 timeline_list 字段（双情绪并列节点 + desc_text ≤15 字 + 向后兼容 legacy）
+  const TL12 = await page.evaluate(async () => {
+    const ai = await import('/js/ai.js');
+    const mixed = ai.buildTimeline([
+      { role: 'user', text: '今天项目终于上线了特别开心，可是领导根本没看见我的付出，心里好委屈' },
+      { role: 'user', text: '越想越生气，我真的很愤怒' },
+      { role: 'user', text: '说了一晚上，现在整个人很累很疲惫' },
+    ]);
+    return mixed;
+  });
+  const dualNode12 = (TL12.timeline_list || [])[0];
+  check('时间线·v1.2.1 首节点双情绪并列「喜悦 + 委屈」',
+    !!dualNode12 && dualNode12.emotion_text === '喜悦 + 委屈', JSON.stringify(dualNode12 || {}));
+  check('时间线·v1.2.1 desc_text 简洁准确（全部 ≤15 字）',
+    (TL12.timeline_list || []).length > 0 && (TL12.timeline_list || []).every((x) => (x.desc_text || '').length <= 15),
+    (TL12.timeline_list || []).map((x) => x.desc_text).join(' | '));
+  check('时间线·v1.2.1 含标准 UI 字段（card_title/subtitle/footer/btn）',
+    TL12.card_title === '本次深海情绪记录' && TL12.card_subtitle === '情绪本来就会起伏波动，没有好坏'
+    && !!TL12.footer_note && TL12.btn_left === '保存卡片' && TL12.btn_right === '重新倾诉',
+    (TL12.card_title || '') + ' / ' + (TL12.btn_right || ''));
+  check('时间线·v1.2.1 向后兼容：legacy nodes/summary/actionHint 仍在',
+    Array.isArray(TL12.nodes) && typeof TL12.summary === 'string' && !!(TL12.actionHint && TL12.actionHint.title),
+    'nodes=' + (TL12.nodes || []).length);
 
   // ② UI：模拟「开心 → 委屈 → 愤怒」多轮对话
   const ctxT = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'zh-CN', isMobile: true, hasTouch: true });
@@ -635,13 +659,13 @@ const MOCK_SDK = `(function(){
     no: (n.querySelector('.tl-node__no') || {}).textContent || '',
     emo: (n.querySelector('.tl-node__emo') || {}).textContent || '',
   })));
-  check('时间线·节点数 = 3（开心/委屈/愤怒各一段）', tlNodes.length === 3, JSON.stringify(tlNodes.map((n) => n.emo)));
+  check('时间线·节点数 = 3（喜悦/委屈/愤怒各一段）', tlNodes.length === 3, JSON.stringify(tlNodes.map((n) => n.emo)));
   check('时间线·每节点情绪 ≤2 且只用普通词',
     tlNodes.every((n) => n.emo.split('+').map((s) => s.trim()).filter(Boolean).length <= 2
       && n.emo.split('+').map((s) => s.trim()).filter(Boolean).every((e) => TL.allowed.includes(e))),
     JSON.stringify(tlNodes.map((n) => n.emo)));
-  check('时间线·节点情绪序列 = 开心 → 委屈 → 愤怒',
-    /开心/.test(tlNodes[0].emo) && /委屈/.test(tlNodes[1].emo) && /愤怒/.test(tlNodes[2].emo),
+  check('时间线·节点情绪序列 = 喜悦 → 委屈 → 愤怒',
+    /喜悦/.test(tlNodes[0].emo) && /委屈/.test(tlNodes[1].emo) && /愤怒/.test(tlNodes[2].emo),
     tlNodes.map((n) => n.emo).join(' → '));
 
   // 软曲线：path 用三次贝塞尔 C，非尖锐折线；节点圆点与节点数一致
@@ -719,6 +743,59 @@ const MOCK_SDK = `(function(){
     `timeline=${await pageX.locator('.timeline .tl-title').count()} risk=${await pageX.locator('.risk').count()}`);
   await ctxX.close();
 
+  // ③ 验收（v1.2.1 模块三）：混合情绪对话 → 双情绪并列节点「喜悦 + 委屈」渲染 + 截图证据
+  const ctxD = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'zh-CN', isMobile: true, hasTouch: true });
+  const pageD = await ctxD.newPage();
+  await ctxD.addInitScript(() => { try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1'); } catch (e) {} });
+  const errorsD = [];
+  pageD.on('pageerror', (e) => errorsD.push('pageerror: ' + e.message));
+  pageD.on('console', (m) => { if (m.type() === 'error') errorsD.push('console: ' + m.text()); });
+  const gotoD = (h) => pageD.goto(BASE + h, { waitUntil: 'domcontentloaded' });
+  const runRoundD = async (text) => {
+    await gotoD('/#/record?mode=text');
+    await pageD.waitForSelector('#recInput');
+    await pageD.fill('#recInput', text);
+    await pageD.click('#recDone');
+    for (let i = 1; i <= 3; i++) {
+      await pageD.waitForSelector('.fu-question, .cf-lead, .gentle__title', { timeout: 20000 });
+      if ((await pageD.locator('.cf-lead').count()) > 0) break;
+      if ((await pageD.locator('.gentle__title').count()) > 0) { await pageD.click('#gProceed'); await pageD.waitForTimeout(400); continue; }
+      await pageD.fill('#fuInput', '当时心里挺复杂的，说不清。');
+      await pageD.click('#fuNext');
+      await pageD.waitForTimeout(700);
+    }
+  };
+  await runRoundD('今天项目终于上线了特别开心，可是领导根本没看见我的付出，心里好委屈');
+  await runRoundD('越想越生气，我真的很愤怒');
+  await runRoundD('说了一晚上，现在整个人很累很疲惫');
+  await gotoD('/#/say');
+  await pageD.waitForSelector('#endVent', { timeout: 9000 });
+  await pageD.click('#endVent');
+  await pageD.waitForSelector('.timeline .tl-title', { timeout: 12000 });
+  const tlNodesD = await pageD.evaluate(() => Array.from(document.querySelectorAll('.tl-node')).map((n) => ({
+    no: (n.querySelector('.tl-node__no') || {}).textContent || '',
+    emo: (n.querySelector('.tl-node__emo') || {}).textContent || '',
+    cap: (n.querySelector('.tl-node__cap') || {}).textContent || '',
+    dual: !!n.querySelector('.tl-node__emo--dual'),
+  })));
+  check('时间线·v1.2.1 双情绪并列节点「喜悦 + 委屈」已渲染',
+    tlNodesD.length >= 1 && /喜悦/.test(tlNodesD[0].emo) && /委屈/.test(tlNodesD[0].emo)
+    && tlNodesD[0].emo.includes('+') && tlNodesD[0].dual,
+    tlNodesD.map((n) => n.emo).join(' | '));
+  check('时间线·v1.2.1 desc_text 简洁（≤15 字）',
+    tlNodesD.every((n) => n.cap.replace(/（后面 \d+ 轮合在这里）/, '').trim().length <= 15),
+    tlNodesD.map((n) => n.cap).join(' | '));
+  check('时间线·v1.2.1 节点情绪序列涵盖 喜悦/委屈/愤怒/疲惫',
+    tlNodesD.some((n) => /愤怒/.test(n.emo)) && tlNodesD.some((n) => /疲惫/.test(n.emo)),
+    tlNodesD.map((n) => n.emo).join(' → '));
+  check('时间线·v1.2.1 卡片标题/副标题逐字',
+    (await pageD.textContent('.tl-title')).trim() === '本次深海情绪记录'
+    && (await pageD.textContent('.tl-sub')).trim() === '情绪本来就会起伏波动，没有好坏',
+    (await pageD.textContent('.tl-sub')).trim());
+  check('时间线·v1.2.1 上下文无页面 JS 错误', errorsD.length === 0, errorsD.slice(0, 3).join(' | '));
+  await shot(pageD, 'timeline-dual-emoji.png');
+  await ctxD.close();
+
   /* ================= C4. 审计修复回归（v1.1.2） =================
      背景：v1.1.0 自测 334/334 全绿，但审计仍查出 1 P0 + 4 P1。原因是 mock 模式下云端分支一行都跑不到、
      高危边界用 setState 手工注入只测了判定函数没测链路。本分区专守这五条，防止回归。 */
@@ -761,7 +838,7 @@ const MOCK_SDK = `(function(){
     const out = normalizeTimeline({ nodes: [{ emotions: ['愤怒'] }], summary: '' }, conv);
     return (out.nodes[0] || {}).emotions || [];
   });
-  check('[反脑补] 模型给「愤怒」但原话只有开心 → 愤怒被丢弃', !Y3.includes('愤怒') && Y3.includes('开心'), JSON.stringify(Y3));
+  check('[反脑补] 模型给「愤怒」但原话只有喜悦 → 愤怒被丢弃', !Y3.includes('愤怒') && Y3.includes('喜悦'), JSON.stringify(Y3));
 
   // ④ 真实会话：开心 → 委屈 → 愤怒，保存去重 + 按钮变态 + 回看入口 + 导出图片
   await pageY.evaluate(async () => {

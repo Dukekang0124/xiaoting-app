@@ -1,6 +1,6 @@
 {
   "name": "xiaoting",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "description": "墨小溟 · 情绪复盘 PWA（静态页面 + 云端 ASR 代理的单端口服务 + Capacitor APK）",
   "scripts": {

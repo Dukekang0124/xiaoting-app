@@ -557,6 +557,66 @@ function buildTimelineSummary(nodes) {
   return scrubForbidden(s);
 }
 
+/* ==================== 时间线新字段（v1.2.1 模块三：UI 标准化 JSON）====================
+ * 在保留 legacy nodes / summary / actionHint（海报导出、已存数据依赖）的同时，
+ * 叠加 UI 标准化字段：card_title / card_subtitle / timeline_list / summary_text / action_tip / footer_note / btn_left / btn_right。 */
+
+const TL_CARD_TITLE = '本次深海情绪记录';
+const TL_CARD_SUBTITLE = '情绪本来就会起伏波动，没有好坏';
+// footer_note 与既有页面免责小字保持一致（同一合规口径，便于审计与测试）
+const TL_FOOTER_NOTE = '提示：这只是本次倾诉过程中情绪的简单记录，不是心理评估。情绪会随场景变化，仅供你自我看见。';
+const TL_BTN_LEFT = '保存卡片';
+const TL_BTN_RIGHT = '重新倾诉';
+const TL_ACTION_DEFAULT = '深呼吸三轮，允许自己的所有感受停留一会儿。';
+const TL_NO_EMOTION_SUMMARY = '本次对话更多是陈述事件，没有捕捉到明显情绪';
+
+/** 节点简述：简洁准确，≤15 字（用于 timeline_list.desc_text） */
+export function descForNode(n) {
+  const t = (n && n.text ? String(n.text) : '').trim();
+  if (t) return t.length > 14 ? t.slice(0, 14) + '…' : t;
+  return (n && n.merged) ? '后续轮次情绪合并' : '本轮情绪流动';
+}
+
+/** 由 legacy nodes 生成 UI 标准化 timeline_list（node_index / emotion_text / desc_text） */
+function buildTimelineList(nodes) {
+  return (nodes || []).map((n, i) => ({
+    node_index: i + 1,
+    emotion_text: (n.emotions && n.emotions.length) ? n.emotions.join(' + ') : '（无明确情绪）',
+    desc_text: descForNode(n),
+  }));
+}
+
+/** 给时间线数据补齐 UI 标准化字段（向后兼容：保留 legacy nodes / summary / actionHint） */
+export function withTimelineMeta(tl) {
+  const base = {
+    card_title: TL_CARD_TITLE,
+    card_subtitle: TL_CARD_SUBTITLE,
+    footer_note: TL_FOOTER_NOTE,
+    btn_left: TL_BTN_LEFT,
+    btn_right: TL_BTN_RIGHT,
+  };
+  if (!tl || tl.type === 'no-emotion') {
+    const summary = (tl && tl.summary) || TL_NO_EMOTION_SUMMARY;
+    return {
+      type: 'no-emotion',
+      summary,
+      ...base,
+      timeline_list: [],
+      summary_text: summary,
+      action_tip: '',
+    };
+  }
+  const summary = tl.summary || '';
+  const actionHint = tl.actionHint || {};
+  return {
+    ...tl,
+    ...base,
+    timeline_list: buildTimelineList(tl.nodes),
+    summary_text: summary,
+    action_tip: (actionHint.step) || TL_ACTION_DEFAULT,
+  };
+}
+
 /**
  * 由对话流生成时间线卡片数据。
  * @param {Array<{role:string,text:string,at?:number}>} conversation 一次会话的全部消息（user/ai）
@@ -566,7 +626,7 @@ function buildTimelineSummary(nodes) {
 export function buildTimeline(conversation = []) {
   const userMsgs = (conversation || []).filter((m) => m && m.role === 'user' && m.text && m.text.trim());
   if (!userMsgs.length) {
-    return { type: 'no-emotion', summary: '本次对话更多是陈述事件，没有捕捉到明显情绪' };
+    return withTimelineMeta({ type: 'no-emotion', summary: TL_NO_EMOTION_SUMMARY });
   }
 
   // 最多 6 节点；超出则把后面的轮次合并进最后一个节点
@@ -606,7 +666,7 @@ export function buildTimeline(conversation = []) {
   // 全程无情绪 → 简化卡（蓝图 §三.5 边界）
   const anyEmotion = nodes.some((n) => n.emotions.length);
   if (!anyEmotion) {
-    return { type: 'no-emotion', summary: '本次对话更多是陈述事件，没有捕捉到明显情绪' };
+    return withTimelineMeta({ type: 'no-emotion', summary: TL_NO_EMOTION_SUMMARY });
   }
 
   const summary = buildTimelineSummary(nodes);
@@ -620,7 +680,7 @@ export function buildTimeline(conversation = []) {
     note: (hint && hint.note) || '写下来，不一定要立刻解决它。',
   };
 
-  return { type: 'timeline', nodes, summary, actionHint };
+  return withTimelineMeta({ type: 'timeline', nodes, summary, actionHint });
 }
 
 /* ==================== 5b. 周报生成 ==================== */

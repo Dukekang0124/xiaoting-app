@@ -940,6 +940,7 @@ body.thinking--stuck .stuck-bubble{opacity:1;transform:translateY(0)}
 .tl-node{background:var(--primary-soft);border-radius:14px;padding:10px 12px}
 .tl-node__no{font-size:11.5px;color:var(--primary-deep);font-weight:600;letter-spacing:.03em}
 .tl-node__emo{font-size:15px;color:var(--ink);font-weight:600;margin:2px 0;line-height:1.5}
+.tl-node__emo--dual{display:inline-block;background:linear-gradient(135deg,#EFE9FF,#FFE9F3);color:#6A4FB0;border-radius:999px;padding:3px 12px;box-shadow:0 1px 4px rgba(122,91,208,.18)}
 .tl-node__cap{font-size:12.5px;color:var(--ink-2);line-height:1.6}
 .tl-summary{font-size:15px;line-height:1.85;color:var(--ink);margin:12px 3px 4px;white-space:pre-wrap;text-align:left}
 .tl-card--empty .tl-summary{margin:6px 3px}

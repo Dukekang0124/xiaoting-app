@@ -1,23 +1,35 @@
 {
-  "latest_version": "1.2.0",
+  "latest_version": "1.2.1",
   "force_update": false,
-  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.2.0-release.apk",
+  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.2.1-release.apk",
   "web_url": "https://xiaoting.app.workbuddy.host/#/say",
   "apk": {
-    "versionCode": 10200,
-    "version": "1.2.0",
-    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.2.0-release.apk",
+    "versionCode": 10201,
+    "version": "1.2.1",
+    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.2.1-release.apk",
     "md5": "6a297ddc4dfd261d917118ddd7cbb90a",
     "size": 3379832,
     "force": false
   },
   "release_notes": [
-    "墨小溟更有生命感：新增「愤怒（暗红·眉头紧锁·触角震颤）」「焦虑（亮紫/暗紫交替闪烁·眉头微蹙）」两种情绪态；新增待机/倾听眨眼微动作",
-    "颜色不再硬跳：所有情绪切换改用 CSS @property 平滑过渡，像水流般晕染；录音中墨小溟随你的声音实时反应——音量越大发光越亮呼吸越急、音调越高触角抖得越快、语速越快身体微动越明显",
-    "录音中克制的提前共情：音量骤增+语速快→触角前倾紧绷；声音变小+长停顿→身体微微收缩预备共情（只接住、不抢答）",
-    "安卓更新体验大修：点「立即更新」不再直接甩系统浏览器，改为应用内安装指引弹窗，讲清 3 步（开始下载→下拉通知栏安装→允许未知来源），全程都知道在干嘛"
+    "情绪词汇库内置标准化：支持双情绪共存、矛盾情绪、模糊情绪、躯体情绪，不再强行唯一判定，也不脑补用户没说的情绪",
+    "时间线卡片字段规范化：新增 card_title / card_subtitle / timeline_list 等标准 JSON 字段，节点支持双情绪并列展示（如「喜悦 + 委屈」），desc_text 简洁≤15 字",
+    "标准展示短词：喜悦/悲伤/愤怒/焦虑/惊讶/厌恶/愧疚/疲惫/孤单/矛盾/期待落空/模糊情绪——绝不打情绪分数、等级、诊断或趋势",
+    "高危硬拦截：自伤 / 伤人 / 重度抑郁危机不生成时间线卡片，直接安全弹窗 + 热线"
   ],
   "history": [
+    {
+      "version": "1.2.1",
+      "date": "2026-09-30",
+      "title": "情绪词汇库接入 + 时间线卡片字段规范化",
+      "notes": [
+        "新增内置标准情绪词汇库（EMOTION_LIB）：emotion_base / complex / vague / body_physical / neutral 五类，支持双情绪共存、矛盾、模糊、躯体情绪，植入 Prompt 与标签映射系统，不再强行唯一判定、不脑补",
+        "AI 情绪识别强制规则写入主分析 Prompt：双情绪共存、不强行唯一判定、不脑补、躯体仅备注、高危不生成时间线、每轮 1~2 标签、整段 1~6 节点、前端标准短词映射（17 词：喜悦/悲伤/愤怒/焦虑/惊讶/厌恶/愧疚/疲惫/孤单/矛盾/期待落空/模糊情绪 + 委屈/迷茫/麻木/心酸/不甘）",
+        "时间线卡片新 JSON 字段规范：card_title / card_subtitle / timeline_list[{node_index,emotion_text,desc_text}] / summary_text / action_tip / footer_note / btn_left / btn_right；timeline_list 支持双情绪并列（喜悦+委屈）、desc_text 简洁≤15字、node_index 按序递增；summary_text 只描述流动不鸡汤；action_tip 全部≤30秒低门槛；绝对禁止情绪分数/等级/诊断/趋势字段",
+        "高危拦截硬逻辑：自伤/伤人/重度抑郁危机 → 不生成时间线卡片，直接安全弹窗 + 热线（沿用 onEndVent 双保险 + 逐轮 safetyCheck 复检）",
+        "向后兼容：新字段叠加产出，保留 legacy nodes / summary / actionHint，海报导出与已存数据零破坏"
+      ]
+    },
     {
       "version": "1.2.0",
       "date": "2026-09-30",
