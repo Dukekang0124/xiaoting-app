@@ -115,8 +115,15 @@ async function fetchJson(url) {
   const timer = setTimeout(() => ctrl.abort(), 8000);
   try {
     const res = await fetch(url, { cache: 'no-store', signal: ctrl.signal });
-    if (!res.ok) throw new Error('http_' + res.status);
+    if (!res.ok) {
+      // v1.2.1 攻坚·战役三：真实错误日志（HTTP 状态 + URL），排障时直接在控制台看得到，不只在诊断面板。
+      console.error('[更新检测] 请求失败', { url, http: res.status });
+      throw new Error('http_' + res.status);
+    }
     return res.json();
+  } catch (e) {
+    if (!(e && String(e.message).startsWith('http_'))) console.error('[更新检测] 请求异常', { url, err: String((e && e.message) || e) });
+    throw e;
   } finally {
     clearTimeout(timer);
   }

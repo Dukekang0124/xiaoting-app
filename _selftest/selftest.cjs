@@ -384,7 +384,20 @@ const MOCK_SDK = `(function(){
   await shot(page, '03-analyzing.png');
 
   await page.waitForSelector('.fu-question', { timeout: 15000 });
-  check('追问页 IP=共情 empathy', (await page.getAttribute('.mascot', 'data-state')) === 'empathy');
+  // v1.3.0 起：追问页 IP 不再是「恒为 empathy」，而是 §一.2 的 emotion_render 节点
+  // —— 按本轮分析出的情绪渲染姿态与调色板（无情绪时才回退 empathy）。断言与"解析结果"对齐，
+  // 而不是写死某个姿态：否则任何一次正常情绪变化都会被误判成回归。
+  const fuIp = await page.evaluate(async () => {
+    const sm = await import('/js/state-machine.js');
+    const st = (await import('/js/store.js')).getState();
+    const key = st.emotionKey;
+    return {
+      key,
+      expect: key ? (sm.EMOTION_RENDER_STATE[key] || 'idle') : 'empathy',
+      dom: document.querySelector('.mascot').getAttribute('data-state'),
+    };
+  });
+  check('追问页 IP=按检测到的情绪渲染（v1.3.0 emotion_render，取代恒为 empathy）', fuIp.dom === fuIp.expect, JSON.stringify(fuIp));
   check('追问含共情句（≤15字）', (await page.locator('.fu-empathy').count()) > 0, await page.textContent('.fu-empathy').catch(() => ''));
   check('追问含过渡语（来自文案库）', A.followupLead.includes(await page.textContent('.fu-lead')));
   await shot(page, '04-followup.png');
@@ -429,6 +442,18 @@ const MOCK_SDK = `(function(){
   await page.waitForSelector('.recent', { timeout: 9000 });
   check('保存后回首页且最近卡片=用户编辑值', (await page.textContent('.recent__title')).includes('编辑后的卡片标题'));
   check('保存后 IP=开心 happy', (await page.getAttribute('.mascot', 'data-state')) === 'happy');
+  // A/B 鉴别护栏（v1.3.0）：开心必须由「刚收下卡片」这一个显式窗口触发。
+  // 曾经用「有没有 toast」当信号 ⇒ 导出记录 / 清空记忆 / 断网提示等**任何** toast
+  // 都会让首页 IP 变成开心 —— 情绪与事实相反，比没有动效更糟。这条断言让倒退立刻变红。
+  const happyGuard = await page.evaluate(async () => {
+    const s = await import('/js/store.js');
+    const t = await import('/js/app.js').then((m) => m.__test__);
+    s.setState({ happyUntil: 0 });
+    s.toast('已导出情绪记录');   // 一个与情绪无关的提示
+    t.render();
+    return t.currentIpDesc().state;
+  });
+  check('非「收下卡片」的提示不会让首页 IP 变开心（情绪不失真）', happyGuard !== 'happy', happyGuard);
   await shot(page, '06-home-saved.png');
 
   await goto('/#/cards');
@@ -1170,7 +1195,20 @@ const MOCK_SDK = `(function(){
   await page.waitForSelector('.risk-modal', { timeout: 15000 });
   check('高风险 → 强制弹窗（温馨提示卡片，低饱和暗紫）', (await page.textContent('.risk-modal__badge')).trim() === '温馨提示');
   check('强制弹窗按钮=「我已了解」（必须点击才能继续对话）', (await page.textContent('#riskModalConfirm')).trim() === '我已了解');
-  check('强制弹窗 IP=担心 worried', (await page.getAttribute('.risk-modal__ip .mascot', 'data-state')) === 'worried');
+  // v1.3.0 §三.3 高危截断：弹窗 IP 从 worried 改为 danger 节点 —— 停所有水墨特效、只留柔和警示光圈
+  const riskIp = await page.evaluate(() => {
+    const svg = document.querySelector('.risk-modal__ip .mascot');
+    const halo = svg.querySelector('.mascot__halo');
+    return {
+      state: svg.getAttribute('data-state'),
+      bodyIn: getComputedStyle(svg).getPropertyValue('--ip-body-in').trim(),
+      bodyAnim: getComputedStyle(svg).animationName,
+      haloAnim: halo ? getComputedStyle(halo).animationName : '',
+    };
+  });
+  check('强制弹窗 IP=danger（v1.3.0 高危截断节点，不再是 worried）', riskIp.state === 'danger', JSON.stringify(riskIp));
+  check('强制弹窗 IP 用低饱和暗紫（调色板 danger #442c50，不是高饱和警示红）', /68,\s*44,\s*80|#442c50/i.test(riskIp.bodyIn), riskIp.bodyIn);
+  check('强制弹窗 IP 停情绪动画、只留柔和警示光圈（ip-warn-ring）', riskIp.bodyAnim === 'none' && riskIp.haloAnim.includes('ip-warn-ring'), `${riskIp.bodyAnim}/${riskIp.haloAnim}`);
   const modalBody = (await page.textContent('.risk-modal__body')).trim();
   check('弹窗正文∈高危文案库（对话区同步输出）', A.riskSuicideLines.includes(modalBody));
   check('弹窗固定展示热线 400-161-9995', (await page.textContent('.risk-modal')).includes('400-161-9995'));
@@ -1189,7 +1227,7 @@ const MOCK_SDK = `(function(){
   await page.waitForSelector('.risk-modal', { timeout: 15000 });
   check('critical → 强制弹窗（risk-modal）', (await page.locator('.risk-modal').count()) > 0);
   check('紧急弹窗按钮=「我已了解」', (await page.textContent('#riskModalConfirm')).trim() === '我已了解');
-  check('紧急弹窗 IP=担心 worried', (await page.getAttribute('.risk-modal__ip .mascot', 'data-state')) === 'worried');
+  check('紧急弹窗 IP=danger（v1.3.0 高危截断节点）', (await page.getAttribute('.risk-modal__ip .mascot', 'data-state')) === 'danger');
   check('紧急弹窗含热线 400-161-9995 与 010-82951332', (await page.textContent('.risk-modal')).includes('400-161-9995') && (await page.textContent('.risk-modal')).includes('010-82951332'));
   await shot(page, '15-risk-emergency.png');
   await page.click('#riskModalConfirm');
@@ -1221,7 +1259,7 @@ const MOCK_SDK = `(function(){
   await goto('/#/say');
   await page.waitForSelector('.mascot');
 
-  check('IP 标记 v1.2', (await page.getAttribute('.mascot', 'data-ip')) === 'v1.2', await page.getAttribute('.mascot', 'data-ip'));
+  check('IP 标记 v1.3', (await page.getAttribute('.mascot', 'data-ip')) === 'v1.3', await page.getAttribute('.mascot', 'data-ip'));
 
   // E1. IP 结构与六状态调色板（直接 import 模块，一次拿到全部状态）
   const IP = await page.evaluate(async () => {
@@ -1308,6 +1346,11 @@ const MOCK_SDK = `(function(){
   check('头像容器有圆形底衬且不裁掉触角', IP.__avatar.hasAvatar, IP.__avatar.ratio);
 
   // E2. 首页：按钮质感 + 波形 + 淡入 + 文字层级
+  // v1.3.2 起首页会继承上一轮倾诉的情绪色彩，而「改 hash 不触发重载」⇒ 此刻 store 里可能还留着情绪键，
+  // 首页 IP 就不是 idle 姿态。E2 要验的是「没有情绪在身时的安静首页」，故先 reload 取干净态（localStorage 不清，卡片仍在）。
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await goto('/#/say');
+  await page.waitForSelector('.mascot', { timeout: 8000 });
   const home = await page.evaluate(() => {
     const b = document.querySelector('#talkbtn');
     const cs = getComputedStyle(b);
@@ -1387,7 +1430,10 @@ const MOCK_SDK = `(function(){
     return { color: cs.color, text: el.textContent.trim(), size: cs.fontSize };
   });
   check('底部提示更柔和（第三级文字色，不抢焦点）', hint.color === 'rgb(176, 170, 164)', hint.color);
-  check('底部提示原文保留', hint.text.includes('说一次，就会有一张') && parseFloat(hint.size) <= 13.5, `${hint.text} / ${hint.size}`);
+  // v1.3.3 起底部提示改为文案库轮换（CARD_HINT 四条）——不再是写死的一句，
+  // 所以断言改成「必须来自文案库」，既保住覆盖又不锁死文案。
+  const hintLib = await page.evaluate(async () => (await import('/js/copywriting.js')).CARD_HINT);
+  check('底部提示来自文案库（v1.3.3 起轮换）', hintLib.includes(hint.text) && parseFloat(hint.size) <= 13.5, `${hint.text} / ${hint.size}`);
 
   await goto('/#/cards');
   await page.waitForSelector('.empty-state', { timeout: 8000 });
@@ -1415,36 +1461,55 @@ const MOCK_SDK = `(function(){
   check('「去说一次」与首页按钮同一质感', ghost && /gradient/.test(ghost.btnBg) && ghost.btnShadow.length > 20, ghost && ghost.btnBg.slice(0, 36));
   await shot(page, '12-cards-empty.png');
 
-  // E4. 我的页：IP 头像 + 线性图标 + 卡片层次 + 免责声明
+  // E4. 我的页（v1.3.4 重构：你的深海空间）：IP 头像 + 线性图标入口 + 分区卡 + 边界/FAQ/导出 + 免责声明
   await goto('/#/me');
-  await page.waitForSelector('.me__head');
+  await page.waitForSelector('.me-head2');
   const me = await page.evaluate(() => {
     const icos = [...document.querySelectorAll('.mrow__ico svg')];
-    const list = document.querySelector('.mlist');
+    const blk = document.querySelector('.mblock');
+    const q = (s) => document.querySelectorAll(s).length;
     return {
       avatar: !!document.querySelector('.me__face .avatar .mascot'),
-      rows: document.querySelectorAll('.mrow').length,
+      rows: q('.mrow'),
       iconN: icos.length,
       strokes: icos.map((s) => getComputedStyle(s).stroke),
       fill: icos.map((s) => getComputedStyle(s).fill),
-      headBg: getComputedStyle(document.querySelector('.me__head')).backgroundColor,
-      headShadow: getComputedStyle(document.querySelector('.me__head')).boxShadow,
-      listShadow: getComputedStyle(list).boxShadow,
-      listBg: getComputedStyle(list).backgroundColor,
-      radius: getComputedStyle(list).borderRadius,
+      hasTimeline: q('.mrow--timelines'),
+      hasMemory: q('.mrow--memory'),
+      hasSettings: q('.mrow--settings'),
+      hasAbout: q('.mrow--about'),
+      hasExport: q('#meExport'),
+      hasClearMemory: q('#meClearMemory'),
+      blocks: q('.mblock'),
+      faq: q('.faq'),
+      blockBg: getComputedStyle(blk).backgroundColor,
+      blockShadow: getComputedStyle(blk).boxShadow,
+      radius: getComputedStyle(blk).borderRadius,
+      title: (document.querySelector('.me__title2') || {}).textContent || '',
       subColor: getComputedStyle(document.querySelector('.mrow__sub')).color,
+      boundary: (document.querySelector('.mblock--quiet') || { textContent: '' }).textContent || '',
       footColor: getComputedStyle(document.querySelector('.foot-note')).color,
       footText: document.querySelector('.foot-note').textContent,
     };
   });
   check('我的页头像=墨小溟 IP（非系统默认）', me.avatar, String(me.avatar));
-  // v1.1.2：「我的」页新增「情绪时间线」入口 ⇒ 5 项 5 图标
-  check('我的页列表 5 项且各有线性图标（含「情绪时间线」「关于墨小溟」）', me.rows === 5 && me.iconN === 5, `rows=${me.rows} icons=${me.iconN}`);
+  check('我的页标题=「深海空间」（v1.3.4 文案植入生效）', me.title.includes('深海'), me.title);
+  // v1.1.2 情绪时间线 / v1.3.0 我的记忆 / v1.3.4 互动设置·关于 —— 四个入口各 1 个
+  check('我的页关键入口齐全（情绪时间线/我的记忆/互动设置/关于）',
+    me.hasTimeline === 1 && me.hasMemory === 1 && me.hasSettings === 1 && me.hasAbout === 1,
+    `timeline=${me.hasTimeline} memory=${me.hasMemory} settings=${me.hasSettings} about=${me.hasAbout}`);
+  check('我的页每个入口都有线性图标', me.rows > 0 && me.iconN === me.rows, `rows=${me.rows} icons=${me.iconN}`);
   check('图标为线性描边（fill:none）', me.fill.every((f) => f === 'none'), me.fill.join('|'));
-  check('图标用辅助色点缀（4 色互不相同）', new Set(me.strokes).size === 4, me.strokes.join(' | '));
+  check('图标用辅助色点缀（≥4 色互不相同）', new Set(me.strokes).size >= 4, me.strokes.join(' | '));
   check('图标含淡蓝（心电图）', me.strokes.some((c) => c === 'rgb(168, 200, 232)'), me.strokes.join(' | '));
-  check('列表卡有白底 + 阴影（层次分明）', me.listBg === 'rgb(255, 255, 255)' && me.listShadow.length > 20, `${me.listBg}/${me.listShadow.slice(0, 34)}`);
-  check('列表卡圆角 20px', me.radius === '20px', me.radius);
+  check('分区卡有白底 + 阴影（层次分明）', me.blockBg === 'rgb(255, 255, 255)' && me.blockShadow.length > 20, `${me.blockBg}/${me.blockShadow.slice(0, 34)}`);
+  check('分区卡圆角 20px', me.radius === '20px', me.radius);
+  check('我的页信息分区 ≥6 块（碎片/记忆/设置/存储/边界/支持/关于/协议）', me.blocks >= 6, `blocks=${me.blocks}`);
+  check('情绪支持 FAQ 可展开（≥3 条）', me.faq >= 3, `faq=${me.faq}`);
+  check('陪伴边界声明在页内可见（不能替代专业诊疗）', me.boundary.includes('不能替代'), me.boundary.replace(/\s+/g, '').slice(0, 48));
+  check('情绪记录可导出（导出入口存在）', me.hasExport === 1, `#meExport=${me.hasExport}`);
+  check('记忆可清空（清空入口存在）', me.hasClearMemory === 1, `#meClearMemory=${me.hasClearMemory}`);
+  check('入口副文案用第三级灰 #B0AAA4', me.subColor === 'rgb(176, 170, 164)', me.subColor);
   check('免责声明用次级灰 #8A8A8A', me.footColor === 'rgb(138, 138, 138)', me.footColor);
   check('免责声明原文保留', me.footText.includes('不会诊断') && me.footText.includes('说出来'), me.footText.replace(/\s+/g, ''));
   await shot(page, '10-me.png');

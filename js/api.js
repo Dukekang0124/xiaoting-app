@@ -25,6 +25,7 @@ import {
 import { AI } from './config.js';
 import * as store from './store.js';
 import * as diag from './diag.js';
+import * as memory from './memory.js';
 
 /* ==================== 词表（与 Prompt 里给定的一致，用来校验模型输出） ==================== */
 
@@ -496,10 +497,20 @@ export const api = {
    * @returns {Promise<object>} 主分析 JSON
    */
   async analyze({ transcript = '', onProgress, voiceFeatures = null } = {}) {
+    // v1.3.0 记忆地基：跨会话结构化记忆召回，注入主分析提示（受 memory_on 总开关控制）。
+    let memoryContext = '';
+    try {
+      const on = (store.getState().user.settings.memory_on) !== false;
+      if (on) {
+        const units = await memory.loadMemory();
+        const top = memory.recallTopN(units, { transcript, emotion: [], limit: 3 });
+        if (top.length) memoryContext = memory.buildMemoryContext(top.map((t) => t.unit));
+      }
+    } catch (e) { /* 降级：无记忆上下文，不影响主流程 */ }
     const raw = await ask({
       stage: 'main',
       system: SYSTEM.main,
-      user: buildMainPrompt(transcript, voiceFeatures),
+      user: buildMainPrompt(transcript, voiceFeatures, memoryContext),
       temperature: MODEL_CONFIG.main.temperature,
       maxTokens: MODEL_CONFIG.main.maxTokens,
       json: true,
@@ -605,6 +616,8 @@ export const api = {
   /** DELETE /api/user/data */
   async userDataDelete() {
     store.deleteAllData();
+    // v1.3.0 记忆地基：一键删除全部数据时，IndexedDB 里的记忆与历史会话一并清空。
+    try { await memory.clearMemory(); } catch (e) { /* ignore */ }
     return { deleted: true };
   },
 

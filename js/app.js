@@ -10,10 +10,15 @@ import * as asr from './asr.js';
 import * as voice from './voice.js';
 import * as update from './update.js';
 import * as nativeAsr from './native-asr.js';
+import * as ipSM from './state-machine.js'; // v1.3.0 IP 情绪状态机
+import ipAudio from './ip-audio.js'; // v1.3.0 IP 轻音效（Web Audio 合成，零素材）
+import * as cw from './copywriting.js'; // v1.3.1~1.3.4 文案库
+import { createIpInteraction, tapAnimClass } from './interaction.js'; // v1.3.1 IP 点击轻互动
 import * as diag from './diag.js';
 import { parseHash, go, onChange } from './router.js';
 import { COPY, greetByHour, findForbidden, pickRiskScript, pickEmotionResponse, pickSilence, pickBy } from './prompts.js';
 import { AI, ASR, isNativeApp } from './config.js';
+import * as memory from './memory.js';
 
 const $view = () => document.getElementById('view');
 const $tabbar = () => document.getElementById('tabbar');
@@ -28,6 +33,10 @@ const ICON = {
   about: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="7.6" r="1.05" fill="currentColor" stroke="none"/></svg>`,
   // 时间线：一条起伏的水流曲线（与卡片图标区分）
   timeline: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15.5c3 0 3.4-7 6.4-7s3.4 7 6.4 7 3.4-4.5 5.2-4.5"/></svg>`,
+  // 记忆：一束缠绕的脑波/丝线（深海带状记忆意象）
+  memory: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12c2.5 0 2.5-5 5-5s2.5 10 5 10 2.5-5 4-5"/><circle cx="5" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>`,
+  // 支持：一双手托住一颗心的托举意象（与「设置」的锁形区分）
+  support: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-6.4-3.9-6.4-8.2A3.6 3.6 0 0 1 12 9.4a3.6 3.6 0 0 1 6.4 2.4C18.4 16.1 12 20 12 20Z"/></svg>`,
 };
 
 /** 录音波形（7 根柱子，CSS 驱动起伏） */
@@ -418,24 +427,29 @@ async function endCapture() {
 
 function pageSay() {
   const s = store.getState();
+  const quiet = !!s.quietMode;
   const last = s.cards[0];
   const sessionUser = (s.sessionLog || []).filter((m) => m.role === 'user' && m.text).length;
+  // v1.3.3 首页问候（会话内固定）；v1.3.2 安静模式替换专属标题/小字/卡片提示
+  const greet = quiet ? (s.quietTitle || cw.pick(cw.QUIET_COPY.titles)) : (s.greeting || greetByHour());
+  const hint = quiet ? (s.quietSmall || cw.pick(cw.QUIET_COPY.smallTexts)) : (s.greetingSmall || '不用组织语言，想到哪说到哪');
+  const cardHint = quiet ? (s.quietCardHint || cw.pick(cw.QUIET_COPY.cardHints)) : (s.cardHint || '还没有卡片。说一次，就会有一张。');
   return `
-  <section class="say">
+  <section class="say${quiet ? ' say--quiet' : ''}">
     <header class="say__head">
       <div class="say__date">${todayText()}</div>
-      <h1 class="say__greet">${greetByHour()}</h1>
+      <h1 class="say__greet">${esc(greet)}</h1>
     </header>
-    <div class="say__mascot">${mascot(s.toast ? 'happy' : 'idle', 200)}</div>
+    <div class="say__mascot" id="ipTouch">${ipMascot(200)}<div class="ip-bubble" id="ipBubble" hidden></div></div>
     <div class="say__action">
       <button class="talkbtn" id="talkbtn" type="button">
         <span class="talkbtn__label" id="talkLabel">按住说</span>
         <span class="talkbtn__timer" id="recTimer">0.0s</span>
         ${wave('wave--btn')}
       </button>
-      <p class="say__hint">不用组织语言，想到哪说到哪</p>
-      ${sessionUser ? `<button class="endvent-btn" id="endVent" type="button">结束倾诉</button>` : ''}
-      <a class="say__type" href="#/record?mode=text">不方便说？打字也行</a>
+      <p class="say__hint">${esc(hint)}</p>
+      ${!quiet && sessionUser ? `<button class="endvent-btn" id="endVent" type="button">结束倾诉</button>` : ''}
+      ${!quiet ? `<a class="say__type" href="#/record?mode=text">不方便说？打字也行</a>` : ''}
     </div>
     <div class="say__live" id="liveWrap" hidden><div class="live-label">正在听</div><div class="live-text" id="liveText">……</div></div>
     ${renderConvo(s.conversation)}
@@ -449,7 +463,7 @@ function pageSay() {
           <div class="recent__meta">${fmtDate(last.created_at)} · ${esc((last.emotion || []).join('、'))} · 强度 ${esc(last.intensity)}</div>
         </div>
       </div>
-    </a>` : `<div class="empty-hint">还没有卡片。说一次，就会有一张。</div>`}
+    </a>` : `<div class="empty-hint">${esc(cardHint)}</div>`}
   </section>`;
 }
 
@@ -472,6 +486,8 @@ function bindSay() {
   if (endVent) endVent.addEventListener('click', onEndVent);
   const start = (e) => {
     e.preventDefault();
+    // v1.3.2：安静模式下点「按住说」→ 先退出安静，再进入语音倾诉
+    if (store.getState().quietMode) { store.setState({ quietMode: false }); try { document.body.classList.remove('quiet-mode'); } catch (er) { /* ignore */ } }
     btn.classList.add('talkbtn--press');
     // 判断依据从「有没有内置识别」改成「能不能录音」：
     // 旧逻辑在 iOS Safari / 微信里一按就被踢去打字页，正是 v1.3 要破的那个卡点。
@@ -485,6 +501,99 @@ function bindSay() {
   btn.addEventListener('pointercancel', stop);
   btn.addEventListener('pointerleave', () => { btn.classList.remove('talkbtn--press'); if (rec.active) endCapture(); });
   btn.addEventListener('click', (e) => { if (!CAP.canRecord) e.preventDefault(); });
+
+  // v1.3.1 IP 点击轻互动（仅 IP 本体触发；对话/回复/高危时失效）
+  bindIpInteraction();
+}
+
+/* ---------- v1.3.1/1.3.2：IP 点击轻互动 + 安静陪伴模式 ---------- */
+
+let sayIpCtl = null;
+let suppressTapUntil = 0; // 长按进入安静模式后重渲染，松手的 pointerup 会落到新控制器上，短暂抑制以免多计一次点击
+
+/** 点击互动是否失效（前置边界判断）：触碰总开关 / 非首页 / AI回复中 / 高危 时禁用；安静模式仍生效 */
+function ipInteractionDisabled() {
+  const st = store.getState();
+  if (st.user.settings.ipTouch === false) return true;
+  if (st.quietMode) return false;
+  if ((parseHash().name || 'say') !== 'say') return true;
+  if (st.aiReplying) return true;
+  if (st.risk && (st.risk.level === 'high' || st.risk.level === 'critical')) return true;
+  if (typeof document !== 'undefined' && document.querySelector('.risk-modal')) return true;
+  return false;
+}
+
+function bindIpInteraction() {
+  // 事件绑在「IP 本体（svg）」上，而非全宽容器：点容器留白/气泡即视为「点空白」（用于退出安静模式）
+  const el = document.querySelector('#ipTouch .mascot') || document.getElementById('ipTouch');
+  if (!el) return;
+  if (sayIpCtl) { try { sayIpCtl.destroy(); } catch (e) { /* ignore */ } sayIpCtl = null; }
+  sayIpCtl = createIpInteraction({
+    el,
+    isDisabled: ipInteractionDisabled,
+    onTap: (count) => handleIpTap(count, el),
+    onLongPress: () => enterQuietMode(),
+    onTapAway: (e) => {
+      if (!store.getState().quietMode) return;
+      if (e && e.target && e.target.closest && e.target.closest('.say__action')) return; // 按住说/按钮不算空白
+      exitQuietMode();
+    },
+  });
+}
+
+function handleIpTap(count, el) {
+  // 抑制长按松手泄漏出的那次点击；同时把计数归零，避免"被抑制的这一次"仍推进连击计数
+  if (Date.now() < suppressTapUntil) { if (sayIpCtl && sayIpCtl.reset) sayIpCtl.reset(); return; }
+  if (ipInteractionDisabled()) return;
+  const st = store.getState();
+  const text = st.quietMode ? cw.quietTapBubble(count) : cw.normalTapBubble(count, st.emotionKey);
+  const cls = tapAnimClass(count);
+  const target = (el && el.closest && el.closest('.say__mascot')) || el; // 动画类挂到容器（CSS 选择器 .say__mascot.ip-tapN）
+  if (!target) return;
+  target.classList.remove('ip-tap1', 'ip-tap2', 'ip-tap3', 'ip-tap-over');
+  void target.offsetWidth;
+  target.classList.add(cls);
+  setTimeout(() => { try { target.classList.remove(cls); } catch (e) { /* ignore */ } }, 1700);
+  if (st.user.settings.ipBubble !== false) showIpBubble(text, count >= 4 ? 2200 : 2000);
+  if (window.ipAudio) window.ipAudio.cue(count >= 4 ? 'receive' : 'calm');
+}
+
+function showIpBubble(text, ms = 2000) {
+  const b = document.getElementById('ipBubble');
+  if (!b || !text) return;
+  b.textContent = text;
+  b.hidden = false;
+  b.classList.remove('ip-bubble--on');
+  void b.offsetWidth;
+  b.classList.add('ip-bubble--on');
+  if (showIpBubble._t) clearTimeout(showIpBubble._t);
+  showIpBubble._t = setTimeout(() => { try { b.hidden = true; b.classList.remove('ip-bubble--on'); } catch (e) { /* ignore */ } }, ms);
+}
+
+/** 长按进入安静陪伴模式：替换文案、继承情绪色、背景更柔；不产生卡片、不调模型 */
+function enterQuietMode() {
+  const st = store.getState();
+  if (st.user.settings.ipTouch === false) return;
+  if ((parseHash().name || 'say') !== 'say') return;
+  if (st.quietMode) return;
+  suppressTapUntil = Date.now() + 500; // 抑制长按松手泄漏的点击
+  store.setState({
+    quietMode: true,
+    quietTitle: cw.pick(cw.QUIET_COPY.titles),
+    quietSmall: cw.pick(cw.QUIET_COPY.smallTexts),
+    quietCardHint: cw.pick(cw.QUIET_COPY.cardHints),
+  });
+  if (window.ipAudio) window.ipAudio.cue('calm');
+  render();
+  showIpBubble(cw.pick(cw.QUIET_COPY.enterBubble), 3400);
+}
+
+/** 退出安静陪伴模式：点空白处 / 点按住说（后者由 talkbtn 自行放行到语音流程） */
+function exitQuietMode() {
+  if (!store.getState().quietMode) return;
+  store.setState({ quietMode: false });
+  render();
+  showIpBubble(cw.pick(cw.QUIET_COPY.exitBubble), 2600);
 }
 
 /**
@@ -510,6 +619,25 @@ async function onEndVent() {
     tl = buildTimeline(log); // 降级：本地规则引擎，绝不让流程断在这里
   }
   store.setState({ timeline: tl });
+  // v1.3.0 记忆地基：结构化提取 + 去重合并入库（受 memory_on 总开关控制）。
+  // 这里可能与 runAnalysisAndContinue 的入库互斥（「结束倾诉」与「说完了」是两条不同入口），
+  // 但分析 JSON 在此处通常不可得（直接点「结束倾诉」时还没分析 / 走完卡片后 draft 已清），
+  // 所以退化到本地规则引擎 analyzeMain 派生基础分析——绝不空手，也绝不依赖模型。
+  // 失败静默：记忆是增强项，绝不能因为 IndexedDB 写不进而卡住主流程或弹错。
+  try {
+    if ((st.user.settings.memory_on) !== false) {
+      const transcript = log.map((m) => m.text).join('\n');
+      const { analyzeMain } = await import('./ai.js');
+      const analysis = (st.draft && st.draft.analysis) || analyzeMain(transcript);
+      memory.saveSessionWithMemory({
+        session: { id: (st.draft && st.draft.recordId) || ('sess_' + Date.now().toString(36)) },
+        analysis,
+        transcript,
+        timeline: tl,
+        dateISO: new Date().toISOString(),
+      }).catch(() => {});
+    }
+  } catch (e) { /* 记忆入库失败不影响主流程 */ }
   go('timeline');
 }
 
@@ -629,7 +757,8 @@ let analyzingToken = 0;
 function pageAnalyzing() {
   return `
   <section class="center-stage">
-    <div class="stage-mascot">${mascot('thinking', 190)}</div>
+    <div class="stage-mascot">${mascot('thinking', 190)}<div class="ip-ripple" id="recvRipple"></div></div>
+    <div class="ip-recv-bubble" id="recvBubble" hidden>正在接住你的情绪</div>
     <div class="stage-copy" id="analyzingCopy">${COPY.analyzing[0]}</div>
     <div class="stage-summary" id="analyzingSummary"></div>
     <div class="stuck-bubble" id="stuckBubble">我在认真听，别急～</div>
@@ -650,6 +779,16 @@ function mountAnalyzing() {
     rec.stuckTimer = setTimeout(() => {
       if (token === analyzingToken) { try { document.body.classList.add('thinking--stuck'); } catch (e) { /* ignore */ } }
     }, 10000);
+
+    // v1.3.0 §一.2 接收情绪节点：提交后 0.8s 内显示「正在接住你的情绪」气泡 + 墨汁波纹
+    const recvUntil = store.getState().receivingUntil;
+    if (recvUntil && Date.now() < recvUntil) {
+      const bubble = document.getElementById('recvBubble');
+      const ripple = document.getElementById('recvRipple');
+      if (bubble) bubble.hidden = false;
+      if (ripple) { ripple.classList.remove('is-on'); void ripple.offsetWidth; ripple.classList.add('is-on'); }
+      if (window.ipAudio) window.ipAudio.cue('receive');
+    }
 
     let safety;
     try {
@@ -706,6 +845,30 @@ async function runAnalysisAndContinue() {
     return;
   }
   store.patchDraft({ analysis });
+  // v1.3.0 情绪渲染：分析完成后写入检测到的情绪键 + 强度，供情绪渲染/AI 回复节点消费（L1/L2/L3 由 state-machine 选色）
+  // v1.3.4 开场回应：第一条倾诉后，墨小溟先接住情绪（简短克制，随情绪状态机同步色彩）——只作开场第一句
+  try {
+    const emoKey = ipSM.resolveEmotionKey(analysis);
+    store.setEmotion(emoKey, analysis.intensity || 5);
+    if (window.ipAudio) window.ipAudio.cue(emoKey === 'danger' ? 'danger' : (emoKey && emoKey !== 'default' ? 'emotion' : 'calm'));
+    const opening = cw.openingFor(emoKey);
+    if (opening) { appendConvo('ai', opening); store.patchDraft({ opening }); }
+  } catch (e) { /* ignore */ }
+  // v1.3.0 记忆地基：主分析产出后即入库（结构化提取 + 去重合并）。
+  // 这是分析 JSON 唯一可靠可得的点——后续卡片保存会清空 draft，
+  // 且无论用户是否走完「卡片 / 结束倾诉」，这一次倾诉的核心洞察都被记下。受 memory_on 控制。
+  try {
+    if ((store.getState().user.settings.memory_on) !== false) {
+      const d2 = store.getState().draft;
+      memory.saveSessionWithMemory({
+        session: { id: (d2 && d2.recordId) || ('sess_' + Date.now().toString(36)) },
+        analysis,
+        transcript: (d2 && d2.transcript) || '',
+        timeline: null,
+        dateISO: new Date().toISOString(),
+      }).catch(() => {});
+    }
+  } catch (e) { /* 记忆是增强项，失败不影响主流程 */ }
   if (!analysis.needs_followup) { await toConfirm(); return; }
 
   let fu;
@@ -772,7 +935,8 @@ function pageFollowup() {
       <div class="page-title">第 ${Math.min(askedCount, 3)} / 3 个问题</div>
       <span style="width:48px"></span>
     </div>
-    <div class="fu-mascot">${mascot('empathy', 130)}</div>
+    <div class="fu-mascot">${ipMascot(130)}</div>
+    ${d.opening && askedCount === 1 ? `<p class="fu-opening">${esc(d.opening)}</p>` : ''}
     ${d.empathy ? `<p class="fu-empathy">${esc(d.empathy)}</p>` : ''}
     <div class="fu-lead">${esc(COPY.followupLead[idx] || COPY.followupLead[0])}</div>
     <div class="fu-question" data-q="${esc(d.currentQuestion || '')}">${esc(d.currentQuestion || '再多说一点？')}</div>
@@ -830,7 +994,7 @@ async function advanceFollowup(answer) {
 function pageGentle() {
   return `
   <section class="gentle">
-    <div class="gentle__mascot">${mascot('empathy', 150)}</div>
+    <div class="gentle__mascot">${ipMascot(150)}</div>
     <h2 class="gentle__title">${esc(COPY.gentle.title)}</h2>
     <p class="gentle__body">${esc(COPY.gentle.body)}</p>
     <button class="primary" id="gMore" type="button">${esc(COPY.gentle.more)}</button>
@@ -865,7 +1029,7 @@ function pageConfirm() {
       <div class="page-title">墨小溟留了张卡片</div>
       <span style="width:48px"></span>
     </div>
-    <div class="cf-mascot catch-in">${mascot(c.ip_state || 'empathy', 112)}</div>
+    <div class="cf-mascot catch-in">${ipMascot(112)}</div>
     <h2 class="cf-lead catch-in">我听到的是这些，你看对不对？</h2>
     <div class="cf-card catch-in">
       <div class="cf-card__badge">${esc(c.card_layer || '')} · ${esc(c.card_name || '情绪卡片')}</div>
@@ -942,6 +1106,8 @@ async function saveCardFromForm() {
   await api.cardCreate(edited);
   asr.logEvent('card_saved', { intensity: edited.intensity, emotion_n: (edited.emotion || []).length, card_type: c.card_type });
   store.toast(pickIdx(COPY.cardDone));
+  store.setHappy(4500); // v1.3.0：回到首页时 IP 开心一下（显式窗口，不靠 toast 触发）
+  later(() => { if (store.getState().happyUntil) store.setState({ happyUntil: 0 }); render(); }, 4700); // 窗口结束收回开心，避免停在开心态
   go('say');
 }
 
@@ -1372,45 +1538,153 @@ function mountWeekly() {
 
 function pageMe() {
   const s = store.getState();
+  const st = s.user.settings;
+  const M = cw.ME_COPY;
   return `
   <section class="me">
-    <div class="page-title center">我</div>
-    <div class="me__head">
+    <header class="me-head2">
       <div class="me__face">${avatar('idle', 62)}</div>
-      <div>
-        <div class="me__name">${esc(s.user.nickname || '你')}</div>
-        <div class="me__meta">已记录 ${s.cards.length} 张情绪卡片</div>
-      </div>
-    </div>
-    <nav class="mlist">
+      <h1 class="me__title2">${esc(M.title)}</h1>
+      <p class="me__sub2">${esc(M.subtitle)}</p>
+    </header>
+
+    <div class="mblock">
+      <div class="mblock__t">${esc(M.overview.title)}</div>
+      <p class="mblock__d">${esc(M.overview.desc)}</p>
+      <a class="mrow mrow--cards" href="#/cards">
+        <span class="mrow__ico">${ICON.cards}</span>
+        <span class="mrow__txt">${esc(M.overview.button)}<span class="mrow__sub">${s.cards.length ? `共 ${s.cards.length} 张` : '还没有卡片，去说一次吧'}</span></span>
+        <i class="mrow__arrow">›</i>
+      </a>
       <a class="mrow mrow--weekly" href="#/weekly">
         <span class="mrow__ico">${ICON.weekly}</span>
         <span class="mrow__txt">本周情绪体检<span class="mrow__sub">看看这周的情绪走向</span></span>
         <i class="mrow__arrow">›</i>
       </a>
-      <a class="mrow mrow--cards" href="#/cards">
-        <span class="mrow__ico">${ICON.cards}</span>
-        <span class="mrow__txt">我的卡片<span class="mrow__sub">${s.cards.length ? `共 ${s.cards.length} 张，都是你说过的` : '还没有卡片，去说一次吧'}</span></span>
-        <i class="mrow__arrow">›</i>
-      </a>
       <a class="mrow mrow--timelines" href="#/timelines">
         <span class="mrow__ico">${ICON.timeline}</span>
-        <span class="mrow__txt">情绪时间线<span class="mrow__sub">${(s.timelines || []).length ? `已保存 ${s.timelines.length} 次倾诉的起伏` : '还没有保存过，结束倾诉时可以存一张'}</span></span>
+        <span class="mrow__txt">情绪时间线<span class="mrow__sub">${(s.timelines || []).length ? `已保存 ${s.timelines.length} 次倾诉的起伏` : '还没有保存过'}</span></span>
         <i class="mrow__arrow">›</i>
       </a>
+      <p class="mblock__n">${esc(M.overview.note)}</p>
+    </div>
+
+    <div class="mblock">
+      <div class="mblock__t">${esc(M.memory.title)}</div>
+      <p class="mblock__d">${esc(M.memory.viewDesc)}</p>
+      <a class="mrow mrow--memory" href="#/memory">
+        <span class="mrow__ico">${ICON.memory}</span>
+        <span class="mrow__txt">${esc(M.memory.viewBtn)}<span class="mrow__sub">可编辑、可删除单条</span></span>
+        <i class="mrow__arrow">›</i>
+      </a>
+      <label class="switch">
+        <span>${esc(M.memory.toggle)}</span>
+        <input type="checkbox" id="meMemory" ${st.memory_on !== false ? 'checked' : ''}/>
+      </label>
+      <p class="mblock__n">${esc(M.memory.toggleDesc)}</p>
+      <button class="danger-link" id="meClearMemory" type="button">清空全部记忆</button>
+    </div>
+
+    <div class="mblock">
+      <div class="mblock__t">${esc(M.settingsTitle)}</div>
       <a class="mrow mrow--settings" href="#/settings">
         <span class="mrow__ico">${ICON.settings}</span>
-        <span class="mrow__txt">设置与隐私<span class="mrow__sub">记录存本机，随时可删</span></span>
+        <span class="mrow__txt">互动设置<span class="mrow__sub">触碰动画 / 气泡 / 强度 / 音效</span></span>
         <i class="mrow__arrow">›</i>
       </a>
+      <label class="switch">
+        <span>${esc(M.notify.toggle)}</span>
+        <input type="checkbox" id="meNotify" ${st.notify_on ? 'checked' : ''}/>
+      </label>
+      <p class="mblock__n">${esc(M.notify.desc)}</p>
+    </div>
+
+    <div class="mblock">
+      <div class="mblock__t">${esc(M.storage.title)}</div>
+      <button class="ghost me-export" id="meExport" type="button">${esc(M.storage.exportBtn)}</button>
+      <p class="mblock__n">${esc(M.storage.exportDesc)}</p>
+      <button class="danger-link" id="meClearCards" type="button">${esc(M.storage.clearBtn)}</button>
+    </div>
+
+    <div class="mblock mblock--quiet">
+      <div class="mblock__t">${esc(M.boundary.title)}</div>
+      <p class="mblock__n">${esc(M.boundary.text)}</p>
+    </div>
+
+    <div class="mblock">
+      <div class="mblock__t">${esc(M.support.title)}</div>
+      <a class="mrow mrow--support" href="#/risk">
+        <span class="mrow__ico">${ICON.support}</span>
+        <span class="mrow__txt">紧急心理热线<span class="mrow__sub">需要时，请优先联系专业支持</span></span>
+        <i class="mrow__arrow">›</i>
+      </a>
+      ${M.support.faq.map((f) => `<details class="faq"><summary>${esc(f.q)}</summary><p>${esc(f.a)}</p></details>`).join('')}
+    </div>
+
+    <div class="mblock">
+      <div class="mblock__t">${esc(M.about.title)}</div>
+      <p class="mblock__n">${esc(M.about.text)}</p>
+    </div>
+
+    <div class="mblock">
+      <div class="mblock__t">${esc(M.legal.title)}</div>
+      <p class="mblock__n">${esc(M.legal.text)}</p>
       <a class="mrow mrow--about" href="#/changelog">
         <span class="mrow__ico">${ICON.about}</span>
-        <span class="mrow__txt">关于墨小溟<span class="mrow__sub">版本更新与更新历史</span></span>
+        <span class="mrow__txt">用户协议 / 隐私政策<span class="mrow__sub">版本与更新历史</span></span>
         <i class="mrow__arrow">›</i>
       </a>
-    </nav>
+    </div>
+
+    <div class="mblock">
+      <button class="danger" id="wipe" type="button">清除本地数据</button>
+      <p class="mblock__n">${esc(M.wipe.confirm)}</p>
+    </div>
+
     <p class="foot-note">墨小溟不会诊断，也不是心理医生。<br/>它只是陪你把心事说出来。</p>
   </section>`;
+}
+
+function bindMe() {
+  const mem = document.getElementById('meMemory');
+  if (mem) mem.addEventListener('change', () => store.setSetting('memory_on', mem.checked));
+  const nt = document.getElementById('meNotify');
+  if (nt) nt.addEventListener('change', () => store.setSetting('notify_on', nt.checked));
+  const cm = document.getElementById('meClearMemory');
+  if (cm) cm.addEventListener('click', async () => {
+    if (!window.confirm(cw.ME_COPY.memory.clearAll)) return;
+    try { await memory.clearMemory(); } catch (e) { /* ignore */ }
+    store.toast('已清空全部记忆');
+  });
+  const ex = document.getElementById('meExport');
+  if (ex) ex.addEventListener('click', exportAllData);
+  const cc = document.getElementById('meClearCards');
+  if (cc) cc.addEventListener('click', () => {
+    if (!window.confirm(cw.ME_COPY.storage.clearConfirm)) return;
+    store.clearCards();
+    store.toast('已清除全部卡片');
+    render();
+  });
+  const wipe = document.getElementById('wipe');
+  if (wipe) wipe.addEventListener('click', async () => {
+    if (window.confirm(cw.ME_COPY.wipe.confirm)) { await api.userDataDelete(); store.toast('已删除全部数据'); go('say'); }
+  });
+}
+
+/** v1.3.4：导出全部情绪记录为 JSON（本地下载，不上传） */
+function exportAllData() {
+  try {
+    const s = store.getState();
+    const payload = { exported_at: new Date().toISOString(), cards: s.cards || [], timelines: s.timelines || [] };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `墨小溟-情绪记录-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); if (a.parentNode) a.parentNode.removeChild(a); }, 300);
+    store.toast('已导出情绪记录');
+  } catch (e) { store.toast('导出失败'); }
 }
 
 /* ---------------- 页面：设置与隐私 ---------------- */
@@ -1436,6 +1710,42 @@ function pageSettings() {
       <p class="set-sub">开启后，录音会上传到墨小溟的服务端、由专业云端识别转成文字，转写完成后不会留存音频。关闭后不再上传任何录音，改用浏览器本地识别或打字。</p>
     </div>
     <div class="set-block">
+      <label class="switch">
+        <span>允许墨小溟记住我说过的事</span>
+        <input type="checkbox" id="setMemory" ${(st.memory_on !== false) ? 'checked' : ''}/>
+      </label>
+      <p class="set-sub">开启后，墨小溟会记下你倾诉中出现的「人物 / 事件 / 心结」结构化摘要（不保存原话），下次开口时轻轻呼应。关闭后不再新增与召回，已存记忆可到「我的记忆」里管理或删除。</p>
+    </div>
+    <div class="set-block">
+      <div class="set-title">IP 情绪动效</div>
+      <label class="switch">
+        <span>开启 IP 情绪动效</span>
+        <input type="checkbox" id="setIpMotion" ${st.ipMotion !== false ? 'checked' : ''}/>
+      </label>
+      <p class="set-sub">关掉后，墨小溟停止所有色彩、动画与背景水墨特效，只留安静的静态形象（适合低电量或光敏敏感时一键关闭）。</p>
+      <label class="switch">
+        <span>IP 触碰互动（点击 / 长按）</span>
+        <input type="checkbox" id="setIpTouch" ${st.ipTouch !== false ? 'checked' : ''}/>
+      </label>
+      <label class="switch">
+        <span>气泡文字</span>
+        <input type="checkbox" id="setIpBubble" ${st.ipBubble !== false ? 'checked' : ''}/>
+      </label>
+      <p class="set-sub">关闭「触碰互动」后，点墨小溟不再有任何动画或气泡；关闭「气泡文字」仅保留动画、不显示文字。</p>
+      <div class="seg" id="setIpIntensity">
+        <span class="seg__label">动画强度</span>
+        <div class="seg__opts">
+          <button type="button" data-v="gentle" class="${st.ipIntensity === 'gentle' ? 'seg--on' : ''}">柔和</button>
+          <button type="button" data-v="standard" class="${st.ipIntensity === 'standard' ? 'seg--on' : ''}">标准</button>
+        </div>
+      </div>
+      <label class="switch">
+        <span>水墨 / 气泡轻音效</span>
+        <input type="checkbox" id="setSound" ${st.soundOn ? 'checked' : ''}/>
+      </label>
+      <p class="set-sub">独立开关。开启后，情绪变化、接收与高危时会有极轻的水墨 / 气泡合成音（默认关闭，需手动开启；不依赖任何音频素材文件）。</p>
+    </div>
+    <div class="set-block">
       <div class="set-title">数据安全</div>
       <p class="set-sub">录音只用于这一次转写：音频会发到墨小溟自己的服务端，由专业云端识别转成文字，转写完成后不做留存。转写出的文字会经加密通道发送给大模型（第三方 AI 服务）进行处理，用于生成这一次的分析、追问与卡片。墨小溟不做账号与身份绑定，不要求你提供姓名、手机号或地址。卡片、草稿与设置只存在本机浏览器，可随时一键删除。</p>
     </div>
@@ -1453,7 +1763,7 @@ function pageSettings() {
       <div class="set-title">重要声明</div>
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.2.1')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.3.4')}</p>
   </section>`;
 }
 
@@ -1464,6 +1774,24 @@ function bindSettings() {
   // 关掉就不再上传录音（endCapture 会读这个设置）。
   const cb = document.getElementById('setCloudAsr');
   if (cb) cb.addEventListener('change', () => store.setSetting('cloudAsr', cb.checked));
+  const mem = document.getElementById('setMemory');
+  if (mem) mem.addEventListener('change', () => store.setSetting('memory_on', mem.checked));
+  // v1.3.0 IP 情绪动效三个开关
+  const ipMotion = document.getElementById('setIpMotion');
+  if (ipMotion) ipMotion.addEventListener('change', () => { store.setSetting('ipMotion', ipMotion.checked); document.body.classList.toggle('ip-motion-off', !ipMotion.checked); });
+  const ipInt = document.getElementById('setIpIntensity');
+  if (ipInt) ipInt.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
+    const v = b.dataset.v;
+    store.setSetting('ipIntensity', v);
+    ipInt.querySelectorAll('button').forEach((x) => x.classList.toggle('seg--on', x === b));
+    document.body.classList.toggle('ip-intensity-gentle', v === 'gentle');
+  }));
+  const snd = document.getElementById('setSound');
+  if (snd) snd.addEventListener('change', () => { store.setSetting('soundOn', snd.checked); if (window.ipAudio) window.ipAudio.setEnabled(snd.checked); });
+  const ipTouch = document.getElementById('setIpTouch');
+  if (ipTouch) ipTouch.addEventListener('change', () => store.setSetting('ipTouch', ipTouch.checked));
+  const ipBubble = document.getElementById('setIpBubble');
+  if (ipBubble) ipBubble.addEventListener('change', () => store.setSetting('ipBubble', ipBubble.checked));
   const wipe = document.getElementById('wipe');
   if (wipe) wipe.addEventListener('click', async () => {
     if (window.confirm('确定删除全部数据吗？此操作不可恢复。')) {
@@ -1474,6 +1802,115 @@ function bindSettings() {
   });
 }
 
+/* ---------------- 页面：我的记忆（V1.1 记忆地基 / app v1.3.0） ---------------- */
+
+let _memUnits = [];
+
+function pageMemory() {
+  const on = (store.getState().user.settings.memory_on) !== false;
+  return `
+  <section class="memory">
+    <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">我的记忆</div><span style="width:48px"></span></div>
+    ${on ? `
+      <p class="set-sub">墨小溟只记下你说过的「人物 / 事件 / 心结」结构化摘要，不保存原话，存在本机、可随时编辑或删除。下次开口会轻轻呼应相关的记忆。</p>
+      <div id="memList" class="mem-list">加载中……</div>
+    ` : `
+      <p class="set-sub">记忆功能已关闭。开启后，墨小溟会在你倾诉时记下结构化摘要，并在之后轻轻呼应。已存的记忆不会被删除，只是不再新增与召回。</p>
+      <div id="memList" class="mem-list"></div>
+    `}
+  </section>`;
+}
+
+const MEM_TAG = { person: '人物', event: '事件', knot: '心结' };
+
+function memRow(u) {
+  const tag = MEM_TAG[u.type] || '记忆';
+  const emo = (u.emotion_tags || []).map((e) => `<span class="mem-tag">${esc(e)}</span>`).join('');
+  const date = fmtDate(u.created_at);
+  return `
+  <div class="mem-row" data-mem="${esc(u.id)}">
+    <div class="mem-row__top">
+      <span class="mem-type mem-type--${esc(u.type)}">${tag}</span>
+      <button class="mem-star ${u.important ? 'is-on' : ''}" data-act="star" type="button" title="标记重要">${u.important ? '★' : '☆'}</button>
+    </div>
+    <div class="mem-title">${esc(u.title)}</div>
+    ${u.summary ? `<div class="mem-summary">${esc(u.summary)}</div>` : ''}
+    <div class="mem-meta">${emo}<span class="mem-date">${date}</span></div>
+    <div class="mem-acts">
+      <button class="linkbtn" data-act="edit" type="button">编辑</button>
+      <button class="linkbtn danger-link" data-act="del" type="button">删除</button>
+    </div>
+  </div>`;
+}
+
+function renderMemList() {
+  const list = document.getElementById('memList');
+  if (!list) return;
+  if (!_memUnits.length) { list.innerHTML = '<p class="mem-empty">还没有记下任何记忆。去说一次，墨小溟会慢慢认识你。</p>'; return; }
+  const sorted = [..._memUnits].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  list.innerHTML = sorted.map(memRow).join('') + '<div class="mem-foot"><button class="danger small" id="memClear" type="button">清空全部记忆</button></div>';
+  sorted.forEach(bindMemRow);
+}
+
+function bindMemRow(u) {
+  const row = document.querySelector('.mem-row[data-mem="' + CSS.escape(u.id) + '"]');
+  if (!row) return;
+  const star = row.querySelector('[data-act="star"]');
+  if (star) star.onclick = async () => {
+    await memory.markMemoryImportant(u.id, !u.important);
+    u.important = !u.important;
+    renderMemList();
+  };
+  const del = row.querySelector('[data-act="del"]');
+  if (del) del.onclick = async () => {
+    if (window.confirm('删除这条记忆吗？删除后不可恢复。')) {
+      await memory.deleteMemory(u.id);
+      _memUnits = _memUnits.filter((x) => x.id !== u.id);
+      renderMemList();
+    }
+  };
+  const edit = row.querySelector('[data-act="edit"]');
+  if (edit) edit.onclick = () => openMemEdit(row, u);
+}
+
+function openMemEdit(row, u) {
+  row.innerHTML = `
+    <div class="mem-edit">
+      <input class="mem-edit-title" type="text" value="${esc(u.title)}" maxlength="60" placeholder="标题"/>
+      <textarea class="mem-edit-summary" maxlength="200" placeholder="摘要（可选）">${esc(u.summary || '')}</textarea>
+      <div class="mem-edit-acts">
+        <button class="linkbtn" data-act="cancel" type="button">取消</button>
+        <button class="primary small" data-act="save" type="button">保存</button>
+      </div>
+    </div>`;
+  row.querySelector('[data-act="cancel"]').onclick = () => renderMemList();
+  row.querySelector('[data-act="save"]').onclick = async () => {
+    const title = row.querySelector('.mem-edit-title').value.trim();
+    const summary = row.querySelector('.mem-edit-summary').value;
+    if (!title) { store.toast('标题不能为空'); return; }
+    await memory.editMemory(u.id, { title, summary });
+    Object.assign(u, { title, summary, user_edited: true });
+    renderMemList();
+    store.toast('已保存');
+  };
+}
+
+async function bindMemory() {
+  const list = document.getElementById('memList');
+  if (!list) return;
+  if ((store.getState().user.settings.memory_on) === false) { list.innerHTML = ''; return; }
+  try { _memUnits = await memory.loadMemory(); } catch (e) { _memUnits = []; }
+  renderMemList();
+  const clear = document.getElementById('memClear');
+  if (clear) clear.onclick = async () => {
+    if (window.confirm('清空全部记忆吗？此操作不可恢复，已存记忆会被删除。')) {
+      await memory.clearMemory();
+      _memUnits = [];
+      renderMemList();
+    }
+  };
+}
+
 /* ---------------- 页面：关于墨小溟 / 更新历史 ---------------- */
 
 function pageChangelog() {
@@ -1481,7 +1918,7 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.2.1')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.3.4')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -1490,7 +1927,7 @@ function pageChangelog() {
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.2.1')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.3.4')}</p>
   </section>`;
 }
 
@@ -1511,7 +1948,8 @@ async function bindChangelog() {
     }
   } catch (e) {
     // v1.1.10：网络拉取失败不再报生硬「加载失败」，改为温柔提示，并保留下方「检查更新」按钮可手动重试。
-    el.innerHTML = '<p class="set-sub">暂时无法连接深海，请稍后再试。</p>';
+    // v1.2.1 攻坚·战役三：降级文案统一为「深海信号微弱，请检查网络再试」，把"失败感"从"产品坏了"改写成"网络问题"。
+    el.innerHTML = '<p class="set-sub">深海信号微弱，请检查网络再试。</p>';
   }
   const check = document.getElementById('clCheck');
   if (check) check.addEventListener('click', () => {
@@ -1544,7 +1982,7 @@ function pageRisk(p) {
   const contactLabel = emergency ? '立即联系专业帮助' : '联系专业帮助';
   return `
   <section class="risk ${emergency ? 'risk--emergency' : ''}">
-    <div class="risk__mascot">${mascot('worried', 160)}</div>
+    <div class="risk__mascot">${mascot('danger', 160)}</div>
     <h2 class="risk__title">${esc(script.title)}</h2>
     <p class="risk__lead">${esc(script.line)}</p>
     ${ev ? `<p class="risk__ev">你刚才提到：「${esc(ev)}……」</p>` : ''}
@@ -1608,7 +2046,7 @@ function showRiskModal(version, script, evidence) {
   overlay.setAttribute('aria-modal', 'true');
   overlay.innerHTML = `
     <div class="risk-modal__card">
-      <div class="risk-modal__ip">${mascot('worried', 150)}</div>
+      <div class="risk-modal__ip">${mascot('danger', 150)}</div>
       <div class="risk-modal__badge">温馨提示</div>
       <div class="risk-modal__title">${esc(script.title)}</div>
       ${evidence ? `<div class="risk-modal__ev">你刚才提到：「${esc(evidence.slice(0, 40))}……」</div>` : ''}
@@ -1860,7 +2298,8 @@ const PAGES = {
   cards: { render: pageCards, tab: 'cards', nav: true },
   card: { render: pageCardDetail, bind: bindCardDetail, nav: true },
   weekly: { render: pageWeekly, mount: mountWeekly, nav: true },
-  me: { render: pageMe, tab: 'me', nav: true },
+  me: { render: pageMe, bind: bindMe, tab: 'me', nav: true },
+  memory: { render: pageMemory, bind: bindMemory, nav: true },
   settings: { render: pageSettings, bind: bindSettings, nav: true },
   changelog: { render: pageChangelog, bind: bindChangelog, nav: false },
   risk: { render: pageRisk, bind: bindRisk, nav: false },
@@ -1890,11 +2329,32 @@ function render() {
   if (rec.stuckTimer) { clearTimeout(rec.stuckTimer); rec.stuckTimer = null; }
   try { document.body.classList.remove('thinking--stuck', 'recording--breath'); } catch (e) { /* ignore */ }
 
-  const ip = store.deriveIpState(p.name, store.getState().risk);
-  store.getState().ipState = ip;
+  const s = store.getState();
+  s.lastInteractionAt = Date.now();
+  // v1.3.0 AI 回复微动作：followup/gentle/confirm 且对话区末尾是 AI 回应时，叠加「缓缓靠近」呼吸
+  s.aiReplying = ['followup', 'gentle', 'confirm'].includes(p.name) && (s.conversation || []).slice(-1)[0] && (s.conversation || []).slice(-1)[0].role === 'ai';
+  // v1.3.0 §三.4 超时回归：3 分钟无交互 → 情绪缓慢回归 idle（emotionKey 置空，CSS 过渡平滑回退）
+  const idleOut = ipSM.isIdleTimeout(s.lastInteractionAt);
+  const desc = ipSM.gateByMotion(ipSM.resolveNode({
+    route: p.name,
+    riskLevel: s.risk.level,
+    emotionKey: idleOut ? null : s.emotionKey,
+    intensity: s.emotionIntensity,
+    receivingUntil: s.receivingUntil,
+    now: Date.now(),
+    aiReplying: s.aiReplying,
+    happy: Date.now() < (s.happyUntil || 0),
+  }), s.user.settings.ipMotion !== false);
+  currentIpDesc = desc;
+  store.getState().ipState = desc.state;
 
   document.body.dataset.route = p.name;
   document.body.classList.toggle('has-nav', page.nav !== false);
+  // v1.3.0 开关门禁：IP 动效总开关 / 动画强度档（柔和）
+  document.body.classList.toggle('ip-motion-off', s.user.settings.ipMotion === false);
+  document.body.classList.toggle('ip-intensity-gentle', s.user.settings.ipIntensity === 'gentle');
+  // v1.3.2 安静陪伴模式：背景更柔、视觉降噪
+  document.body.classList.toggle('quiet-mode', !!s.quietMode);
 
   const v = $view();
   if (v) {
@@ -1906,12 +2366,57 @@ function render() {
     v.scrollTop = 0;
     window.scrollTo(0, 0);
   }
+  applyIpBg(desc);
   renderTabs(page.tab || '');
 
   if (page.bind) page.bind(p);
   if (page.mount) page.mount(p);
 
   renderToast();
+}
+
+/* v1.3.0 IP 情绪视觉引擎：当前渲染描述符（render() 计算，各页 ipMascot 读取） */
+let currentIpDesc = null;
+
+/** 渲染当前情绪态 IP：用 state-machine 解析出的姿态 + 内联调色板色 + 节点附加类 */
+function ipMascot(size) {
+  const d = currentIpDesc || ipSM.resolveNode({ route: (parseHash().name || 'say') });
+  return mascot(d.state, size, d.colors, (d.mixed ? 'ip-mixed ' : '') + 'ip-node-' + d.node);
+}
+
+/** 把解析描述符落到背景水墨层（#ipBg） */
+function applyIpBg(desc) {
+  const bg = document.getElementById('ipBg');
+  if (bg) bg.className = 'ip-bg ip-bg--' + (desc.danger ? 'soft_warning_ring' : (desc.bgEffect || 'steady_water'));
+}
+
+/* v1.3.3 首页问候：会话内固定、重开 App 才轮换；老用户按历史情绪偏向匹配（来自记忆地基） */
+function historyBiasFrom(rows) {
+  const MAP = {
+    委屈: 'sad', 悲伤: 'sad', 难过: 'sad', 孤独: 'sad', 羞耻: 'sad', 内疚: 'sad', 沮丧: 'sad',
+    疲惫: 'tired', 倦: 'tired', 无力: 'tired', 累: 'tired', 乏力: 'tired',
+    焦虑: 'anxious', 恐惧: 'anxious', 紧张: 'anxious', 愤怒: 'anxious', 生气: 'anxious', 烦躁: 'anxious', 火大: 'anxious',
+    开心: 'joy', 喜悦: 'joy', 高兴: 'joy', 快乐: 'joy', 平静: 'joy', 安心: 'joy',
+  };
+  const count = {};
+  let total = 0;
+  (rows || []).forEach((r) => (r.emotion_tags || []).forEach((t) => { const c = MAP[String(t).trim()]; if (c) { count[c] = (count[c] || 0) + 1; total++; } }));
+  if (!total) return null;
+  const sorted = Object.entries(count).sort((a, b) => b[1] - a[1]);
+  if (total >= 4 && sorted[0][1] / total < 0.5 && sorted.length >= 3) return 'mixed';
+  return sorted[0][0];
+}
+
+async function initGreeting() {
+  let rows = [];
+  try { rows = await memory.loadMemory(); } catch (e) { rows = []; }
+  const bias = historyBiasFrom(rows);
+  store.setState({
+    historyBias: bias,
+    greeting: cw.greetingFor({ hour: new Date().getHours(), hasHistory: !!bias, bias }),
+    greetingSmall: cw.pick(cw.GREETING_SMALL_TEXT),
+    cardHint: cw.pick(cw.CARD_HINT),
+  });
 }
 
 function renderToast() {
@@ -1935,7 +2440,7 @@ function renderToast() {
 const BACK_PARENT = {
   record: 'say', analyzing: 'say', followup: 'say', gentle: 'say', confirm: 'say', risk: 'say',
   timeline: 'me', timelines: 'me', weekly: 'me', settings: 'me', changelog: 'me', diag: 'settings',
-  card: 'cards',
+  card: 'cards', memory: 'me',
 };
 let _exitArmed = false;
 let _exitTimer = null;
@@ -2018,6 +2523,128 @@ function registerBackHandler() {
   } catch (e) { /* 非原生环境忽略 */ }
 }
 
+/* ---------------- 左滑返回手势（v1.2.1 攻坚 · 战役二） ---------------- */
+/* 复刻原生 Android 返回手势「从左边缘向右拖」：
+   · 仅在左边缘（x<EDGE）起手、且横向位移 > 纵向时才判定为「想返回」；
+   · 拖动时 #view 跟手右移（parallax），并叠一层随进度加深的暗色；
+   · 松手超过阈值 ⇒ 滑出并回到父级；否则回弹；
+   · 倾诉进行中（录音/分析中）⇒ 先弹「正在为你保存这片深海的记忆…」温柔确认，确认后再保存并离开；
+   · 与既有 Android 物理返回键（registerBackHandler）共用同一套父级映射与确认逻辑。 */
+let _swipeHint = null;
+function showSwipeHint(prog) {
+  if (!_swipeHint) {
+    _swipeHint = document.createElement('div');
+    _swipeHint.id = 'swipeHint';
+    _swipeHint.setAttribute('aria-hidden', 'true');
+    _swipeHint.textContent = '‹';
+    document.body.appendChild(_swipeHint);
+  }
+  _swipeHint.style.opacity = String(Math.min(1, prog * 1.4));
+}
+function hideSwipeHint() { if (_swipeHint) _swipeHint.style.opacity = '0'; }
+function resetSwipe(view) {
+  view.style.transform = '';
+  view.style.willChange = '';
+  view.style.removeProperty('--swipe-dim');
+  view.classList.remove('swipe-release');
+  document.body.classList.remove('swiping');
+  hideSwipeHint();
+}
+
+export function initSwipeBack() {
+  const view = $view();
+  if (!view) return;
+  const EDGE = 28;        // 左边缘起手区
+  const THRESH = 0.34;    // 超过屏宽 34% 才真正返回
+  const MIN_DX = 12;      // 超过此水平位移才判定为返回意图（区别于点击 / 竖向滚动）
+
+  let startX = 0, startY = 0, active = false, decided = false, dir = 0;
+
+  const onDown = (e) => {
+    const name = parseHash().name;
+    if (!BACK_PARENT[name]) return;                 // 首页级无父级 ⇒ 不启用侧滑返回
+    const t = e.target;
+    if (t && t.closest && t.closest('button,a,input,textarea,select,[contenteditable]')) return;
+    if (e.clientX > EDGE) return;                   // 只认左边缘起手
+    startX = e.clientX; startY = e.clientY;
+    active = true; decided = false; dir = 0;
+  };
+
+  const onMove = (e) => {
+    if (!active) return;
+    const dx = e.clientX - startX, dy = e.clientY - startY;
+    if (!decided) {
+      if (Math.abs(dx) < MIN_DX && Math.abs(dy) < MIN_DX) return;
+      if (Math.abs(dx) > Math.abs(dy) && dx > 0) {
+        decided = true; dir = 1;
+        document.body.classList.add('swiping');
+        view.style.willChange = 'transform';
+      } else { active = false; return; }             // 竖向 / 反向 ⇒ 交还页面（滚动等）
+    }
+    if (dir !== 1) return;
+    e.preventDefault();                              // 已判定为返回手势 ⇒ 阻止页面滚动
+    const w = window.innerWidth || 360;
+    const pulled = Math.min(dx, w * 0.92);
+    const prog = Math.max(0, Math.min(1, pulled / (w * THRESH)));
+    view.style.transform = 'translateX(' + pulled + 'px)';
+    view.style.setProperty('--swipe-dim', (prog * 0.28).toFixed(3));
+    showSwipeHint(prog);
+  };
+
+  const onUp = (e) => {
+    if (!active) return;
+    const dx = e.clientX - startX;
+    finish(dx > (window.innerWidth || 360) * THRESH);
+  };
+  const onCancel = () => finish(false);
+
+  const finish = (commit) => {
+    if (!active) return;
+    active = false;
+    if (!decided || dir !== 1) { resetSwipe(view); return; }
+    const name = parseHash().name;
+    document.body.classList.remove('swiping');
+    view.classList.add('swipe-release');
+    if (commit && _isBusy()) {
+      // 倾诉进行中：温柔提示并先保存，再离开（与物理返回键共用同一确认语义）
+      resetSwipe(view);
+      gentleConfirm('正在为你保存这片深海的记忆… 现在离开，这次倾诉会留在这里，确定离开吗？')
+        .then((ok) => {
+          if (!ok) return;
+          if (rec.active) { endCapture().then(() => go(_parentOf(name))); }
+          else go(_parentOf(name));
+        });
+      return;
+    }
+    if (commit) {
+      const w = window.innerWidth || 360;
+      view.style.transform = 'translateX(' + w + 'px)';
+      let done = false;
+      const after = () => {
+        if (done) return; done = true;
+        view.removeEventListener('transitionend', after);
+        go(_parentOf(name)); resetSwipe(view);
+      };
+      view.addEventListener('transitionend', after);
+      setTimeout(after, 340);                        // 兜底：transitionend 万一不来
+    } else {
+      view.style.transform = 'translateX(0)';
+      let done = false;
+      const after = () => {
+        if (done) return; done = true;
+        view.removeEventListener('transitionend', after); resetSwipe(view);
+      };
+      view.addEventListener('transitionend', after);
+      setTimeout(after, 340);
+    }
+  };
+
+  view.addEventListener('pointerdown', onDown);
+  window.addEventListener('pointermove', onMove, { passive: false });
+  window.addEventListener('pointerup', onUp);
+  window.addEventListener('pointercancel', onCancel);
+}
+
 /** 离线浮条：断网时浮动提示，恢复后自动隐藏 */
 function updateOfflineBar() {
   const bar = document.getElementById('offlineBar');
@@ -2060,6 +2687,9 @@ function showWelcome() {
 
 export function boot() {
   store.initStore();
+  // v1.3.0 记忆地基：首次启动把既有 localStorage 时间线卡播种进 IndexedDB（一次性，
+  // 用 settings.migrated 守卫，已迁过就不再跑）。失败静默。
+  memory.migrateFromLocalStorage(store.getState()).catch(() => {});
   // v1.1.4：先把上一次会话的诊断日志接回来，再打本次环境快照。
   // 之前 persist() 每步都在写，但 restore() 全仓没有任何调用点 ⇒ 日志写着却永远读不回来，
   // 刷新一次就断——「复现完了再看」这个用法等于没实现。
@@ -2071,6 +2701,8 @@ export function boot() {
   onChange(() => render());
   if (!location.hash) location.hash = '#/say';
   render();
+  // v1.3.3：异步取历史情绪偏向 → 生成首页问候（首帧先用时段问候兜底，取到后重渲染）
+  initGreeting().then(() => { try { if ((parseHash().name || 'say') === 'say') render(); } catch (e) { /* ignore */ } });
   showWelcome();
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
@@ -2083,6 +2715,11 @@ export function boot() {
   update.initUpdate();
   // v1.1.10：全局硬件返回键（物理键 + 系统侧滑手势）+ 离线浮条
   registerBackHandler();
+  // v1.2.1 攻坚：左滑返回手势（触摸层，与物理键共用父级映射）
+  initSwipeBack();
+  // v1.3.0 IP 视觉引擎：轻音效接入全局 + 按开关初始化（默认关）
+  window.ipAudio = ipAudio;
+  ipAudio.setEnabled(store.getState().user.settings.soundOn === true);
   window.addEventListener('online', updateOfflineBar);
   window.addEventListener('offline', updateOfflineBar);
   updateOfflineBar();
@@ -2093,4 +2730,4 @@ export function boot() {
 
 // 供自测与调试使用
 export const __test__ = { findForbidden, COPY, api, asr, rec, CAP, store, extractPartialSummary,
-  handleHardwareBack, gentleConfirm, updateOfflineBar, BACK_PARENT, _isBusy, _parentOf };
+  handleHardwareBack, gentleConfirm, updateOfflineBar, BACK_PARENT, _isBusy, _parentOf, initSwipeBack, ipSM, render, currentIpDesc: () => currentIpDesc };

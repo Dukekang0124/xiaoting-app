@@ -230,17 +230,26 @@ export async function recognize(blob, { lang = ASR.lang, signal } = {}) {
     try { signal.addEventListener('abort', () => ctrl.abort()); } catch (e) { /* ignore */ }
   }
 
+  const reqHeaders = { 'Content-Type': 'application/json' };
+  // v1.2.1 攻坚·战役一：把请求链路的关键信息先落日志（端点 / 请求头 / 音频体积），
+  // 真机上「识别没反应」到底是没发出去、发出去被拒、还是百度返回错误码，全靠这几行区分。
+  diag.note('asr', 'request', {
+    detail: `POST ${url(ASR.endpoint)} headers=${JSON.stringify(reqHeaders)} speech_base64_len=${b64.length} lang=${lang}`,
+  });
+  console.log('[ASR] 发送识别请求', { endpoint: url(ASR.endpoint), speech_len: b64.length, lang });
+
   let res;
   try {
     res = await fetch(url(ASR.endpoint), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: reqHeaders,
       body: JSON.stringify({ speech: b64, lang }),
       signal: ctrl.signal,
     });
   } catch (e) {
     clearTimeout(timer);
     const code = e && e.name === 'AbortError' ? 'timeout' : 'network';
+    console.error('[ASR] 请求未返回（网络层）', { endpoint: url(ASR.endpoint), err: String((e && e.message) || e) });
     diag.end(dseq, { ok: false, code, ms: Date.now() - t0, detail: `请求未返回：${String(e && e.message || e).slice(0, 80)}` });
     return {
       ok: false,
@@ -261,16 +270,23 @@ export async function recognize(blob, { lang = ASR.lang, signal } = {}) {
     });
     return { ok: true, text, engine: j.engine || 'cloud', ms: j.ms || 0, totalMs: Date.now() - t0 };
   }
-  const code = (j && j.error) || ('http_' + res.status);
+  // 取百度原始错误码（3301=音频质量/格式，3302=音频无法识别），连同 HTTP 状态与原始 JSON 一并打到控制台与诊断面板。
+  const errNo = j && j.err_no;
+  const code = errNo ? String(errNo) : ((j && j.error) || ('http_' + res.status));
+  console.error('[ASR] 识别失败', {
+    http: res.status,
+    err_no: errNo || null,
+    raw: j ? JSON.stringify(j).slice(0, 300) : String(res.status),
+  });
   diag.end(dseq, {
     ok: false, code, ms: Date.now() - t0,
-    detail: `识别失败 http=${res.status} err_no=${(j && j.err_no) || '-'} ${(j && j.hint) || ''}`,
+    detail: `识别失败 http=${res.status} err_no=${errNo || '-'} ${(j && j.hint) || ''}`,
     raw: j ? JSON.stringify(j).slice(0, 300) : String(res.status),
   });
   return {
     ok: false,
     code,
-    errNo: j && j.err_no,
+    errNo,
     hint: (j && j.hint) || describeError(code),
     totalMs: Date.now() - t0,
   };
@@ -287,6 +303,8 @@ export function describeError(code) {
     case 'network': return '网络好像不太顺';
     case 'timeout': return '识别等太久了';
     case 'auth_failed': return '识别服务鉴权失败';
+    case '3301': return '这段录音质量不太行，换个安静点的地方再说一次';
+    case '3302': return '这段音频格式不太对，换台设备试试';
     default: return '识别没能成功';
   }
 }

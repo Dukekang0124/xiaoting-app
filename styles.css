@@ -613,6 +613,17 @@ body.thinking--stuck .stuck-bubble{opacity:1;transform:translateY(0)}
 @keyframes stage-in{from{opacity:0;transform:scale(.965)}to{opacity:1;transform:none}}
 .center-stage{animation:stage-in .42s ease-out both}
 
+/* ---------- 左滑返回手势（v1.2.1 攻坚 · 战役二）：跟手 parallax + 暗色叠加 + 返回提示 ---------- */
+body.swiping #view{touch-action:none}
+#view{position:relative}
+#view.swipe-release{transition:transform .26s cubic-bezier(.22,.61,.36,1)}
+#view::after{content:'';position:absolute;inset:0;background:#05070f;opacity:var(--swipe-dim,0);
+  pointer-events:none;z-index:60;border-radius:inherit}
+#swipeHint{position:fixed;left:16px;top:50%;width:38px;height:38px;margin-top:-19px;border-radius:50%;
+  background:rgba(255,255,255,.92);color:var(--primary-deep,#6b5bff);display:flex;align-items:center;
+  justify-content:center;font-size:22px;line-height:1;opacity:0;pointer-events:none;z-index:70;
+  box-shadow:0 4px 16px rgba(0,0,0,.2);transform:translateX(-14px);transition:opacity .12s ease}
+
 /* ---------- 全站按压反馈（所有可点元素都有回应） ---------- */
 .primary{
   background:linear-gradient(135deg,#C9BCF0 0%,var(--primary) 46%,var(--primary-deep) 100%);
@@ -738,6 +749,13 @@ body.thinking--stuck .stuck-bubble{opacity:1;transform:translateY(0)}
 .risk__item b{color:var(--primary-deep)}
 .set-title{letter-spacing:.01em}
 .set-block{background:var(--card);box-shadow:0 5px 20px rgba(160,140,200,.11),0 0 0 1px var(--card-line)}
+
+/* v1.3.0 IP 动效：动画强度 柔和/标准 分段控件 */
+.seg{display:flex;align-items:center;justify-content:space-between;margin-top:14px}
+.seg__label{font-size:14.5px;color:var(--ink)}
+.seg__opts{display:inline-flex;background:rgba(184,169,232,.16);border-radius:999px;padding:3px;gap:2px}
+.seg__opts button{border:0;background:none;padding:6px 18px;border-radius:999px;font-size:13.5px;color:var(--ink-2);cursor:pointer;font-family:inherit;transition:background .18s ease,color .18s ease}
+.seg__opts button.seg--on{background:#fff;color:var(--primary-deep);box-shadow:0 1px 4px rgba(0,0,0,.08)}
 .risk__ev{background:rgba(168,200,232,.14);color:#5C6B7A}
 
 /* ---------- 共情页 / 追问页：更柔的情绪色 ---------- */
@@ -1024,3 +1042,209 @@ body.is-offline .view{padding-top:46px}
 
 /* ---------------- 禁用态（防重复点击） ---------------- */
 .primary:disabled{opacity:.55;pointer-events:none}
+
+/* ---------------- 我的记忆（v1.3.0 记忆地基） ---------------- */
+.memory{padding:0 0 24px}
+.mem-list{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow-sm);overflow:hidden;margin:14px 0}
+.mem-row{padding:14px 16px;border-bottom:1px solid var(--line)}
+.mem-row:last-child{border-bottom:0}
+.mem-row__top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.mem-type{font-size:12px;padding:2px 9px;border-radius:999px;background:var(--primary-soft);color:var(--primary-deep)}
+.mem-type--event{background:rgba(168,200,232,.20);color:var(--blue)}
+.mem-type--knot{background:rgba(255,184,140,.22);color:var(--orange)}
+.mem-star{border:0;background:transparent;font-size:17px;color:var(--ink-3);cursor:pointer;line-height:1;padding:2px 4px}
+.mem-star.is-on{color:#F0B429}
+.mem-title{font-size:15.5px;font-weight:600;line-height:1.5}
+.mem-summary{font-size:13.5px;color:var(--ink-2);line-height:1.6;margin-top:3px}
+.mem-meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px}
+.mem-tag{font-size:11.5px;padding:1px 8px;border-radius:999px;background:rgba(168,216,200,.20);color:#5FA98C}
+.mem-date{font-size:11.5px;color:var(--ink-3);margin-left:auto}
+.mem-acts{display:flex;gap:14px;justify-content:flex-end;margin-top:8px}
+.mem-acts .linkbtn{font-size:13.5px}
+.danger-link{color:var(--danger)}
+.mem-empty{padding:34px 18px;text-align:center;color:var(--ink-2);font-size:14px;line-height:1.7;margin:0}
+.mem-foot{padding:14px 16px}
+.mem-edit{display:flex;flex-direction:column;gap:10px}
+.mem-edit-title,.mem-edit-summary{width:100%;border:1.5px solid var(--line);border-radius:12px;padding:10px 12px;font-size:14.5px;font-family:inherit;color:var(--ink);background:#fff;resize:vertical}
+.mem-edit-summary{min-height:64px;line-height:1.6}
+.mem-edit-title:focus,.mem-edit-summary:focus{outline:none;border-color:var(--primary-deep)}
+.mem-edit-acts{display:flex;gap:12px;justify-content:flex-end}
+.mem-edit-acts .linkbtn{font-size:14px}
+
+/* 我的页「记忆」入口图标配色 */
+.mrow--memory .mrow__ico{background:rgba(255,184,140,.18)}
+.mrow--memory .mrow__ico svg{stroke:var(--orange)}
+.mrow--support .mrow__ico{background:rgba(201,138,122,.16)}
+.mrow--support .mrow__ico svg{stroke:var(--danger)}
+
+/* ============================================================
+   墨小溟 · v1.3.0 IP 情绪视觉引擎（state-machine.js 联动）
+   设计红线：低饱和、不闪烁/不频闪、IP 造型固定（只改色与触手姿态）、ease-in-out、拒绝硬弹跳。
+   颜色由 state-machine.js 按 L1/L2/L3 内联覆盖；此处类仅给「默认（L2）+ 姿态动画」兜底。
+   ============================================================ */
+
+/* —— 新增情绪姿态类（joy/sad/tired/lonely/mixed/vague/danger）—— */
+.mascot--joy{
+  --ip-body-in:#b5c7ff;--ip-body-mid:#a9b8f0;--ip-body-out:#9fb0ea;
+  --ip-halo:#cdd9ff;--ip-tip:#FFCFA0;--ip-antenna:#b8c6f5;--ip-glow:#e8eeff;--ip-glow-2:#d6e4ff;
+  animation:ip-relax-sway 4.4s ease-in-out infinite;
+}
+.mascot--joy .mascot__body{animation:ip-breathe 4.2s ease-in-out infinite}
+.mascot--joy .glow{animation:ip-drift 5.4s ease-in-out infinite}
+.mascot--joy .mascot__wisp{animation:ip-wisp 4s ease-in-out infinite}
+
+.mascot--sad{
+  --ip-body-in:#9e9ebf;--ip-body-mid:#9494b2;--ip-body-out:#8c8cad;
+  --ip-halo:#b3b3cd;--ip-antenna:#9a9ab6;--ip-glow:#cfcfdd;--ip-glow-2:#bcbccd;
+  animation:ip-fog-float 6s ease-in-out infinite;
+}
+.mascot--sad .mascot__body{animation:ip-shrink 5.2s ease-in-out infinite;transform-origin:100px 116px}
+.mascot--sad .mascot__halo{opacity:.7}
+.mascot--sad .glow{animation:ip-drift 7s ease-in-out infinite}
+
+.mascot--tired{
+  --ip-body-in:#9c97b0;--ip-body-mid:#928da6;--ip-body-out:#8f8aa3;
+  --ip-halo:#b0abc0;--ip-antenna:#9691a8;--ip-glow:#cfccda;--ip-glow-2:#bdb9c9;
+}
+.mascot--tired .mascot__body{animation:ip-breathe 6s ease-in-out infinite}
+.mascot--tired .mascot__antennae{transform:rotate(8deg);transition:transform .4s ease}
+.mascot--tired .mascot__halo{opacity:.5}
+.mascot--tired .glow{opacity:.4;animation:ip-drift 8s ease-in-out infinite}
+
+.mascot--lonely{
+  --ip-body-in:#98a8c0;--ip-body-mid:#8fa6bd;--ip-body-out:#8aa0b5;
+  --ip-halo:#b6c6d8;--ip-antenna:#94a8be;--ip-glow:#d2dcea;--ip-glow-2:#c2d2e0;
+  animation:ip-drift-x 7s ease-in-out infinite;
+}
+.mascot--lonely .mascot__body{animation:ip-breathe 5.6s ease-in-out infinite}
+.mascot--lonely .glow{opacity:.5;animation:ip-drift 8s ease-in-out infinite}
+.mascot--lonely .mascot__wisp{animation:ip-wisp 6s ease-in-out infinite}
+
+.mascot--mixed{
+  --ip-body-in:#a78bfa;--ip-body-mid:#8aa0ee;--ip-body-out:#60a5fa;
+  --ip-halo:#b9a8f8;--ip-antenna:#9f95ee;--ip-glow:#e6dcff;--ip-glow-2:#cfe4ff;
+  animation:ip-dual-sway 5s ease-in-out infinite;
+}
+.mascot--mixed .mascot__body{animation:ip-breathe 4.6s ease-in-out infinite}
+.mascot--mixed .glow{animation:ip-drift 5.4s ease-in-out infinite}
+.mascot--mixed .mascot__wisp{animation:ip-wisp 4.4s ease-in-out infinite}
+
+.mascot--vague{
+  --ip-body-in:#a8acb8;--ip-body-mid:#9ea4b0;--ip-body-out:#9ca3af;
+  --ip-halo:#c2c6d0;--ip-antenna:#a2a8b4;--ip-glow:#dcdee6;--ip-glow-2:#cccfd8;
+  animation:ip-fog-float 7s ease-in-out infinite;
+}
+.mascot--vague .mascot__body{animation:ip-breathe 5.4s ease-in-out infinite}
+.mascot--vague .mascot__halo{opacity:.6}
+
+/* danger：停所有情绪动画，只保留柔和警示光圈（缓慢呼吸，不闪烁） */
+.mascot--danger{
+  --ip-body-in:#442c50;--ip-body-mid:#3a2444;--ip-body-out:#2e1c38;
+  --ip-halo:#6b4a7a;--ip-antenna:#4a3056;--ip-glow:#7a5a86;--ip-glow-2:#5a3d66;
+  animation:none;
+}
+.mascot--danger .mascot__body{animation:none}
+.mascot--danger .glow,
+.mascot--danger .mascot__wisp,
+.mascot--danger .mascot__antennae{animation:none}
+.mascot--danger .mascot__halo{animation:ip-warn-ring 3.4s ease-in-out infinite;opacity:.5}
+.mascot--danger .mascot__breath{stroke:var(--ip-halo);opacity:.5;animation:ip-warn-ring 3.4s ease-in-out infinite}
+
+/* —— v1.3.0 新增关键帧（全部 ease-in-out，缓慢、无硬跳）—— */
+@keyframes ip-relax-sway{0%,100%{transform:translateY(0) rotate(-1.6deg)}50%{transform:translateY(-5px) rotate(1.6deg)}}
+@keyframes ip-shrink{0%,100%{transform:scale(.96) translateY(3px)}50%{transform:scale(.92) translateY(6px)}}
+@keyframes ip-drift-x{0%,100%{transform:translateX(-6px)}50%{transform:translateX(6px)}}
+@keyframes ip-dual-sway{0%{transform:rotate(-2.2deg)}50%{transform:rotate(2.2deg)}100%{transform:rotate(-2.2deg)}}
+@keyframes ip-fog-float{0%,100%{transform:translateY(0);opacity:.96}50%{transform:translateY(-4px);opacity:1}}
+@keyframes ip-warn-ring{0%,100%{opacity:.28;transform:scale(.96)}50%{opacity:.5;transform:scale(1.04)}}
+
+/* —— 背景水墨/水流层（#ipBg，固定全屏、置于内容之上 2px、不挡交互）—— */
+.ip-bg{position:fixed;inset:0;z-index:2;pointer-events:none;opacity:.34;transition:opacity .9s ease-in-out}
+.ip-bg::before{content:'';position:absolute;inset:0;opacity:.9;animation:ip-bg-breathe 9s ease-in-out infinite}
+@keyframes ip-bg-breathe{0%,100%{opacity:.7}50%{opacity:1}}
+.ip-bg--steady_water::before{background:radial-gradient(circle at 50% 18%,rgba(201,188,240,.55),rgba(201,188,240,0) 60%)}
+.ip-bg--bright_bubble::before{background:radial-gradient(circle at 50% 16%,rgba(181,199,255,.6),rgba(181,199,255,0) 58%)}
+.ip-bg--dark_ink_sink::before{background:radial-gradient(circle at 50% 30%,rgba(140,140,173,.55),rgba(140,140,173,0) 62%)}
+.ip-bg--heavy_ink_surge::before{background:radial-gradient(circle at 50% 26%,rgba(84,52,97,.55),rgba(84,52,97,0) 64%)}
+.ip-bg--more_ripple::before{background:radial-gradient(circle at 50% 20%,rgba(122,111,168,.55),rgba(122,111,168,0) 60%)}
+.ip-bg--dim_bg::before{background:radial-gradient(circle at 50% 20%,rgba(143,138,163,.45),rgba(143,138,163,0) 64%);opacity:.6}
+.ip-bg--empty_bubble::before{background:radial-gradient(circle at 50% 18%,rgba(138,160,181,.48),rgba(138,160,181,0) 60%)}
+.ip-bg--two_color_ink_blend::before{
+  background:radial-gradient(circle at 42% 18%,rgba(167,139,250,.55),rgba(167,139,250,0) 62%),
+             radial-gradient(circle at 60% 24%,rgba(96,165,250,.45),rgba(96,165,250,0) 60%);
+}
+.ip-bg--fog_ink::before{background:radial-gradient(circle at 50% 20%,rgba(172,176,191,.5),rgba(172,176,191,0) 66%)}
+.ip-bg--soft_warning_ring::before{background:radial-gradient(circle at 50% 22%,rgba(107,74,122,.45),rgba(107,74,122,0) 60%)}
+.ip-bg--ink_ripple::before{background:radial-gradient(circle at 50% 22%,rgba(120,100,170,.5),rgba(120,100,170,0) 64%)}
+
+/* 接收情绪：墨汁波纹（一次性缓慢扩散，不频繁触发 → 不闪烁） */
+.ip-ripple{position:absolute;left:50%;top:30%;width:120px;height:120px;margin:-60px 0 0 -60px;border-radius:50%;
+  border:2px solid rgba(120,100,170,.5);opacity:0;pointer-events:none;z-index:3}
+.ip-ripple.is-on{animation:ip-ink-ring 1.6s ease-out}
+@keyframes ip-ink-ring{0%{transform:scale(.5);opacity:.55}100%{transform:scale(1.8);opacity:0}}
+
+/* —— 用户可控开关门禁（与 store.settings.ipMotion / ipIntensity 对齐）—— */
+/* 总开关：一键关闭全部色彩/动画/特效 */
+body.ip-motion-off .mascot,
+body.ip-motion-off .mascot *{animation:none !important;transition:none !important}
+body.ip-motion-off #ipBg,
+body.ip-motion-off .ip-ripple{display:none !important}
+body.ip-motion-off .mascot__breath{opacity:0 !important}
+/* 强度档：柔和（减速减幅，更安静） */
+body.ip-intensity-gentle .mascot,
+body.ip-intensity-gentle .mascot *{animation-duration:2.4s !important;animation-timing-function:ease-in-out !important}
+body.ip-intensity-gentle #ipBg{opacity:.26 !important}
+
+/* —— 接收情绪气泡 + 分析页定位 —— */
+.stage-mascot{position:relative}
+.ip-recv-bubble{margin-top:12px;text-align:center;font-size:14px;letter-spacing:.04em;color:var(--primary-deep);opacity:.85;animation:ip-bg-breathe 2.6s ease-in-out infinite}
+
+/* AI 回复微动作：墨鱼缓缓靠近（仅 ai_reply 节点，作用在 body 避免覆盖情绪姿态动画） */
+.ip-node-ai_reply .mascot__body{animation:ip-ai-approach 3.6s ease-in-out infinite !important}
+@keyframes ip-ai-approach{0%,100%{transform:scale(1) translateY(0)}50%{transform:scale(1.035) translateY(-3px)}}
+
+/* ============================================================
+   v1.3.1~1.3.4：IP 点击轻互动 / 安静陪伴 / 我页
+   ============================================================ */
+/* IP 气泡（点击轻互动） */
+.say__mascot{position:relative}
+.ip-bubble{position:absolute;left:50%;bottom:-4px;transform:translate(-50%,10px);background:rgba(255,255,255,.96);color:var(--primary-deep);font-size:13.5px;line-height:1;padding:9px 15px;border-radius:14px;box-shadow:0 6px 20px rgba(120,100,170,.2);white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .25s ease,transform .25s ease;z-index:5}
+.ip-bubble--on{opacity:1;transform:translate(-50%,0)}
+
+/* 点击动画（作用在 IP 容器上；总开关/强度档门禁见下） */
+.say__mascot.ip-tap1{animation:ip-tap1 .8s ease-in-out}
+.say__mascot.ip-tap2{animation:ip-tap2 1.2s ease-in-out}
+.say__mascot.ip-tap3{animation:ip-tap3 1.5s ease-in-out}
+.say__mascot.ip-tap-over{animation:ip-tap-over 1s ease-in-out}
+@keyframes ip-tap1{0%,100%{transform:rotate(0)}30%{transform:rotate(-3.5deg)}62%{transform:rotate(2.6deg)}}
+@keyframes ip-tap2{0%,100%{transform:scale(1)}40%{transform:scale(.95)}70%{transform:scale(1.03)}}
+@keyframes ip-tap3{0%,100%{transform:translateY(0)}50%{transform:translateY(-9px)}}
+@keyframes ip-tap-over{0%,100%{transform:rotate(0)}25%{transform:rotate(3deg)}75%{transform:rotate(-3deg)}}
+body.ip-motion-off .say__mascot{animation:none !important}
+body.ip-intensity-gentle .say__mascot{animation-duration:1.5s !important}
+
+/* 安静陪伴模式：视觉降噪（文字低对比度、背景更柔） */
+body.quiet-mode #ipBg{opacity:.2}
+body.quiet-mode .say__greet{color:var(--ink-2);font-weight:500;letter-spacing:.02em}
+body.quiet-mode .say__hint{opacity:.5}
+body.quiet-mode .empty-hint{opacity:.45}
+body.quiet-mode .talkbtn{opacity:.84}
+
+/* 我页（v1.3.4）新增结构与样式 */
+.me-head2{text-align:center;padding:4px 0 6px}
+.me__title2{font-size:20px;margin:8px 0 4px;font-weight:600}
+.me__sub2{font-size:13.5px;color:var(--ink-2);margin:0}
+.mblock{background:var(--card,#fff);border-radius:var(--radius,18px);padding:16px 18px;box-shadow:var(--shadow-sm,0 5px 20px rgba(160,140,200,.11));margin-bottom:12px}
+.mblock__t{font-size:15px;font-weight:600;margin-bottom:6px}
+.mblock__d{font-size:13.5px;color:var(--ink-2);margin:0 0 10px;line-height:1.6}
+.mblock__n{font-size:12.5px;color:var(--ink-2);opacity:.85;margin:8px 0 0;line-height:1.6}
+.mblock--quiet .mblock__n{opacity:.7}
+.mblock .switch{margin-top:10px}
+.me-export{width:100%;margin-top:4px}
+.faq{margin-top:8px;border-top:1px solid var(--line,rgba(0,0,0,.06));padding-top:8px}
+.faq summary{cursor:pointer;font-size:14px;color:var(--ink);list-style:none}
+.faq summary::-webkit-details-marker{display:none}
+.faq p{font-size:13px;color:var(--ink-2);line-height:1.65;margin:6px 0 0}
+.danger-link{color:var(--danger,#e06a6a);background:none;border:0;padding:8px 0;font-size:14px;cursor:pointer;font-family:inherit;display:block}
+/* v1.3.4 开场回应句：独立于 .fu-empathy（模型共情句），是一条更轻的「先接住你」的引入语 */
+.fu-opening{margin:0 0 10px;text-align:center;color:var(--primary-deep);font-size:15px;line-height:1.7}

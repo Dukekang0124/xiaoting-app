@@ -10,7 +10,9 @@ let state = {
     id: 'local-user',
     nickname: '',
     createdAt: Date.now(),
-    settings: { autoDeleteAudio: true, ttsHint: true, cloudAsr: true },
+    // v1.3.0/1.3.1 IP 视觉与互动开关：ipMotion 动效总开关 / ipIntensity 柔和·标准 / soundOn 音效（默认关）
+    //   ipTouch 触碰互动总开关（点击/长按动画+气泡）/ ipBubble 气泡文字开关
+    settings: { autoDeleteAudio: true, ttsHint: true, cloudAsr: true, memory_on: true, ipMotion: true, ipIntensity: 'standard', soundOn: false, ipTouch: true, ipBubble: true, notify_on: false },
   },
   // draft: { recordId, transcript, safety, analysis, asked[], currentQuestion, empathy, card, round, createdAt }
   draft: null,
@@ -30,10 +32,29 @@ let state = {
   risk: { level: 'none', action: 'continue', hit: false, evidence: '' },
   route: 'say',
   ipState: 'idle',
+  // v1.3.0 IP 情绪视觉引擎：当前检测到的情绪键 + 强度 + 接收阶段截止 + 最近交互时间
+  emotionKey: null,
+  emotionIntensity: 5,
+  receivingUntil: 0,
+  lastInteractionAt: Date.now(),
+  aiReplying: false,
+  // v1.3.0：首页「刚收下卡片」的开心庆祝窗口。
+  // 🔴 必须用显式时间戳，不能用「有没有 toast」当信号 —— 导出/清空/断网等任何 toast
+  //    都会让首页 IP 变成开心，情绪与事实相反（那是比没有动效更糟的失真）。
+  happyUntil: 0,
+  // v1.3.1/1.3.2/1.3.3：安静陪伴模式 + 首页问候（会话内固定，重开 App 才轮换）+ 历史情绪偏向
+  quietMode: false,
+  quietTitle: '',
+  quietSmall: '',
+  quietCardHint: '',
+  greeting: '',
+  greetingSmall: '',
+  cardHint: '',
+  historyBias: null,
   toast: null,
 };
 
-const freshUser = () => ({ id: 'local-user', nickname: '', createdAt: Date.now(), settings: { autoDeleteAudio: true, ttsHint: true, cloudAsr: true } });
+const freshUser = () => ({ id: 'local-user', nickname: '', createdAt: Date.now(), settings: { autoDeleteAudio: true, ttsHint: true, cloudAsr: true, memory_on: true, ipMotion: true, ipIntensity: 'standard', soundOn: false, ipTouch: true, ipBubble: true, notify_on: false } });
 const freshRisk = () => ({ level: 'none', action: 'continue', hit: false, evidence: '' });
 
 /** 一次「会话」的有效期：超过就当作新会话，清空 sessionLog（6 小时） */
@@ -117,6 +138,12 @@ export function startDraft(transcript, recordId) {
       createdAt: Date.now(),
     },
     risk: freshRisk(),
+    // v1.3.0：提交即进入「接收情绪」节点（墨汁波纹 + 气泡，保持 0.8s）；同时清掉上一轮情绪，避免停留旧态
+    receivingUntil: Date.now() + 800,
+    emotionKey: null,
+    emotionIntensity: 5,
+    aiReplying: false,
+    quietMode: false, // v1.3.2：开始倾诉即退出安静陪伴模式
     // 一次新的倾诉（本轮）：清空本轮对话区，记录用户原话作为对话区首条（§3.3 对话区同步输出）
     conversation: [{ role: 'user', text: transcript, at: Date.now() }],
     // 本次会话累积：追加用户原话，作为情绪时间线卡片的数据源（v1.1.0）
@@ -132,14 +159,47 @@ export function appendConvo(role, text) {
   emit();
 }
 
-/** 开启一段全新会话：清空轮次对话、会话累积与临时时间线（不碰已保存的时间线与卡片） */
+/** 开启一段全新会话：清空轮次对话、会话累积与临时时间线（不碰已保存的时间线与卡片）
+ *  注意：刻意保留 emotionKey —— v1.3.2 要求安静模式/首页继承「上一轮倾诉的情绪色彩」，结束会话不等于清空情绪底色。 */
 export function startSession() {
-  setState({ conversation: [], sessionLog: [], sessionAt: 0, draft: null, risk: freshRisk(), timeline: null });
+  setState({ conversation: [], sessionLog: [], sessionAt: 0, draft: null, risk: freshRisk(), timeline: null, receivingUntil: 0, aiReplying: false });
+}
+
+/** v1.3.0：分析完成后写入检测到的情绪（键 + 强度），供情绪渲染节点消费 */
+export function setEmotion(emotionKey, intensity) {
+  setState({ emotionKey: emotionKey || null, emotionIntensity: Number(intensity) || 5 });
+}
+
+/** v1.3.0：首页「刚收下卡片」的开心窗口（显式时间戳，其它 toast 不会误触发开心） */
+export function setHappy(ms = 4000) {
+  setState({ happyUntil: Date.now() + (Number(ms) || 4000) });
+}
+
+/* ---------- v1.3.1/1.3.2/1.3.3：安静陪伴模式 + 首页问候 ---------- */
+
+/** 进入/退出安静陪伴模式（不产生任何卡片、不记录情绪） */
+export function setQuietMode(on) {
+  setState({ quietMode: !!on });
+}
+
+/** 写入本会话的首页问候文案（会话内固定；重开 App 才重新轮换） */
+export function setGreeting(greeting, greetingSmall, cardHint) {
+  setState({ greeting: greeting || '', greetingSmall: greetingSmall || '', cardHint: cardHint || '' });
+}
+
+/** 写入历史情绪偏向（来自记忆地基，供问候匹配） */
+export function setHistoryBias(bias) {
+  setState({ historyBias: bias || null });
 }
 
 /** 删除一条已保存的情绪时间线（本地数据，用户自主要求） */
 export function removeTimeline(id) {
   setState({ timelines: (state.timelines || []).filter((t) => t.id !== id) });
+}
+
+/** v1.3.4：清除全部情绪卡片（记录管理，二次确认后由调用方触发） */
+export function clearCards() {
+  setState({ cards: [] });
 }
 
 export function patchDraft(patch) {
@@ -195,6 +255,10 @@ export function deleteAllData() {
   state.sessionLog = [];
   state.timelines = [];
   state.timeline = null;
+  state.emotionKey = null;
+  state.emotionIntensity = 5;
+  state.receivingUntil = 0;
+  state.aiReplying = false;
   state.user = freshUser();
   persist();
   emit();

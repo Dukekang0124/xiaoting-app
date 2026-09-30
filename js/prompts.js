@@ -565,10 +565,15 @@ export function sanitizeInput(text, max = 2000) {
 }
 
 export const buildSafetyPrompt = (userInput) => fill(SAFETY_PROMPT, { user_input: sanitizeInput(userInput) });
-export const buildMainPrompt = (userInput, voiceFeatures = null) => {
+export const buildMainPrompt = (userInput, voiceFeatures = null, memoryContext = '') => {
   let tpl = MAIN_PROMPT;
   if (voiceFeatures && typeof voiceFeatures === 'object') {
     tpl += `\n【用户语音物理特征（来自录音，仅作辅助，仍以文字内容为主）】\n${JSON.stringify(voiceFeatures, null, 2)}`;
+  }
+  // v1.3.0 记忆地基：跨会话结构化记忆（只给摘要，不给原话），注入主分析提示，
+  // 让墨小溟能轻轻呼应「我记得你」，但绝不编造或当事实复述。
+  if (memoryContext && typeof memoryContext === 'string' && memoryContext.trim()) {
+    tpl += `\n${memoryContext}`;
   }
   return fill(tpl, { user_input: sanitizeInput(userInput) });
 };

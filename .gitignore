@@ -20,6 +20,9 @@ _selftest/shots/
 _selftest/*.log
 _selftest/*.mp4
 _selftest/*.webm
+# v1.3.0 自测产出（截图/屏幕录像，动辄数百 MB，只作为验收证据留在本机）
+_selftest/ip-shots/
+_selftest/ip-video/
 data/
 
 keystore/

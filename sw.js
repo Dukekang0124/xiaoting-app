@@ -1,7 +1,7 @@
 // 墨小溟 · Service Worker（离线缓存）
 // 版本号位置 2/5：改版本须与 index.html 的 APP_VERSION、manifest、package.json、js/app.js 兜底同步
 // （见作品集 00-文档写作与版本约定 §2.2）
-const CACHE = 'xiaoting-v1.2.1';
+const CACHE = 'xiaoting-v1.3.4';
 const ASSETS = [
   './',
   './index.html',
@@ -10,6 +10,8 @@ const ASSETS = [
   './icons/icon.svg',
   './js/app.js',
   './js/store.js',
+  './js/db.js',
+  './js/memory.js',
   './js/ip.js',
   './js/ai.js',
   './js/api.js',
@@ -22,6 +24,10 @@ const ASSETS = [
   './js/voice.js',
   './js/native-asr.js',
   './js/diag.js',
+  './js/state-machine.js',
+  './js/copywriting.js',
+  './js/interaction.js',
+  './js/ip-audio.js',
   './vendor/workbuddy-cloud-sdk.js',
 ];
 

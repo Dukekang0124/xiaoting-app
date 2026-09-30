@@ -21,15 +21,21 @@ let seq = 0;
 
 /**
  * 渲染墨小溟 IP。
- * @param {'idle'|'listening'|'thinking'|'empathy'|'empathy_tears'|'tender'|'happy'|'worried'} state
+ * @param {string} state 姿态类名（idle/listening/thinking/empathy/empathy_tears/tender/happy/worried/joy/sad/angry/anxious/tired/lonely/mixed/vague/danger…）
  * @param {number} size 边长（px）
+ * @param {object|null} colors 可选：内联 --ip-* 颜色（v1.3.0 情绪调色板按 L1/L2/L3 覆盖）
+ * @param {string} modClass 可选：附加类（如 ip-mixed / ip-node-ai_reply）
  * @returns {string} SVG 字符串
  */
-export function mascot(state = 'idle', size = 180) {
+export function mascot(state = 'idle', size = 180, colors = null, modClass = '') {
   const uid = 'm' + (++seq);
+  const styleVars = (colors && typeof colors === 'object')
+    ? Object.keys(colors).filter((k) => k.indexOf('--ip-') === 0).map((k) => `${k}:${colors[k]}`).join(';')
+    : '';
+  const cls = `mascot mascot--${state}${modClass ? ' ' + modClass : ''}`;
   return `
-<svg class="mascot mascot--${state}" width="${size}" height="${size}" viewBox="0 0 200 200"
-     role="img" aria-label="墨小溟（${state}）" data-state="${state}" data-ip="v1.2">
+<svg class="${cls}" width="${size}" height="${size}" viewBox="0 0 200 200"
+     role="img" aria-label="墨小溟（${state}）" data-state="${state}" data-ip="v1.3"${styleVars ? ` style="${styleVars}"` : ''}>
   <defs>
     <radialGradient id="body-${uid}" cx="46%" cy="30%" r="80%">
       <stop offset="0%"   stop-color="var(--ip-body-in)"  stop-opacity=".92"/>
