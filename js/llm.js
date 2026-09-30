@@ -10,7 +10,8 @@
 //   3. 全程记 trace，供自测与线上排查拿到「哪一步、什么错误码、原文长什么样」。
 //   4. 模型目录里绝大多数是「只思考」模型（onlyReasoning），对短结构化任务是纯延迟 —— 必须选型。
 
-import { CLOUD, SDK_URL, AI, AI_OVERRIDE_KEY } from './config.js';
+import { CLOUD, SDK_URL, SDK_URL_FALLBACK, AI, AI_OVERRIDE_KEY } from './config.js';
+import * as diag from './diag.js';
 
 const trace = [];
 let client = null;
@@ -93,23 +94,43 @@ export function isStructural(code) { return STRUCTURAL.includes(String(code || '
 
 /* ---------------- SDK 与会话（懒加载，单飞） ---------------- */
 
+/**
+ * 加载云服务 SDK：本地副本优先，CDN 兜底。
+ * 单个来源失败就换下一个，两个都失败才算 sdk_unavailable（那时才降级到本地规则引擎）。
+ */
 function loadSdk() {
   if (sdkPromise) return sdkPromise;
   sdkPromise = new Promise((resolve) => {
     if (window.WorkBuddyCloud) return resolve(window.WorkBuddyCloud);
     let settled = false;
     const finish = (v) => { if (!settled) { settled = true; resolve(v || null); } };
+    const tryUrl = (src, onFail) => {
+      try {
+        const s = document.createElement('script');
+        s.src = src;
+        s.async = true;
+        s.onload = () => (window.WorkBuddyCloud ? finish(window.WorkBuddyCloud) : onFail());
+        s.onerror = onFail;
+        document.head.appendChild(s);
+      } catch (e) {
+        onFail();
+      }
+    };
     try {
-      const s = document.createElement('script');
-      s.src = SDK_URL;
-      s.async = true;
-      s.onload = () => finish(window.WorkBuddyCloud);
-      s.onerror = () => finish(null);
-      document.head.appendChild(s);
+      tryUrl(SDK_URL, () => tryUrl(SDK_URL_FALLBACK, () => finish(null)));
       setTimeout(() => finish(window.WorkBuddyCloud), AI.sdkTimeoutMs);
     } catch (e) {
       finish(null);
     }
+  }).then((v) => {
+    // 留痕：SDK 是从哪条路拿到的。真机上若出现「AI 一直不工作」，第一眼就该看到这一行。
+    try {
+      diag.note('llm', 'sdk', {
+        ok: !!v,
+        detail: v ? `云服务客户端已就绪（先本地副本，失败回 CDN）` : 'SDK 两条来源都没加载成功 → 本次将降级到本地规则引擎',
+      });
+    } catch (e) { /* ignore */ }
+    return v || null;
   });
   return sdkPromise;
 }
@@ -196,6 +217,15 @@ export async function modelRanking(tier) {
   const rest = usable.filter((m) => !out.includes(m.id)).sort((a, b) => scoreModel(a) - scoreModel(b));
   rest.forEach((m) => out.push(m.id));
   rankingCache[key] = out;
+  // 诊断留痕：路由到底选了谁，只能在这里取到真实答案（档位 → 优先序 ∩ 目录）。
+  // 「是不是被降级 / 是不是还在调错模型」这类问题，看这一条就能定案，不用再靠猜。
+  try {
+    diag.note('llm', 'ranking', {
+      ok: true,
+      model: out[0] || '',
+      detail: `tier=${key} 目录=${usable.length} 命中优先序=${preferred.filter((id) => ids.has(id)).join(',') || '无'} 实际序前3=${out.slice(0, 3).join(',')}`,
+    });
+  } catch (e) { /* 日志绝不能影响调用 */ }
   return rankingCache[key];
 }
 

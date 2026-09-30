@@ -1,0 +1,44 @@
+模型横评（真实主分析 Prompt，每个组合跑 2 次）
+
+模型                      成功  平均耗时  正文长度  字段数  强度  情绪
+glm-5.0                 4/4   6145ms    815       23.0    5,5,6,6愤怒、焦虑
+deepseek-v4.1-flash     4/4   3130ms    853       23.0    5,5,7,6愤怒
+glm-4.7                 0/4   246ms     0         0.0           http_400
+
+明细：
+  glm-5.0                #1   4806ms OK  字段=23 强度=5 情绪=愤怒、焦虑
+      摘要: 感受到你此刻的烦躁，烦躁像一团乱麻，不需要立刻理清，它在这里就好。
+      追问: 这股烦躁是今天突然冒出来的，还是已经攒了一阵子？
+  glm-5.0                #2   5580ms OK  字段=23 强度=5 情绪=愤怒、无力
+      摘要: 一句「很烦」里，装着还没说出口的许多事，此刻先不急着理清，烦就烦一会儿吧。
+      追问: 这股烦，是一直闷着的，还是某件事刚触发的？
+  glm-5.0                #1   6742ms OK  字段=23 强度=6 情绪=愤怒、委屈、焦虑
+      摘要: 等待的沉默让人难熬，你的愤怒下面藏着想要被好好对待的委屈，这很真实。
+      追问: 等待他回复的那段时间里，你脑子里反复出现的是哪句话？
+  glm-5.0                #2   7450ms OK  字段=23 强度=6 情绪=愤怒、委屈、焦虑
+      摘要: 你的一句“他根本不在乎我”背后，藏着整整一个晚上的等待和委屈，这份想要被在乎的心情，我接住了
+      追问: 他晚回消息的那段时间里，你脑子里反复出现的一句话是什么？
+  deepseek-v4.1-flash    #1   2918ms OK  字段=23 强度=5 情绪=愤怒
+      摘要: 烦这个字很薄，下面可能压着很多没说出来的事，不急，先让它待着。
+      追问: 今天是从哪一刻开始觉得烦的？
+  deepseek-v4.1-flash    #2   2775ms OK  字段=23 强度=5 情绪=愤怒、焦虑、无力
+      摘要: 你不用马上说清楚为什么烦，这一句“很烦”已经可以被接住了。
+      追问: 今天最让你烦的是哪一件事？
+  deepseek-v4.1-flash    #1   3953ms OK  字段=23 强度=7 情绪=委屈、焦虑、愤怒
+      摘要: 你不是在无理取闹，你是在等一个“我重要”的信号；等不到的时候，愤怒和委屈会一起涌上来，这很正
+      追问: 他很晚回消息的时候，你脑子里第一句话是什么？
+  deepseek-v4.1-flash    #2   2872ms OK  字段=23 强度=6 情绪=委屈、愤怒、焦虑、孤独
+      摘要: 等消息的那段时间很难熬，你不是在无理取闹，你是在等一个“我在乎你”的信号。
+      追问: 当时你脑子里第一句话是什么？
+  glm-4.7                #1    264ms FAIL http_400 字段=0 强度=undefined 情绪=undefined
+      摘要: {"error":{"code":"request_invalid_parameter","message":"请求参数无效。","param":null,"type":"invalid_request_error"}}
+      追问: -
+  glm-4.7                #2    241ms FAIL http_400 字段=0 强度=undefined 情绪=undefined
+      摘要: {"error":{"code":"request_invalid_parameter","message":"请求参数无效。","param":null,"type":"invalid_request_error"}}
+      追问: -
+  glm-4.7                #1    222ms FAIL http_400 字段=0 强度=undefined 情绪=undefined
+      摘要: {"error":{"code":"request_invalid_parameter","message":"请求参数无效。","param":null,"type":"invalid_request_error"}}
+      追问: -
+  glm-4.7                #2    258ms FAIL http_400 字段=0 强度=undefined 情绪=undefined
+      摘要: {"error":{"code":"request_invalid_parameter","message":"请求参数无效。","param":null,"type":"invalid_request_error"}}
+      追问: -

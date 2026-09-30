@@ -9,8 +9,17 @@ export const CLOUD = {
   resourceId: 'wbcs_CrnorO7a0CaC4xefBz6Rrp',
 };
 
-/** 云服务 SDK：本项目是无构建的多模块 PWA，按官方约定走 CDN IIFE（暴露全局 WorkBuddyCloud）。 */
-export const SDK_URL =
+/**
+ * 云服务 SDK：本项目是无构建的多模块 PWA，按官方约定走 CDN IIFE（暴露全局 WorkBuddyCloud）。
+ *
+ * 🔴 v1.1.3：首选取**随包发布的本地副本**，失败才回退 CDN。
+ * 为什么要改：APK 里网页跑在 WebView 上，一旦用户网络访问不到 jsdelivr（国内网络下这是常态），
+ * SDK 加载失败 → `sdk_unavailable` → 整条 AI 链路降级到本地规则引擎。
+ * 表现就是「App 看起来在转圈，其实一个模型都没调」—— 这类失败最难自查，因为它不报错。
+ * 本地副本随 index.html 一起进包，离线也能建客户端，把这条失败路径彻底消掉。
+ */
+export const SDK_URL = './vendor/workbuddy-cloud-sdk.js';
+export const SDK_URL_FALLBACK =
   'https://cdn.jsdelivr.net/npm/@tencent-ai/workbuddy-cloud-sdk@dev/lib/index.global.js';
 
 /**

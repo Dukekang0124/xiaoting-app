@@ -23,6 +23,7 @@ import {
 } from './prompts.js';
 import { AI } from './config.js';
 import * as store from './store.js';
+import * as diag from './diag.js';
 
 /* ==================== 词表（与 Prompt 里给定的一致，用来校验模型输出） ==================== */
 
@@ -230,7 +231,8 @@ function normalizeFollowup(raw, { round = 0, asked = [] } = {}) {
   return validateShape('followup', { empathy, question, round: next, can_skip: true, ready_for_card: false });
 }
 
-function normalizeCard(raw, analysis, followup, extra, transcript = '') {
+/** 导出供自测直接校验（与 normalizeTimeline 同一动机：契约可测，才谈得上守住契约） */
+export function normalizeCard(raw, analysis, followup, extra, transcript = '') {
   const rule = generateCard({ analysis, followup, extra });
   const s = validateShape('card', raw || {});
   const tags = arr(s.tags).slice(0, 3);
@@ -268,7 +270,12 @@ function normalizeCard(raw, analysis, followup, extra, transcript = '') {
 
   return validateShape('card', {
     title: scrubForbidden(title),
-    date: /^\d{4}-\d{2}-\d{2}$/.test(str(s.date)) ? str(s.date) : new Date().toISOString().slice(0, 10),
+    // 🔴 v1.1.3 修复：日期**永远由本机给出，不接受模型的**。
+    // 排查证据（链路诊断日志）：模型在卡片里返回 "date":"2025-07-09"，而当天是 2026-09-30 ——
+    // 模型没有可信时钟，它只是从训练语料里挑了一个"看起来像日期"的字符串。
+    // 旧写法只要格式对就照单全收，于是卡片里存着一个凭空编出来的日期，
+    // 而它是"格式合法的错误数据"，任何校验都查不出来。模型的活是写感受，不是报日期。
+    date: new Date().toISOString().slice(0, 10),
     event: guard(s.event, 'card.event') || rule.event,
     emotion,
     emotion_primary: emotionPrimary,
@@ -369,11 +376,34 @@ function normalizeWeekly(raw, cards) {
 
 /**
  * 走一次「真实模型 + 严格解析」，只取数据；拿不到就返回 null，交调用方降级到本地规则引擎。
+ * 同时把这一跳写进链路诊断日志：用了哪个模型、多久、成功还是降级、模型原文长什么样。
  * @returns {Promise<object|null>}
  */
 async function ask(opts) {
+  const stage = opts.stage || 'llm';
+  const dseq = diag.begin('ai', stage, {
+    detail: `tier=${opts.tier || '-'} temp=${opts.temperature} maxTokens=${opts.maxTokens || '-'}`,
+  });
+  const t = Date.now();
   const r = await callJson(opts);
+  const used = r.model || (llmDebug() && llmDebug().model) || '';
+  diag.end(dseq, {
+    ok: !!r.ok,
+    code: r.ok ? '' : (r.code || 'unknown'),
+    model: used,
+    ms: Date.now() - t,
+    detail: r.ok ? '模型返回已解析为 JSON' : `未取到结构化结果，降级到本地规则引擎（${r.code || 'unknown'}）`,
+    raw: r.text || '',
+  });
   return r.ok ? r.data : null;
+}
+
+/** 归一化结果也留一条痕：用户要看的是「最终拿到的 JSON」，不是模型原文里的噪声 */
+function diagJson(stage, data, extra = '') {
+  try {
+    diag.note('ai', stage + '.json', { ok: true, detail: extra, raw: JSON.stringify(data) });
+  } catch (e) { /* ignore */ }
+  return data;
 }
 
 /* ==================== 对外接口 ==================== */
@@ -394,6 +424,10 @@ export const api = {
    * @returns {Promise<{risk_level:string, reason:string, action:string}>}
    */
   async safety({ transcript = '' } = {}) {
+    const dseq = diag.begin('ai', 'safety', {
+      detail: `tier=fast temp=${MODEL_CONFIG.safety.temperature} 输入=${String(transcript).slice(0, 40)}`,
+    });
+    const t = Date.now();
     const res = await callJson({
       stage: 'safety',
       system: SYSTEM.safety,
@@ -402,6 +436,15 @@ export const api = {
       maxTokens: MODEL_CONFIG.safety.maxTokens,
       json: true,
       tier: 'fast', // v1.5 §2.1：安全识别走极速 + 高召回档
+    });
+    const used = res.model || (llmDebug() && llmDebug().model) || '';
+    diag.end(dseq, {
+      ok: !!res.ok,
+      code: res.ok ? '' : (res.code || 'unknown'),
+      model: used,
+      ms: Date.now() - t,
+      detail: res.ok ? '模型返回已解析为 JSON' : `未取到结果：${res.code || 'unknown'}${isStructural(res.code) ? '（结构性不可用 → 本地规则引擎）' : '（保守兜底 gentle_check）'}`,
+      raw: res.text || '',
     });
 
     let r;
@@ -413,6 +456,12 @@ export const api = {
       r = normalizeSafety(null);
       r.degraded = res.code || 'llm_failed';
     }
+    // 安全识别的放行/拦截结论必须留痕：这是整条链路上唯一一个「能不能继续」的开关
+    diag.note('ai', 'safety.verdict', {
+      ok: true,
+      detail: `风险等级=${r.risk_level} 动作=${r.action}${r.degraded ? ` 降级=${r.degraded}` : ''}`,
+      raw: JSON.stringify({ risk_level: r.risk_level, action: r.action, reason: r.reason || '', degraded: r.degraded || '' }),
+    });
 
     store.setRisk({
       level: r.risk_level,
@@ -437,8 +486,8 @@ export const api = {
       tier: 'strong', // v1.5 §2.2：主分析走强推理档，治「追问泛泛而谈」与 JSON 不稳
       onProgress,      // v1.5 §2.2：流式输出回调（逐字显示）
     });
-    if (raw) return normalizeAnalysis(raw, transcript);
-    return analyzeMain(transcript); // 降级：规则引擎，绝不让流程断在这里
+    if (raw) return diagJson('main', normalizeAnalysis(raw, transcript));
+    return diagJson('main', analyzeMain(transcript), '本地规则引擎兜底'); // 降级：绝不让流程断在这里
   },
 
   /**
@@ -463,8 +512,8 @@ export const api = {
       json: true,
       tier: 'strong', // v1.5 §2.2：追问走强推理档
     });
-    if (raw) return normalizeFollowup(raw, { round, asked });
-    return nextFollowup({ analysis, asked, userAnswer, round });
+    if (raw) return diagJson('followup', normalizeFollowup(raw, { round, asked }));
+    return diagJson('followup', nextFollowup({ analysis, asked, userAnswer, round }), '本地规则引擎兜底');
   },
 
   /** POST /api/card/generate —— 追问结束后整合成卡片（不落库） */
@@ -478,8 +527,8 @@ export const api = {
       json: true,
       tier: 'strong', // v1.5 §2.2：卡片走强推理档
     });
-    if (raw) return normalizeCard(raw, analysis, followup, extra, transcript);
-    return buildScenarioCard({ analysis, followup, extra, transcript });
+    if (raw) return diagJson('card', normalizeCard(raw, analysis, followup, extra, transcript));
+    return diagJson('card', buildScenarioCard({ analysis, followup, extra, transcript }), '本地规则引擎兜底');
   },
 
   /** POST /api/card/create */
@@ -498,8 +547,8 @@ export const api = {
       json: true,
       tier: 'strong',
     });
-    if (raw) return normalizeTimeline(raw, conversation);
-    return buildTimeline(conversation);
+    if (raw) return diagJson('timeline', normalizeTimeline(raw, conversation));
+    return diagJson('timeline', buildTimeline(conversation), '本地规则引擎兜底');
   },
 
   /** 保存时间线卡片到本机（隐私优先，完全本地，不自动分享） */

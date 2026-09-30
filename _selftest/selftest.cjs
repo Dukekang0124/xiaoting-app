@@ -970,6 +970,106 @@ const MOCK_SDK = `(function(){
   check('[护栏] C5 全程无未捕获异常', errsZ.length === 0, JSON.stringify(errsZ));
   await ctxZ.close();
 
+  /* ================= C6. AI 链路诊断与真实性核查（v1.1.3） =================
+   *
+   * 这一区回答的是「AI 到底有没有真的跑」。
+   * 之前这个问题只能靠猜：页面转圈到底是在等模型，还是在演？没有任何一处留下客观证据。
+   * v1.1.3 加了 js/diag.js 把每一步写成带时间戳的日志，这一区既验模块本身，
+   * 也验「埋点是否真的铺到了每一个阶段」—— 埋点漏一个阶段，日志就会在最需要它的时候说谎。 */
+  sec('C6. AI 链路诊断（v1.1.3）');
+
+  // 注意：ROOT 在 F 区才用 const 声明，C6 里直接引用会触发 TDZ 把整套自测打断 —— 这里用局部根变量
+  const rootC6 = path.join(__dirname, '..');
+  const readSrc = (rel) => { try { return fs.readFileSync(path.join(rootC6, rel), 'utf8'); } catch (e) { return ''; } };
+  const diagSrc = readSrc('js/diag.js');
+  const apiSrcC6 = readSrc('js/api.js');
+  const asrSrcC6 = readSrc('js/asr.js');
+  const appSrcC6 = readSrc('js/app.js');
+  const llmSrcC6 = readSrc('js/llm.js');
+  const cfgSrcC6 = readSrc('js/config.js');
+
+  // ① 模块本身的契约：带时间戳、带序号、可 begin/end 配对结算、可导出
+  const D1 = await page.evaluate(async () => {
+    const d = await import('/js/diag.js');
+    d.clear();
+    const s1 = d.begin('t', 'stage', { detail: 'x' });
+    await new Promise((r) => setTimeout(r, 40));
+    d.end(s1, { ok: true, model: 'm-test', detail: 'y' });
+    const es = d.entries();
+    const one = es.find((e) => e.stage === 't');
+    const txt = d.text();
+    const sum = d.summary();
+    const after = { n: es.length, ms: one && one.ms, ok: one && one.ok, model: one && one.model, ts: one && one.ts };
+    d.clear();
+    return { after, txtHead: txt.slice(0, 12), txtHasStage: txt.includes('t/stage'), sumLen: sum.length, cleared: d.entries().length,
+      hasFns: ['mark', 'begin', 'end', 'note', 'snapshot', 'text', 'json', 'summary', 'clear', 'restore'].every((k) => typeof d[k] === 'function') };
+  });
+  check('C6·diag 导出完整 API（mark/begin/end/note/snapshot/text/json/summary/clear/restore）', D1.hasFns);
+  check('C6·日志条目带绝对时间戳（YYYY-MM-DD HH:mm:ss.mmm）', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}$/.test(D1.after.ts || ''), String(D1.after.ts));
+  check('C6·begin/end 配对能补记耗时 / 成败 / 模型名', D1.after.ok === true && D1.after.ms >= 30 && D1.after.model === 'm-test', JSON.stringify(D1.after));
+  check('C6·导出文本含表头与阶段行（能直接给人看）', D1.txtHasStage, D1.txtHead);
+  check('C6·summary 能按阶段聚合耗时与成败', D1.sumLen >= 1, String(D1.sumLen));
+  check('C6·clear 能清空', D1.cleared === 0, String(D1.cleared));
+
+  // ② 埋点铺满：每个会「假装转圈」的环节都必须有日志，漏一个就等于在最需要证据的地方失明
+  check('C6·埋点·麦克风：拿到/拿不到麦克风都留痕', /diag\.note\('mic', 'open'/.test(appSrcC6));
+  check('C6·埋点·麦克风：录音结束记录字节与时长', /diag\.note\('mic', 'captured'/.test(appSrcC6));
+  check('C6·埋点·原生识别：设备识别结果单独留痕', /diag\.note\('asr', 'native'/.test(appSrcC6));
+  check('C6·埋点·进入 AI 链路的文本留痕', /diag\.note\('input', 'transcript'/.test(appSrcC6));
+  check('C6·埋点·ASR：探测服务端留痕', /diag\.begin\('asr', 'probe'/.test(asrSrcC6));
+  check('C6·埋点·ASR：识别成功与失败都留痕（含错误码与 err_no）', /diag\.end\(dseq[\s\S]{0,400}?ok: true/.test(asrSrcC6) && /err_no=/.test(asrSrcC6));
+  check('C6·埋点·安全识别：放行/拦截结论单独留痕（safety.verdict）', /diag\.note\('ai', 'safety\.verdict'/.test(apiSrcC6));
+  check('C6·埋点·五个业务阶段全部有起止记录', ['safety', 'main', 'followup', 'card', 'timeline'].every((s) => {
+    return new RegExp("stage:\\s*'" + s + "'").test(apiSrcC6);
+  }));
+  check('C6·埋点·模型调用统一经过 ask()（不会漏记 stage）', /diag\.begin\('ai', stage/.test(apiSrcC6) && /diag\.end\(dseq/.test(apiSrcC6));
+  check('C6·埋点·归一化后的 JSON 也留痕（用户要看的是最终结果）', /diagJson\('main'/.test(apiSrcC6) && /diagJson\('card'/.test(apiSrcC6) && /diagJson\('timeline'/.test(apiSrcC6));
+  check('C6·埋点·模型选型留痕（tier + 实际序，回答"到底调了谁"）', /diag\.note\('llm', 'ranking'/.test(llmSrcC6) && /tier=/.test(llmSrcC6));
+  check('C6·埋点·云服务 SDK 加载结果留痕（本地副本 or CDN or 失败）', /diag\.note\('llm', 'sdk'/.test(llmSrcC6));
+
+  // ③ 「不依赖 CDN」：APK 里 WebView 访问不到 jsdelivr 是常态，SDK 必须随包走
+  check('C6·云服务 SDK 已随包发布（vendor/ 下有本地副本）', fs.existsSync(path.join(rootC6, 'vendor/workbuddy-cloud-sdk.js')));
+  check('C6·SDK 首选取本地副本', /SDK_URL\s*=\s*'\.\/vendor\//.test(cfgSrcC6), (cfgSrcC6.match(/SDK_URL\s*=\s*'([^']+)'/) || [])[1]);
+  check('C6·SDK 保留 CDN 兜底（本地副本缺失时不至于整条链路降级）', /SDK_URL_FALLBACK/.test(cfgSrcC6) && /tryUrl\(SDK_URL_FALLBACK/.test(llmSrcC6));
+
+  // ④ 诊断页可达：真机上排查就靠这一页，进不去等于没做
+  await goto('/#/diag');
+  await page.waitForSelector('#diagRun', { timeout: 15000 });
+  const D2 = await page.evaluate(() => ({
+    hasRun: !!document.getElementById('diagRun'),
+    runText: (document.getElementById('diagRun') || {}).textContent || '',
+    hasCopy: !!document.getElementById('diagCopy'),
+    hasExport: !!document.getElementById('diagExport'),
+    hasClear: !!document.getElementById('diagClear'),
+    hasLog: !!document.getElementById('diagLog'),
+    title: (document.querySelector('.page__title') || {}).textContent || '',
+  }));
+  check('C6·诊断页可渲染，含「跑一次真实链路 / 复制 / 导出 / 清空」四个操作', D2.hasRun && D2.hasCopy && D2.hasExport && D2.hasClear && D2.hasLog, JSON.stringify(D2));
+  check('C6·诊断页自检用的是用户点名的那句话（我今天很烦。）', D2.runText.includes('我今天很烦'), D2.runText);
+  check('C6·设置页有诊断入口（真机上找得到这一页）', appSrcC6.includes('#/diag'));
+
+  // ⑤ 诊断日志只存本机，不上传 —— 主打"敢说真话"的产品，日志本身不能成为泄露源
+  check('C6·诊断日志只写 localStorage，不发任何网络请求', !/fetch\(|XMLHttpRequest/.test(diagSrc), diagSrc.includes('localStorage') ? '仅 localStorage' : '未找到存储');
+
+  // ⑥ 卡片日期不再由模型编造（链路日志里当场抓到过：模型返回 2025-07-09，当天是 2026-09-30）
+  const D3 = await page.evaluate(async () => {
+    const m = await import('/js/api.js');
+    const raw = { title: 't', date: '2025-07-09', event: 'e', emotion: ['愤怒'], intensity: 6, summary: 's' };
+    const c = m.normalizeCard(raw, { emotion: ['愤怒'], intensity: 6 }, [], '', '我今天很烦。');
+    return { date: c.date, today: new Date().toISOString().slice(0, 10) };
+  });
+  check('C6·卡片日期由本机给出，模型给的日期一律丢弃', D3.date === D3.today, `模型给 2025-07-09 → 实际写入 ${D3.date}（本机 ${D3.today}）`);
+  check('C6·normalizeCard 源码里不再信任模型的 date 字段', !/test\(str\(s\.date\)\)/.test(apiSrcC6));
+
+  // ⑦ 版本号第六 / 第七处：服务端自己报的版本与对外宣告的最新版。
+  //    漏改不会让页面版本号出错（所以五处断言查不出来），但会让更新弹窗永远慢一版。
+  const srvVer = readSrc('server/version.json');
+  const vSrvJson = (srvVer.match(/"latest_version"\s*:\s*"([\d.]+)"/) || [])[1];
+  const vSrvCjs = (readSrc('server.cjs').match(/VERSION\s*=\s*'([\d.]+)'/) || [])[1];
+  const vIdxC6 = ((await page.evaluate(() => window.APP_VERSION)) || '');
+  check('C6·版本号第六处：server.cjs 的 VERSION 与页面一致', !!vSrvCjs && vSrvCjs === vIdxC6, `server.cjs=${vSrvCjs} 页面=${vIdxC6}`);
+  check('C6·版本号第七处：server/version.json 的 latest_version 与页面一致', !!vSrvJson && vSrvJson === vIdxC6, `version.json=${vSrvJson} 页面=${vIdxC6}`);
+
   /* ================= D. 分级安全 UI（gentle_check / refer / emergency） ================= */
   sec('D. 分级安全 UI');
   await goto('/#/record?mode=text');
@@ -1450,7 +1550,14 @@ const MOCK_SDK = `(function(){
     window.SpeechRecognition = FakeSR;
     window.webkitSpeechRecognition = FakeSR;
   });
-  await ctx2.route(/index\.global\.js/, (route) => route.fulfill({ status: 200, contentType: 'application/javascript; charset=utf-8', body: MOCK_SDK }));
+  // v1.1.3：SDK 改为「本地副本优先 + CDN 兜底」，替身必须两条路都接住 ——
+  // 只接 CDN 的话，本地副本会真实加载，注入的 __llmCalls 永远不存在，G 段第一条断言就崩。
+  let sdkServedFrom = '';
+  await ctx2.route(/(index\.global\.js|workbuddy-cloud-sdk\.js)/, (route) => {
+    const u = route.request().url();
+    sdkServedFrom = /workbuddy-cloud-sdk\.js/.test(u) ? 'local' : 'cdn';
+    return route.fulfill({ status: 200, contentType: 'application/javascript; charset=utf-8', body: MOCK_SDK });
+  });
   let directHits = 0;
   await ctx2.route('https://xiaoting.app.workbuddy.host/**', (route) => { directHits++; route.abort(); });
   // 自建 ASR 端点走替身：主自测必须在断网环境下也能确定性地跑完闭环，
@@ -1510,6 +1617,7 @@ const MOCK_SDK = `(function(){
   const readyHint = await page2.evaluate(async () => (await import('/js/llm.js')).readyHint());
   console.log('  [diag] catalog=' + G1.catalogSize + ' ranking=' + JSON.stringify(G1.ranking) + ' readyHint=' + readyHint + ' lastError=' + JSON.stringify(G1.debug.lastError));
 
+  check('AI·SDK 优先从随包本地副本加载（不依赖外网 CDN）', sdkServedFrom === 'local', sdkServedFrom || '未加载');
   check('AI·SDK 用 publicConfig 的 endpoint 初始化', !!G1.config && G1.config.endpoint === 'https://xiaoting.app.workbuddy.host', G1.config ? G1.config.endpoint : 'no config');
   check('AI·publishableKey 取自 publicConfig', !!(G1.config && /^wbpk_/.test(G1.config.publishableKey)), G1.config ? G1.config.publishableKey.slice(0, 9) + '…' : '');
   const MISSING = ['safety', 'main', 'followup', 'card', 'weekly'].filter((s) => !stages.includes(s));
@@ -1542,7 +1650,9 @@ const MOCK_SDK = `(function(){
   check('AI·满 3 轮强制收尾', G1.fuEnd.ready_for_card === true && G1.fuEnd.question === '', `round=${G1.fuEnd.round}`);
   check('AI·跳过追问直接收尾且不再打扰模型', G1.skip.ready_for_card === true && G1.skipCalls === 0, `skipCalls=${G1.skipCalls}`);
 
-  check('AI·卡片按契约生成', !!G1.card.title && G1.card.ip_state === 'empathy' && G1.card.date === '2026-09-29', `${G1.card.title} / ${G1.card.ip_state}`);
+  // 日期不再写死/不再采信模型：v1.1.3 起一律用本机日期（模型曾在真实调用里返回 2025-07-09）
+  const todayStr = new Date().toISOString().slice(0, 10);
+  check('AI·卡片按契约生成', !!G1.card.title && G1.card.ip_state === 'empathy' && G1.card.date === todayStr, `${G1.card.title} / ${G1.card.ip_state} / ${G1.card.date}`);
   check('AI·卡片保留周报聚合字段（people/scene）', (G1.card.people || []).length > 0 && !!G1.card.scene, `${G1.card.people}/${G1.card.scene}`);
   check('AI·周报由模型生成并归一化', !!G1.weekly.headline && G1.weekly.cards_count === 1, `${G1.weekly.headline} / ${G1.weekly.cards_count}`);
 
@@ -1722,11 +1832,16 @@ const MOCK_SDK = `(function(){
   check('版本API·/api/version/latest 含 5 字段',
     ['latest_version', 'release_notes', 'download_url', 'force_update', 'web_url'].every((k) => k in HAPI.latest),
     JSON.stringify(Object.keys(HAPI.latest)));
-  check('版本API·latest_version=1.1.2', HAPI.latest.latest_version === '1.1.2', HAPI.latest.latest_version);
+  // 不写死版本号：以 server/version.json（服务端对外宣告的最新版）为准，
+  // 再与页面 window.APP_VERSION 对齐 —— 三者一致才说明"发版时没漏改任何一处"。
+  const vTruth = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'server/version.json'), 'utf8')).latest_version;
+  const vPageH = await page.evaluate(() => window.APP_VERSION);
+  check(`版本API·latest_version 与服务端真相一致（${vTruth}）`, HAPI.latest.latest_version === vTruth, HAPI.latest.latest_version);
+  check(`版本API·latest_version 与页面版本一致（页面 ${vPageH}）`, HAPI.latest.latest_version === vPageH, `${HAPI.latest.latest_version} vs ${vPageH}`);
   check('版本API·release_notes 为非空数组', Array.isArray(HAPI.latest.release_notes) && HAPI.latest.release_notes.length >= 1, String((HAPI.latest.release_notes || []).length));
   check('版本API·force_update 为布尔', typeof HAPI.latest.force_update === 'boolean', String(HAPI.latest.force_update));
   check('版本API·/api/version/history 含 versions 数组', Array.isArray(HAPI.hist.versions) && HAPI.hist.versions.length >= 1, String((HAPI.hist.versions || []).length));
-  check('版本API·history 最新项=1.1.2 且含 notes', HAPI.hist.versions[0].version === '1.1.2' && Array.isArray(HAPI.hist.versions[0].notes), HAPI.hist.versions[0].version);
+  check(`版本API·history 最新项与服务端真相一致（${vTruth}）且含 notes`, HAPI.hist.versions[0].version === vTruth && Array.isArray(HAPI.hist.versions[0].notes), HAPI.hist.versions[0].version);
 
   // H2. update.js 纯函数（直接 import 模块）
   const H2 = await page.evaluate(async () => {
@@ -1852,8 +1967,9 @@ const MOCK_SDK = `(function(){
     hasCheck: !!document.getElementById('clCheck'),
   }));
   check('更新日志·渲染历史条目（≥1）', H6.items >= 1, String(H6.items));
-  check('更新日志·最新条目=1.1.2', H6.topVer.includes('1.1.2'), H6.topVer);
-  check('更新日志·当前版本显示 1.1.0', H6.ver.includes('1.1.2'), H6.ver);
+  const vTruth2 = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'server/version.json'), 'utf8')).latest_version;
+  check(`更新日志·最新条目=${vTruth2}`, H6.topVer.includes(vTruth2), H6.topVer);
+  check(`更新日志·当前版本显示 ${vTruth2}`, H6.ver.includes(vTruth2), H6.ver);
   check('更新日志·有「检查更新」按钮', H6.hasCheck, String(H6.hasCheck));
   await shot(page6, '25-changelog.png');
 

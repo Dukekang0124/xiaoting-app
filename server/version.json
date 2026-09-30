@@ -1,24 +1,36 @@
 {
-  "latest_version": "1.1.2",
+  "latest_version": "1.1.3",
   "force_update": false,
-  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.2-release.apk",
+  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.3-release.apk",
   "web_url": "https://xiaoting.app.workbuddy.host/#/say",
   "apk": {
-    "versionCode": 10102,
-    "version": "1.1.2",
-    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.2-release.apk",
+    "versionCode": 10103,
+    "version": "1.1.3",
+    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.3-release.apk",
     "md5": "e07ca25d9b460c4260fe38931d7f4865",
     "size": 3330449,
     "force": false
   },
   "release_notes": [
-    "App 换上墨小溟专属图标了：紫色小墨鱼 + 暖奶油白底，桌面一眼认出",
-    "修复真机「按住说」识别不了的问题：安卓上改用设备自带语音识别，不再依赖服务器转写",
-    "麦克风权限申请改为原生弹窗，拒绝时会给出去设置的引导，不再默默失败",
-    "识别失败不再弹黑色警告条，换成墨小溟的柔和气泡，并区分「没录上」和「没听清」",
-    "「按住说」「不方便说？打字也行」的入口文案保持不变"
+    "新增「链路诊断」页：每一步都带时间戳记下来——麦克风录到多少字节、识别用了多久什么错误码、安全识别放行还是拦截、主分析用哪个模型多久返回了什么 JSON",
+    "诊断页内置「跑一次真实链路」按钮，当场把语音→识别→安全→主分析→追问→卡片整条链路真跑一遍给你看",
+    "AI 链路不再依赖外网 CDN：云服务 SDK 随 App 一起打包，离线也能建客户端",
+    "修复卡片日期会被模型编造的问题（模型曾返回 2025-07-09，现一律以本机日期为准）",
+    "设置页新增诊断入口，日志可一键复制或导出，只存本机不上传"
   ],
   "history": [
+    {
+      "version": "1.1.3",
+      "date": "2026-09-30",
+      "title": "AI 链路真实可查",
+      "notes": [
+        "新增链路诊断页：麦克风、识别、安全识别、主分析、追问、卡片、时间线，每一步都带时间戳留痕",
+        "诊断页可一键「跑一次真实链路」，并导出/复制完整日志（只存本机）",
+        "云服务 SDK 改为随包发布 + CDN 兜底，不再因外部 CDN 不可达而整条链路降级",
+        "修复：卡片日期采用模型编造的值（曾出现 2025-07-09），改为一律使用本机日期",
+        "底层 AI 链路核查结论：走 WorkBuddy 免密钥网关，安全识别 deepseek-v4.1-flash、主分析/追问/卡片 glm-5.0，额度与并发正常"
+      ]
+    },
     {
       "version": "1.1.2",
       "date": "2026-09-30",

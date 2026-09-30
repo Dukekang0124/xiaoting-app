@@ -1,0 +1,118 @@
+墨小溟 · 链路诊断日志
+生成时间：2026-09-30 08:34:06.773
+应用版本：1.1.3    平台：Web    网络：在线
+页面源：https://xiaoting.app.workbuddy.host
+
+[OK]   2026-09-30 08:33:49.708  +     0ms  ai/safety
+      1794ms  model=deepseek-v4.1-flash
+      模型返回已解析为 JSON
+      raw: {
+  "risk_level": "low",
+  "reason": "用户表达'我今天很烦'，属于情绪低落但无自伤、自杀意念或绝望表达",
+  "action": "continue"
+}
+[OK]   2026-09-30 08:33:49.718  +    10ms  llm/sdk
+      -
+      云服务客户端已就绪（先本地副本，失败回 CDN）
+[OK]   2026-09-30 08:33:49.835  +   127ms  llm/ranking
+      -  model=deepseek-v4.1-flash
+      tier=fast 目录=30 命中优先序=deepseek-v4.1-flash,glm-5.0,hunyuan-chat 实际序前3=deepseek-v4.1-flash,glm-5.0,hunyuan-chat
+[OK]   2026-09-30 08:33:51.503  +  1795ms  ai/safety.verdict
+      -
+      风险等级=low 动作=continue
+      raw: {"risk_level":"low","action":"continue","reason":"用户表达'我今天很烦'，属于情绪低落但无自伤、自杀意念或绝望表达","degraded":""}
+[OK]   2026-09-30 08:33:51.504  +  1796ms  ai/main
+      5551ms  model=glm-5.0
+      模型返回已解析为 JSON
+      raw: {
+  "event": "用户感受到明显的烦躁",
+  "people": ["用户"],
+  "scene": "今天，具体情境暂未知",
+  "emotion": ["愤怒", "焦虑", "无力"],
+  "emotion_primary": "愤怒",
+  "emotion_secondary": "焦虑",
+  "emotion_shift": "",
+  "shift_trigger": "",
+  "hidden_need": "被看见、被倾听，希望心里的烦躁有一个安全的地方可以放置",
+  "intensity": 5,
+  "body": ["胸闷", "心烦"],
+  "thought": "我今天很烦。",
+  "cognitive_patterns": [],
+  "need": ["被理解", "安全感"],
+  "behavior": "倾诉",
+  "result": "把烦躁说了出来",
+  "pattern": "用简短的词语概括整天的感受，可能习惯把情绪先打包再处理。",
+  "experiment": "写下「今天很烦」这四个字，然后闭上眼睛，做三次深呼吸，每次吐气时在心里默念「烦就烦吧」。",
+  "summary": "有时候就是会毫无征兆地被一阵烦躁裹住，你愿意把它说出来，它就开始流动了。",
+  "ip_state": "empath…(+177)
+[OK]   2026-09-30 08:33:51.504  +  1796ms  llm/ranking
+      -  model=glm-5.0
+      tier=strong 目录=30 命中优先序=glm-5.0,deepseek-v4.1-flash,hunyuan-chat 实际序前3=glm-5.0,deepseek-v4.1-flash,hunyuan-chat
+[OK]   2026-09-30 08:33:57.057  +  7349ms  ai/main.json
+      -
+      raw: {"event":"用户感受到明显的烦躁","people":["用户"],"scene":"今天，具体情境暂未知","emotion":["愤怒","焦虑"],"emotion_primary":"愤怒","emotion_secondary":"焦虑","emotion_shift":"","shift_trigger":"","hidden_need":"被看见、被倾听，希望心里的烦躁有一个安全的地方可以放置","intensity":6,"body":["胸闷"],"thought":"我今天很烦。","cognitive_patterns":[],"need":["被理解","安全感"],"behavior":"倾诉","result":"把烦躁说了出来","pattern":"用简短的词语概括整天的感受，可能习惯把情绪先打包再处理。","experiment":"写下「今天很烦」这四个字，然后闭上眼睛，做三次深呼吸，每次吐气时在心里默念「烦就烦吧」。","summary":"有时候就是会毫无征兆地被一阵烦躁裹住，你愿意把它说出来，它就开始流动了。","ip_state":"empathy","ip_action":"comfort_sway","needs_followup":true,"followup_questions":["烦躁是今天某件事触发的，还是一整天慢慢…(+52)
+[OK]   2026-09-30 08:33:57.058  +  7350ms  ai/followup
+      2049ms  model=glm-5.0
+      模型返回已解析为 JSON
+      raw: ```json
+{
+  "empathy": "说不清的烦，也挺难受的。",
+  "question": "这股烦躁是今天某件事点着的，还是一整天慢慢攒起来的？",
+  "round": 1,
+  "can_skip": true,
+  "ready_for_card": false
+}
+```
+[OK]   2026-09-30 08:33:59.107  +  9399ms  ai/followup.json
+      -
+      raw: {"empathy":"说不清的烦，也挺难受的。","question":"这股烦躁是今天某件事点着的，还是一整天慢慢攒起来的？","round":1,"can_skip":true,"ready_for_card":false}
+[OK]   2026-09-30 08:33:59.108  +  9400ms  ai/card
+      3953ms  model=glm-5.0
+      模型返回已解析为 JSON
+      raw: ```json
+{
+  "card_type": "hold",
+  "title": "说不清的烦，也挺难受的",
+  "date": "2025-07-09",
+  "event": "今天被一阵烦躁裹住，说不清是哪件事触发的",
+  "emotion": ["愤怒", "焦虑"],
+  "intensity": 6,
+  "body": ["胸闷"],
+  "thought": "我今天很烦。",
+  "need": ["被理解", "安全感"],
+  "behavior": "倾诉",
+  "result": "把烦躁说了出来",
+  "pattern": "用简短的词语概括整天的感受，可能习惯把情绪先打包再处理",
+  "experiment": "写下「今天很烦」四个字，然后闭上眼睛，做三次深呼吸，每次吐气时在心里默念「烦就烦吧」。",
+  "summary": "你说「我今天很烦」，这四个字本身就是你在替那团说不清的东西找一个出口——它被说出来的那一刻，就已经开始松动了。",
+  "emotion_primary": "愤怒",
+  "emotion_secondary": "焦虑",
+  "hidden_need": "被看见、被倾听，希望心里的烦躁有一个安全的地方可以放置",
+  "tags": ["烦躁", "说不清", "胸闷"],
+  "ip_state":…(+16)
+[OK]   2026-09-30 08:34:03.062  + 13354ms  ai/card.json
+      -
+      raw: {"title":"把情绪暂时留在深海","date":"2025-07-09","event":"今天被一阵烦躁裹住，说不清是哪件事触发的","emotion":["愤怒","焦虑"],"emotion_primary":"愤怒","emotion_secondary":"焦虑","emotion_shift":"","shift_trigger":"","hidden_need":"被看见、被倾听，希望心里的烦躁有一个安全的地方可以放置","intensity":6,"body":["胸闷"],"thought":"我今天很烦。","need":["被理解","安全感"],"behavior":"倾诉","result":"把烦躁说了出来","pattern":"用简短的词语概括整天的感受，可能习惯把情绪先打包再处理","experiment":"写下「今天很烦」四个字，然后闭上眼睛，做三次深呼吸，每次吐气时在心里默念「烦就烦吧」。","summary":"你说「我今天很烦」，这四个字本身就是你在替那团说不清的东西找一个出口——它被说出来的那一刻，就已经开始松动了。","tags":["烦躁","说不清","胸闷"],"ip_state":"empathy","card_type":"hold","card_layer":"第二层 · 情绪容纳","card_name":"情绪…(+171)
+[OK]   2026-09-30 08:34:03.063  + 13355ms  ai/timeline
+      3694ms  model=glm-5.0
+      模型返回已解析为 JSON
+      raw: {
+  "nodes": [
+    { "emotions": ["愤怒"], "caption": "一开始说今天很烦" },
+    { "emotions": ["迷茫"], "caption": "说起工作上的事，但说不清楚具体是什么" }
+  ],
+  "summary": "这段对话里，你的感受从直接烦躁，慢慢滑向说不清楚的迷茫。有时候情绪就是这样，明明感觉到了，却找不到具体的源头，这种模糊的状态也是真实的。",
+  "action_hint": {
+    "title": "深海呼吸",
+    "step": "慢慢吸气 4 秒、屏住 2 秒、呼气 6 秒，重复 3 轮。",
+    "note": "不用急着弄清楚烦的是什么，先让身体松一口气。"
+  }
+}
+[OK]   2026-09-30 08:34:06.758  + 17050ms  ai/timeline.json
+      -
+      raw: {"type":"no-emotion","summary":"本次对话更多是陈述事件，没有捕捉到明显情绪"}
+[OK]   2026-09-30 08:34:06.758  + 17050ms  diag/selfrun
+      -
+      自检完成：安全=low/continue；主分析情绪=愤怒、焦虑 强度=6；追问=已生成；卡片=已生成；时间线=未生成
+
+耗时：17394ms

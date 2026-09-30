@@ -33,14 +33,17 @@ const path = require('node:path');
 const ROOT = __dirname;
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
-const VERSION = '1.1.2';
+const VERSION = '1.1.3';
 
 /* ==================== 静态资源白名单 ==================== */
 
 const PUBLIC_FILES = new Set([
   '/index.html', '/styles.css', '/sw.js', '/manifest.webmanifest', '/favicon.ico',
 ]);
-const PUBLIC_PREFIXES = ['/js/', '/icons/', '/assets/'];
+// '/vendor/'（v1.1.3）：云服务 SDK 的随包副本。之前只有 /js/ /icons/ /assets/，
+// 加了 vendor/ 却忘了开白名单 ⇒ 本地副本 404 ⇒ SDK 静默回退 CDN ⇒ 一旦外网不可达整条 AI 链路降级。
+// 这类"加了新目录没同步白名单"的失败不会报错，只会让功能悄悄变差。
+const PUBLIC_PREFIXES = ['/js/', '/icons/', '/assets/', '/vendor/'];
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',

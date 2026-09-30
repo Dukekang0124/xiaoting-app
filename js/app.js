@@ -10,9 +10,10 @@ import * as asr from './asr.js';
 import * as voice from './voice.js';
 import * as update from './update.js';
 import * as nativeAsr from './native-asr.js';
+import * as diag from './diag.js';
 import { parseHash, go, onChange } from './router.js';
 import { COPY, greetByHour, findForbidden, pickRiskScript, pickEmotionResponse, pickSilence, pickBy } from './prompts.js';
-import { AI, ASR } from './config.js';
+import { AI, ASR, isNativeApp } from './config.js';
 
 const $view = () => document.getElementById('view');
 const $tabbar = () => document.getElementById('tabbar');
@@ -183,6 +184,7 @@ async function beginCapture() {
       lang: 'zh-CN',
       onPartial: (t) => setLiveText(t || COPY.recording[0]),
     });
+    diag.note('mic', 'mode', { ok: true, detail: '原生容器设备识别（录音与转写都在设备上，不需要服务端）' });
   } else if (!CAP.canRecord) {
     // 连录音都做不到（极老的 iOS / 拿不到麦克风权限）→ 直接送打字，并说清为什么
     store.toast('这个环境拿不到麦克风，我们打字聊好吗');
@@ -208,7 +210,12 @@ async function beginCapture() {
       rec.media = rec.mime ? new MediaRecorder(rec.stream, { mimeType: rec.mime }) : new MediaRecorder(rec.stream);
       rec.media.ondataavailable = (e) => { if (e.data && e.data.size) rec.chunks.push(e.data); };
       rec.media.start();
-    } catch (e) { rec.media = null; micErr = e; }
+      diag.note('mic', 'open', { ok: true, detail: `getUserMedia 成功，容器=${rec.mime || '默认'}，采样已开始` });
+    } catch (e) {
+      rec.media = null;
+      micErr = e;
+      diag.note('mic', 'open', { ok: false, code: String((e && e.name) || 'unknown'), detail: `拿不到麦克风：${String((e && e.message) || e).slice(0, 80)}` });
+    }
   }
 
   // 录音都没建起来（没设备 / 拒绝授权）→ 立刻说清楚并送去打字。
@@ -293,6 +300,14 @@ async function endCapture() {
   try { rec.sr && rec.sr.stop(); } catch (e) { /* ignore */ }
   const media = rec.media;
   const blob = media ? await waitForBlob(media) : null;   // 先取音频
+  // 麦克风这一段必须留痕：真机上「按住说没反应」到底是没录到字节、还是录到了但识别失败，
+  // 全靠这一条区分 —— 没有它，两个完全不同的故障会长得一模一样。
+  diag.note('mic', 'captured', {
+    ok: !!(blob && blob.size > 0),
+    ms: Math.max(0, Date.now() - (rec.t0 || Date.now())),
+    detail: `模式=${rec.mode} 录音字节=${(blob && blob.size) || 0} 时长=${((Date.now() - (rec.t0 || Date.now())) / 1000).toFixed(1)}s` +
+      (srText ? ` 内置字幕="${srText.slice(0, 30)}"` : ''),
+  });
 
   // 原生模式：向设备收尾，拿它转写好的文字
   let nativeRes = null;
@@ -317,9 +332,11 @@ async function endCapture() {
 
   if (nativeRes && nativeRes.ok && nativeRes.text) {
     text = nativeRes.text;   // 设备识别结果优先：它不需要网络往返，也最贴近设备麦克风的实际采样
+    diag.note('asr', 'native', { ok: true, ms: Date.now() - (rec.t0 || Date.now()), detail: `设备识别完成，${text.length} 字` });
     asr.logEvent('asr_ok', { engine: 'native', ms: 0, totalMs: Date.now() - (rec.t0 || Date.now()), chars: text.length });
   } else if (nativeRes && !nativeRes.ok) {
     fail = { code: nativeRes.code || 'native_failed' };
+    diag.note('asr', 'native', { ok: false, code: fail.code, ms: Date.now() - (rec.t0 || Date.now()), detail: `设备识别未给出文本（${fail.code}）` });
     asr.logEvent('asr_fail', { engine: 'native', code: fail.code, totalMs: Date.now() - (rec.t0 || Date.now()) });
   } else if (blob && blob.size > 0 && cloudAllowed && (await asr.probeCloud()) !== 'unavailable') {
     if (label) label.textContent = '识别中…';
@@ -350,6 +367,8 @@ async function endCapture() {
     render();
     return;
   }
+  diag.note('input', 'transcript', { ok: true, detail: `进入 AI 链路的文本（${text.length} 字）`, raw: text });
+
   // ②c 语音物理特征：从「音频 + 文本」提炼 user_voice_features，作为辅助参数送主分析。
   //   即使音频解析失败也返回结构完整的对象（volume_peak=0），绝不阻塞主流程。
   const durationMs = Math.max(0, Date.now() - (rec.t0 || Date.now()));
@@ -1383,6 +1402,7 @@ function pageSettings() {
     <div class="set-block">
       <div class="set-title">AI 通道</div>
       <p class="set-sub">${esc(aiChannelText())}</p>
+      <a class="ghost set-diaglink" href="#/diag">查看链路诊断日志 →</a>
     </div>
     <div class="set-block">
       <div class="set-title">一键删除全部数据</div>
@@ -1393,7 +1413,7 @@ function pageSettings() {
       <div class="set-title">重要声明</div>
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.1.2')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.1.3')}</p>
   </section>`;
 }
 
@@ -1421,14 +1441,14 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.1.2')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.1.3')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
     <div class="disclaimer-box">${esc(COPY.about.disclaimer)}</div>
     <div class="changelog__list" id="clList"><p class="set-sub">正在加载更新历史…</p></div>
     <button class="primary" id="clCheck" type="button">检查更新</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.1.2')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.1.3')}</p>
   </section>`;
 }
 
@@ -1552,6 +1572,137 @@ function showRiskModal(version, script, evidence) {
   });
 }
 
+/* ---------------- 链路诊断页（v1.1.3） ----------------
+ *
+ * 存在的理由：以前要回答「AI 到底有没有真的跑」只能靠猜。现在每一步都写在 js/diag.js 里，
+ * 这一页把它读出来给人看：麦克风拿到多少字节、ASR 用了多久什么错误码、安全识别放行还是拦截、
+ * 主分析用的哪个模型多久返回了什么 JSON、追问与卡片有没有生成。
+ * 还有一颗「跑一次真实链路」按钮 —— 用一句固定的话把整条链路真跑一遍，结果立刻出现在下面。
+ */
+
+function pageDiag() {
+  const env = diag.environment();
+  const sum = diag.summary();
+  return `
+  <section class="page page--diag">
+    <header class="page__head">
+      <h1 class="page__title">链路诊断</h1>
+      <p class="page__sub">这一页记录真实发生过的每一步，不是模拟，也不是占位。</p>
+    </header>
+
+    <div class="diag-card">
+      <div class="diag-card__t">环境</div>
+      <div class="diag-kv"><span>应用版本</span><b>${esc(env.appVersion || '-')}</b></div>
+      <div class="diag-kv"><span>平台</span><b>${esc(env.platform || (isNativeApp() ? 'Android' : 'Web'))}</b></div>
+      <div class="diag-kv"><span>页面源</span><b>${esc(env.origin || location.origin)}</b></div>
+      <div class="diag-kv"><span>网络</span><b>${env.online === false ? '离线' : '在线'}</b></div>
+      <div class="diag-kv"><span>AI 通道</span><b>${esc(String(env.provider || '-'))}</b></div>
+    </div>
+
+    <div class="diag-card">
+      <div class="diag-card__t">各阶段耗时与成败</div>
+      ${sum.length ? sum.map((s) => `
+        <div class="diag-kv"><span>${esc(s.stage)}</span><b>${s.calls} 次 · 成功 ${s.ok} · 失败 ${s.fail} · 均值 ${Math.round(s.ms / s.calls)}ms · 峰值 ${s.maxMs}ms${Object.keys(s.models).length ? ' · ' + esc(Object.keys(s.models).join('/')) : ''}</b></div>`).join('') : '<p class="diag-empty">还没有调用记录。</p>'}
+    </div>
+
+    <div class="diag-actions">
+      <button class="primary" id="diagRun" type="button">用「我今天很烦。」跑一次真实链路</button>
+      <button class="ghost" id="diagCopy" type="button">复制日志</button>
+      <button class="ghost" id="diagExport" type="button">导出 .txt</button>
+      <button class="ghost" id="diagClear" type="button">清空</button>
+    </div>
+    <div id="diagRunning" class="diag-running" hidden>正在跑：<span id="diagStage">…</span></div>
+
+    <pre class="diag-log" id="diagLog">${esc(diag.text())}</pre>
+    <p class="foot-note">日志只存在本机，不会上传。</p>
+  </section>`;
+}
+
+function bindDiag() {
+  const logEl = document.getElementById('diagLog');
+  const refresh = () => { if (logEl) logEl.textContent = diag.text(); };
+
+  const runBtn = document.getElementById('diagRun');
+  if (runBtn) runBtn.addEventListener('click', async () => {
+    const stageEl = document.getElementById('diagStage');
+    const runningEl = document.getElementById('diagRunning');
+    if (runningEl) runningEl.hidden = false;
+    runBtn.disabled = true;
+    try {
+      diag.clear();
+      diag.snapshot({ platform: isNativeApp() ? 'Android(APK)' : 'Web' });
+      const T = '我今天很烦。';
+
+      if (stageEl) stageEl.textContent = '安全识别…';
+      const safety = await api.safety({ transcript: T });
+      refresh();
+
+      if (stageEl) stageEl.textContent = '主分析…';
+      const analysis = await api.analyze({ transcript: T });
+      refresh();
+
+      let follow = null;
+      if (safety.action === 'continue' || safety.risk_level === 'none') {
+        if (stageEl) stageEl.textContent = '追问…';
+        follow = await api.followup({ analysis, asked: [], userAnswer: '', round: 0 });
+        refresh();
+      }
+
+      if (stageEl) stageEl.textContent = '卡片生成…';
+      const card = await api.cardGenerate({ analysis, followup: follow ? [follow] : [], extra: '', transcript: T });
+      refresh();
+
+      if (stageEl) stageEl.textContent = '情绪时间线…';
+      const tl = await api.timelineGenerate({
+        conversation: [
+          { role: 'user', text: T },
+          { role: 'ai', text: (follow && follow.question) || '' },
+          { role: 'user', text: '就是工作上的事，说不上来。' },
+        ],
+      });
+      refresh();
+
+      diag.note('diag', 'selfrun', {
+        ok: true,
+        detail: `自检完成：安全=${safety.risk_level}/${safety.action}；主分析情绪=${(analysis.emotion || []).join('、')} 强度=${analysis.intensity}；` +
+          `追问=${follow && follow.question ? '已生成' : '未生成'}；卡片=${card && card.summary ? '已生成' : '未生成'}；时间线=${tl && tl.title ? '已生成' : '未生成'}`,
+      });
+    } catch (e) {
+      diag.note('diag', 'selfrun', { ok: false, code: 'exception', detail: String((e && e.message) || e) });
+    }
+    if (stageEl) stageEl.textContent = '完成';
+    if (runningEl) runningEl.hidden = true;
+    runBtn.disabled = false;
+    refresh();
+  });
+
+  const copyBtn = document.getElementById('diagCopy');
+  if (copyBtn) copyBtn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(diag.text());
+      softSay('日志已复制');
+    } catch (e) {
+      softSay('复制失败，可以长按选中日志手动复制');
+    }
+  });
+
+  const expBtn = document.getElementById('diagExport');
+  if (expBtn) expBtn.addEventListener('click', () => {
+    try {
+      const blob = new Blob([diag.text()], { type: 'text/plain;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `墨小溟-链路诊断-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '')}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); if (a.parentNode) a.parentNode.removeChild(a); }, 300);
+    } catch (e) { softSay('导出失败'); }
+  });
+
+  const clrBtn = document.getElementById('diagClear');
+  if (clrBtn) clrBtn.addEventListener('click', () => { diag.clear(); refresh(); });
+}
+
 /* ---------------- 路由表 ---------------- */
 
 const PAGES = {
@@ -1570,6 +1721,7 @@ const PAGES = {
   settings: { render: pageSettings, bind: bindSettings, nav: true },
   changelog: { render: pageChangelog, bind: bindChangelog, nav: false },
   risk: { render: pageRisk, bind: bindRisk, nav: false },
+  diag: { render: pageDiag, bind: bindDiag, nav: false },
 };
 
 /* ---------------- 渲染 ---------------- */
@@ -1664,6 +1816,9 @@ function showWelcome() {
 
 export function boot() {
   store.initStore();
+  // 环境快照要打在第一条链路日志之前：没有「我是谁、什么环境、什么通道」这一行，
+  // 后面的耗时与错误码在离开这台机器之后就没有上下文了。
+  diag.snapshot({ platform: isNativeApp() ? 'Android(APK)' : 'Web', provider: api.aiStatus().provider });
   store.subscribe(() => { renderToast(); });
   onChange(() => render());
   if (!location.hash) location.hash = '#/say';

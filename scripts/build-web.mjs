@@ -10,7 +10,7 @@ const src = path.join(root, '..'); // 墨小溟App/
 const out = path.join(src, 'www');
 
 // 需要进包的目录 / 文件（其余一律不带）
-const DIRS = ['js', 'icons'];
+const DIRS = ['js', 'icons', 'vendor'];
 const FILES = ['index.html', 'styles.css', 'sw.js', 'manifest.webmanifest'];
 
 // 明确不上线的根级条目

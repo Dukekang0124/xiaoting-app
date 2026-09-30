@@ -1,4 +1,4 @@
-# 墨小溟 · 语音情绪复盘教练（v1.1.2）
+# 墨小溟 · 语音情绪复盘教练（v1.1.3）
 
 > 说出来，就轻一点。
 > 一个会追问、会记住、不评判的语音情绪复盘教练。
@@ -47,7 +47,7 @@ node server.cjs                    # 零依赖，默认端口 3000；本地可�
 ## 自测（改完代码必须真跑，不要只做静态检查）
 
 ```bash
-# 1) 主自测：364 条断言（契约 / 文案库 / 流程 / 分级安全 / 视觉 / AI 管线 / 兜底 / 最小闭环 / §2§3 护栏 / 版本更新与自动弹窗 / v0.8.0 情绪共鸣与 IP 生命感 / 四类场景卡片 / v1.1.0 情绪时间线卡片 / C4 审计修复回归 / C5 真机修复回归）
+# 1) 主自测：395 条断言（契约 / 文案库 / 流程 / 分级安全 / 视觉 / AI 管线 / 兜底 / 最小闭环 / §2§3 护栏 / 版本更新与自动弹窗 / v0.8.0 情绪共鸣与 IP 生命感 / 四类场景卡片 / v1.1.0 情绪时间线卡片 / C4 审计修复回归 / C5 真机修复回归 / C6 AI 链路诊断）
 #    ⚠️ 跑主自测请起【根目录】server.cjs（不是 _selftest/server.cjs）——套件会请求 /api/version/latest，
 #       纯静态小服务器会 404 并中断整套测试。示例：PORT=4174 node server.cjs
 NODE_PATH=C:/Users/Admin/.workbuddy/binaries/node/workspace/node_modules \
@@ -89,7 +89,12 @@ styles.css              UI 令牌 + IP 六状态动效 + 全站精装修样式
 manifest.webmanifest    PWA 清单（含 version）
 sw.js                   Service Worker 离线缓存（ASSETS 必须覆盖 js/ 下全部文件；不接管 /.cloud/ 与 /api/）
 icons/icon.svg          应用图标（几何与 IP 待机态一致）
+vendor/
+  workbuddy-cloud-sdk.js 云服务 SDK 的**随包副本**（v1.1.3）：APK 里 WebView 访问不到 jsdelivr 是常态，
+                         走 CDN 会让整条 AI 链路静默降级 —— 本地优先，CDN 仅兜底
 js/
+  diag.js                链路诊断日志（v1.1.3）：带时间戳记录麦克风/ASR/安全识别/主分析/追问/卡片/时间线每一步
+                         （耗时、模型名、错误码、原始 JSON）；只写 localStorage，可复制/导出，不发网络请求
   store.js              状态管理（单一 store + 订阅 + localStorage + toast TTL）
   voice.js              语音物理特征提取（语速 / 停顿 / 音量 / 语气词）+ createVolumeProbe 实时音量探针（写 --ip-vol 驱动 IP 发光）
   ip.js                 墨小溟 IP（云朵水母）+ 六状态机 + avatar()/miniFace() + v0.8.0 微动作（tears 落泪 / brow 蹙眉 / spark 星光 / breath 呼吸）+ --ip-vol 音量发光
@@ -104,9 +109,12 @@ js/
   update.js             版本更新检测 + 自定义弹窗 + 平台分支（APK/微信/Web）+ snooze + 更新历史页数据
 _selftest/
   server.cjs            零依赖静态服务（仅静态场景用；带 ASR 时应跑根目录的 server.cjs）
-  selftest.cjs          主自测（276 断言，SDK/ASR 双契约替身，可离线；含 H 版本更新与自动弹窗 35 条 + I·v0.8.0 情绪共鸣与 IP 生命感 12 条）
+  selftest.cjs          主自测（395 断言，SDK/ASR 双契约替身，可离线；含 H 版本更新与自动弹窗 35 条 + I·v0.8.0 情绪共鸣与 IP 生命感 12 条）
   asr-e2e.cjs           ASR 端到端真跑（42 断言，真音频真链路真识别，算字错误率）
   verify-local-on-live.cjs  真机验证（20 断言，真 SDK + 真云服务，无需发布）
+  chain-evidence.cjs     真实数据流取证：真跑一遍完整链路，打印带时间戳的诊断日志（回答「AI 有没有真的在跑」）
+  probe-catalog.cjs      拉取云网关**真实模型目录**（核查「到底有哪些模型可用」）
+  probe-models.cjs       模型横评：用真实主分析 Prompt 比候选模型的耗时 / 字段完整度 / 文案质量
   probe-ab.cjs          视觉断言 A/B 鉴别力校验
   probe-geom.cjs        量首页几何（为排版断言定阈值，不猜数字）
   preview.cjs           视觉快速预览（不做断言）
@@ -176,7 +184,13 @@ _selftest/
 1. **AI 输出必须过归一化**（缺字段补默认）与**容错解析**（非法/截断 JSON 不抛错），前端永不崩。
 2. **安全识别三层兜底不可退化成两层**：①模型答了→归一化（只往更保守纠正）②模型没答好→`gentle_check`，**绝不放行 continue** ③通道结构性不可用→本地规则引擎。**"模型答错"与"没有模型可问"必须分开判断**。
 3. **版本号五处同改**：`index.html` 的 `window.APP_VERSION`、`sw.js` 的 `CACHE`、`manifest.webmanifest` 的 `version`、**`js/app.js` 页脚兜底值**、`package.json` 的 `version`。新增 js 文件必须加进 `sw.js` 的 `ASSETS`。另：`server/version.json` 的 `latest_version` 也要同步 bump（它是对外宣告的最新版，不在五处代码戳内，自测不覆盖，需人工核对）。
-4. **接入云服务的四条硬约束**：只支持流式（`stream:true`）/ `messages[0]` 必须是应用自带 system / Origin 精确匹配（`127.0.0.1` 被拒）/ SDK 形态随项目形态（无构建 PWA 用 `WorkBuddyCloud.createWorkBuddyCloud`）。
+4. **接入云服务的硬约束**：只支持流式（`stream:true`）/ `messages[0]` 必须是应用自带 system / SDK 形态随项目形态（无构建 PWA 用 `WorkBuddyCloud.createWorkBuddyCloud`）。
+   🔴 **Origin 一条已实测更正（v1.1.3）**：早期结论「Origin 精确匹配、`127.0.0.1` 被拒」**已过时**。
+   实测（curl 直接打数据面）：`GET /.cloud/llm/models` 与 `POST /.cloud/llm/chat/completions`
+   在 `Origin: https://localhost`（APK WebView 的源）下均返回 **200**，响应带回
+   `Access-Control-Allow-Origin: https://localhost`，预检 OPTIONS 放行 `x-wb-webapp-access-key`。
+   ⇒ **APK 里 AI 链路本来就是通的**；真机上「看起来在转圈其实没调模型」的真凶另有其人 ——
+   最大嫌疑是 SDK 走 CDN 加载失败（`sdk_unavailable` → 静默降级），v1.1.3 已改为 SDK 随包发布。
 5. **模型选型是必做项**：目录里多数模型 `onlyReasoning:true`，短结构化任务必须先选型（实测 23.9s → 1.3s）。**线上旧版本用 `auto` 实测首段端到端 50.3s 且主分析只回 reasoning 不给正文**，选型不是优化项而是可用性前提。**`max_tokens` 是防跑飞，不是压延迟**。
 6. **改代码后必须真跑**：`node --check` 只能当最低门槛 —— 引用不存在的变量在语法上合法，还会被 `try/catch` 静默吞掉（这个坑本项目踩过两次：AI 通道完全不通、内置识别永不启动，两次静态检查都是全绿）。
 7. **密钥只准待在服务端**：前端源码里出现 `apiKey` / `secretKey` / `access_token` 一律视为缺陷（自测有断言守）。`server/` 整目录与 `server.cjs`、`package.json` 都在静态白名单之外。
@@ -186,6 +200,41 @@ _selftest/
 11. **IP 状态只换 CSS 变量 + 挂动画，不改 SVG 结构**；元素类名必须与 CSS 选择器严格一致（曾因 `.wet` vs `.mascot__wet` 导致"共情态眼睛变湿润"永不生效）。
 12. **入场动画凡以 `opacity:0` 起始**，必须在 `prefers-reduced-motion` 下强制 opacity 为 1，否则关动画 = 内容消失。
 13. 数据仅存 `localStorage['xiaoting:v1']`；无账号；**录音会上传到墨小溟自建服务端做云端转写，转写完成后不留存音频**（v0.5.0 起如此，旧文案"音频不出本机"已与代码事实不符，禁止再写）；转写文本再经加密通道发给大模型用于本次分析。用户可在设置里关掉「允许把录音发给云端转写」，关掉后一个字都不上传（自测有断言守）。埋点只上报计数与错误码，不上报用户正文（自测有断言守）。
+
+## AI 链路：真实路由与诊断（v1.1.3 核查结论）
+
+**走的是 WorkBuddy 云服务免密钥网关，不是直连任何厂商 API**，前端源码里没有任何厂商密钥（密钥全在服务端）。
+
+| 环节 | 档位 | 实际模型（实测） | 实测耗时 |
+|---|---|---|---|
+| 安全识别 | `fast` | `deepseek-v4.1-flash` | 1.8s |
+| 主分析 / 追问 / 卡片 / 时间线 / 周报 | `strong` | `glm-5.0` | 主分析 5.5s / 追问 2.0s / 卡片 4.0s / 时间线 3.7s |
+
+### 三个被点名的模型：都不存在
+
+网关目录共 **30 个模型**（`_selftest/probe-catalog.cjs` 实拉），`GLM-4-Flash` / `GLM-4.7-Flash` / `Qwen2.5-7B-Instruct`
+**一个都不在目录里** —— 网关只暴露自家 id。更硬的一条：`glm-4.7` 与 `glm-4.6` 虽然列在目录里，
+但真实调用**直接返回 400 `request_invalid_parameter`**（无论是否带 `response_format`），即在该网关上不可用；
+同条件下 `hunyuan-chat` 200 正常。
+
+### 强推理档为什么仍是 glm-5.0（横评证据）
+
+`_selftest/probe-models.cjs` 用真实主分析 Prompt 各跑 4 次：
+
+| 模型 | 成功率 | 平均耗时 | 字段数 | 追问质量（同一输入） |
+|---|---|---|---|---|
+| `glm-5.0` | 4/4 | 6145ms | 23 | 「他晚回消息的那段时间里，你脑子里反复出现的是哪句话？」 |
+| `deepseek-v4.1-flash` | 4/4 | **3130ms** | 23 | 「今天最让你烦的是哪一件事？」 |
+
+`deepseek-v4.1-flash` 快一倍，但追问明显更泛。**墨小溟卖的就是「被追问到」这一下，所以强推理档保留 `glm-5.0`。**
+若要极限压首屏延迟，把 `TIERS.strong` 次位提到首位即可（约省 3s）—— 这是产品取舍，不是技术限制。
+
+**故障转移**：`AI.modelAttempts = 2`，同档位首个模型失败即自动换下一个（strong：`glm-5.0` → `deepseek-v4.1-flash` → …）。
+
+### 怎么亲眼看到链路在跑
+
+设置 → **查看链路诊断日志** → 点「用『我今天很烦。』跑一次真实链路」，当场看到每一步的时间戳、耗时、模型名与原始 JSON。
+日志同时打到 `console`（前缀 `[墨小溟·diag]`），真机可用 `adb logcat` 直接抓。完整样例见 `_selftest/chain-evidence.txt`。
 
 ## APK 构建（CI 出包，参考 Sinoky）
 

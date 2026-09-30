@@ -871,3 +871,23 @@ body.thinking--stuck .stuck-bubble{opacity:1;transform:translateY(0)}
 .tlrow__arrow{color:var(--ink-3);font-style:normal;font-size:18px}
 .mrow--timelines .mrow__ico{background:rgba(184,169,232,.18)}
 .mrow--timelines .mrow__ico svg{stroke:var(--primary-deep)}
+
+/* ---------------- 链路诊断页（v1.1.3） ---------------- */
+.page--diag{padding-bottom:40px}
+.page__head{margin-bottom:16px}
+.page__title{font-size:21px;font-weight:700;margin:0 0 4px;letter-spacing:.01em}
+.page__sub{margin:0;font-size:13px;color:var(--ink-3);line-height:1.6}
+.diag-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;margin-bottom:14px}
+.diag-card__t{font-size:13px;font-weight:700;color:var(--primary-deep);margin-bottom:8px;letter-spacing:.02em}
+.diag-kv{display:flex;justify-content:space-between;gap:14px;font-size:13px;padding:5px 0;border-top:1px dashed var(--line)}
+.diag-kv:first-of-type{border-top:0}
+.diag-kv span{color:var(--ink-2);flex:0 0 auto}
+.diag-kv b{font-weight:600;text-align:right;word-break:break-all;line-height:1.5}
+.diag-empty{font-size:13px;color:var(--ink-3);margin:0}
+.diag-actions{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0 10px}
+.diag-actions .primary,.diag-actions .ghost{flex:1 1 46%;width:auto;margin:0;padding:12px 10px;font-size:14px;font-weight:600;text-align:center}
+.diag-running{font-size:13px;color:var(--primary-deep);margin:0 0 10px}
+.diag-log{background:#FBF7F2;border:1px solid var(--line);border-radius:14px;padding:14px;font-size:11.5px;line-height:1.65;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--ink);
+  max-height:52vh;overflow:auto;white-space:pre-wrap;word-break:break-all;margin:0}
+.set-diaglink{display:inline-block;margin-top:8px;font-size:13.5px;color:var(--primary-deep);font-weight:600}

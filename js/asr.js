@@ -20,6 +20,7 @@
 
 import { ASR, apiBase } from './config.js';
 import { getState } from './store.js';
+import * as diag from './diag.js';
 
 /* ==================== 能力探测 ==================== */
 
@@ -81,6 +82,8 @@ let cloudState = { state: 'unknown', checkedAt: 0, version: '' };
 /** 探一次服务端：'ready' 可用 / 'unconfigured' 未配密钥 / 'unavailable' 没这个服务（纯静态托管）。 */
 export async function probeCloud(force = false) {
   if (!force && cloudState.state !== 'unknown' && Date.now() - cloudState.checkedAt < 60000) return cloudState.state;
+  const t = Date.now();
+  const dseq = diag.begin('asr', 'probe', { detail: '探测服务端识别能力 ' + url(ASR.health) });
   try {
     const r = await fetch(url(ASR.health), { method: 'GET', cache: 'no-store' });
     const j = await r.json();
@@ -89,8 +92,13 @@ export async function probeCloud(force = false) {
       checkedAt: Date.now(),
       version: (j && j.version) || '',
     };
+    diag.end(dseq, {
+      ok: r.ok, ms: Date.now() - t,
+      detail: `http=${r.status} 结果=${cloudState.state} 后端版本=${cloudState.version || '-'}`,
+    });
   } catch (e) {
     cloudState = { state: 'unavailable', checkedAt: Date.now(), version: '' };
+    diag.end(dseq, { ok: false, code: 'network', ms: Date.now() - t, detail: `服务端不可达：${String(e && e.message || e).slice(0, 80)}` });
   }
   return cloudState.state;
 }
@@ -197,18 +205,25 @@ export function blobToWav16kBase64(blob) {
  */
 export async function recognize(blob, { lang = ASR.lang, signal } = {}) {
   const t0 = Date.now();
+  const dseq = diag.begin('asr', 'recognize', {
+    detail: `blob=${(blob && blob.size) || 0}B type=${(blob && blob.type) || '-'} lang=${lang}`,
+  });
   let b64;
   try {
     b64 = await blobToWav16kBase64(blob);
   } catch (e) {
+    diag.end(dseq, { ok: false, code: 'encode_failed', ms: Date.now() - t0, detail: '录音在浏览器里解码失败' });
     return { ok: false, code: 'encode_failed', hint: '这段录音在浏览器里解码失败' };
   }
   if (!b64 || b64.length < ASR.minB64Len) {
+    diag.end(dseq, { ok: false, code: 'too_short', ms: Date.now() - t0, detail: `编码后 ${(b64 || '').length} 字符 < 下限 ${ASR.minB64Len}` });
     return { ok: false, code: 'too_short', hint: '太短了，好像没听到声音' };
   }
   if (b64.length > ASR.maxB64Len) {
+    diag.end(dseq, { ok: false, code: 'too_long', ms: Date.now() - t0, detail: `编码后 ${b64.length} 字符 > 上限 ${ASR.maxB64Len}` });
     return { ok: false, code: 'too_long', hint: '这段说得有点久，我们分开说两段好吗' };
   }
+  diag.note('asr', 'encoded', { ok: true, detail: `16k WAV base64 ${b64.length} 字符，编码耗时 ${Date.now() - t0}ms` });
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ASR.timeoutMs);
@@ -226,9 +241,11 @@ export async function recognize(blob, { lang = ASR.lang, signal } = {}) {
     });
   } catch (e) {
     clearTimeout(timer);
+    const code = e && e.name === 'AbortError' ? 'timeout' : 'network';
+    diag.end(dseq, { ok: false, code, ms: Date.now() - t0, detail: `请求未返回：${String(e && e.message || e).slice(0, 80)}` });
     return {
       ok: false,
-      code: e && e.name === 'AbortError' ? 'timeout' : 'network',
+      code,
       hint: e && e.name === 'AbortError' ? '识别等太久了' : '网络好像不太顺',
       uploadMs: Date.now() - t0,
     };
@@ -238,9 +255,19 @@ export async function recognize(blob, { lang = ASR.lang, signal } = {}) {
   let j = null;
   try { j = await res.json(); } catch (e) { j = null; }
   if (j && j.ok && String(j.text || '').trim()) {
-    return { ok: true, text: String(j.text).trim(), engine: j.engine || 'cloud', ms: j.ms || 0, totalMs: Date.now() - t0 };
+    const text = String(j.text).trim();
+    diag.end(dseq, {
+      ok: true, ms: Date.now() - t0,
+      detail: `识别成功 engine=${j.engine || 'cloud'} 服务端耗时=${j.ms || 0}ms 文本="${text.slice(0, 40)}"`,
+    });
+    return { ok: true, text, engine: j.engine || 'cloud', ms: j.ms || 0, totalMs: Date.now() - t0 };
   }
   const code = (j && j.error) || ('http_' + res.status);
+  diag.end(dseq, {
+    ok: false, code, ms: Date.now() - t0,
+    detail: `识别失败 http=${res.status} err_no=${(j && j.err_no) || '-'} ${(j && j.hint) || ''}`,
+    raw: j ? JSON.stringify(j).slice(0, 300) : String(res.status),
+  });
   return {
     ok: false,
     code,
