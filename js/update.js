@@ -398,22 +398,57 @@ export async function checkUpdate(opts = {}) {
   }
 
   const current = window.APP_VERSION || '0.0.0';
-  const hasNew = cmpVersion(data.latest_version, current) > 0;
+  const latest = String(data.latest_version || '');
+  const hasNew = cmpVersion(latest, current) > 0;
   const q = new URLSearchParams(location.search);
   const showUpdate = opts.forceShow || q.get('showUpdate') === '1' || q.get('showUpdate') === 'force';
 
-  if (!hasNew && !showUpdate) return { shown: false, reason: 'no_update' };
+  // 🔴 v1.4.0：所有分支都带上 current / latest，调用方才能给用户一句可读的结果。
+  //   起因：手动点「检查更新」在「已是最新版」时只 return {reason:'no_update'}，
+  //   调用处 `.catch(()=>{})` 无 else ⇒ 页面零反馈 ⇒ 用户体感「更新功能坏了/连不上」。
+  //   接口其实是通的（实测 /version.json 三通道 200 + 合法 JSON），坏的是"没有回话"。
+  const ctx = { current, latest };
+
+  if (!hasNew && !showUpdate) return Object.assign({ shown: false, reason: 'no_update' }, ctx);
   if (!data.force_update && !showUpdate && !opts.manual && getSnoozeDay() === todayStr()) {
-    return { shown: false, reason: 'snoozed' };
+    return Object.assign({ shown: false, reason: 'snoozed' }, ctx);
   }
 
   // 防止同一次 session 内重复弹（前台/后台来回切）
   const key = `${data.latest_version}:${data.force_update ? 'F' : 'N'}:${todayStr()}`;
-  if (!showUpdate && !opts.manual && key === lastShownKey) return { shown: false, reason: 'already_shown' };
+  if (!showUpdate && !opts.manual && key === lastShownKey) return Object.assign({ shown: false, reason: 'already_shown' }, ctx);
   lastShownKey = key;
 
   showModal(data, { force: !!data.force_update, platform: platform() });
-  return { shown: true, force: !!data.force_update, data };
+  return Object.assign({ shown: true, force: !!data.force_update, data }, ctx);
+}
+
+/**
+ * 把 checkUpdate 的结果翻译成一句**给用户看的人话**（v1.4.0）。
+ * 手动检查必须永远有回话 —— 这是"更新功能是死的"这类误判的唯一根治办法。
+ * 失败时把**真实原因**（每个候选路径各自的错）原样带出来，用户可截图，开发者可据此定位。
+ */
+export function describeCheckResult(r) {
+  const cur = (r && r.current) || window.APP_VERSION || '?';
+  const latest = (r && r.latest) || '';
+  switch (r && r.reason) {
+    case 'no_update':
+      return { ok: true, text: `已是最新版本 v${cur}（线上 v${latest || cur}）` };
+    case 'shown':
+      return { ok: true, text: `发现新版本 v${latest}，已为你弹出更新提示` };
+    case 'snoozed':
+      return { ok: true, text: `今天已经提醒过啦，明天再说（线上 v${latest}）` };
+    case 'already_shown':
+      return { ok: true, text: `本次已提示过新版本 v${latest}` };
+    case 'fetch_failed':
+      return {
+        ok: false,
+        text: `检查失败：${r.detail || '网络不可达'}`,
+        detail: r.detail || '',
+      };
+    default:
+      return { ok: false, text: `检查失败：${(r && r.reason) || '未知原因'}` };
+  }
 }
 
 /** 启动版本检测：App 启动 + 从后台回到前台 */

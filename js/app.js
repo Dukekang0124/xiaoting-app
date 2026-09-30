@@ -1764,7 +1764,7 @@ function pageSettings() {
       <div class="set-title">重要声明</div>
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.3.5')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.4.0')}</p>
   </section>`;
 }
 
@@ -1919,7 +1919,7 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.3.5')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.4.0')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -1928,7 +1928,7 @@ function pageChangelog() {
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.3.5')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.4.0')}</p>
   </section>`;
 }
 
@@ -1953,9 +1953,42 @@ async function bindChangelog() {
     el.innerHTML = '<p class="set-sub">深海信号微弱，请检查网络再试。</p>';
   }
   const check = document.getElementById('clCheck');
-  if (check) check.addEventListener('click', () => {
-    // 手动检查：总是尝试弹（除非已无新版）
-    update.checkUpdate({ manual: true }).catch(() => {});
+  if (check) check.addEventListener('click', async () => {
+    // 🔴 v1.4.0：手动检查**必须永远有回话**。
+    //   起因：原先这里是 `update.checkUpdate({manual:true}).catch(()=>{})`，
+    //   而 checkUpdate 在「已是最新版」时只返回 {reason:'no_update'} —— 没有 else 分支，
+    //   于是用户点了「检查更新」页面**一字不变**，体感就是"更新功能坏了/连不上"。
+    //   实测接口其实是通的（/version.json 三通道 200 + 合法 JSON），坏的是"没有回话"。
+    //   现在：检查中 → 结果行（含真实错误原因与耗时，可直接截图）→ 恢复按钮。
+    const old = check.textContent;
+    check.disabled = true;
+    check.textContent = '检查中…';
+    let res = document.getElementById('clCheckResult');
+    if (!res) {
+      res = document.createElement('p');
+      res.id = 'clCheckResult';
+      res.className = 'set-sub cl-check__result';
+      check.insertAdjacentElement('afterend', res);
+    }
+    res.dataset.state = 'pending';
+    res.textContent = '正在连接线上版本清单…';
+    const t0 = Date.now();
+    try {
+      const r = await update.checkUpdate({ manual: true });
+      const d = update.describeCheckResult(r);
+      const ms = Date.now() - t0;
+      res.dataset.state = d.ok ? 'ok' : 'fail';
+      res.textContent = (d.ok ? '✓ ' : '✗ ') + d.text + `（${ms}ms）`;
+      diag.note('update', d.ok ? 'manual_check_ok' : 'manual_check_fail',
+        d.ok ? { ok: true, ms, detail: d.text } : { ok: false, ms, code: 'fetch_failed', detail: d.text });
+    } catch (e) {
+      res.dataset.state = 'fail';
+      res.textContent = '✗ 检查失败：' + String((e && e.message) || e);
+      diag.note('update', 'manual_check_fail', { ok: false, code: 'exception', detail: String((e && e.message) || e) });
+    } finally {
+      check.disabled = false;
+      check.textContent = old;
+    }
   });
   // P1-1：远端 /api/events 不可用时，本地兜底存了行为数据；这里提供导出入口（本地可读，解决「只写不读」）。
   const exp = document.getElementById('clExport');
@@ -2108,11 +2141,14 @@ function pageDiag() {
     </div>
 
     <div class="diag-actions">
+      <button class="primary" id="diagReport" type="button">一键复制诊断报告</button>
       <button class="primary" id="diagRun" type="button">用「我今天很烦。」跑一次真实链路</button>
       <button class="ghost" id="diagCopy" type="button">复制日志</button>
       <button class="ghost" id="diagExport" type="button">导出 .txt</button>
       <button class="ghost" id="diagClear" type="button">清空</button>
     </div>
+    <p class="foot-note">真机上遇到「按住说没反应」「检查更新失败」时：先复现一次，再点「一键复制诊断报告」，
+      把整段发给开发者即可定位 —— 里面含 ASR 通道实测、最近一次录音链路、更新接口的真实错误。</p>
     <div id="diagRunning" class="diag-running" hidden>正在跑：<span id="diagStage">…</span></div>
 
     <pre class="diag-log" id="diagLog">${esc(diag.text())}</pre>
@@ -2121,15 +2157,11 @@ function pageDiag() {
 }
 
 /**
- * 本机 ASR 通道实测（v1.1.9）。
- * 把「插件是否注册 / 设备是否有识别服务 / 云端是否可用」一次性摆出来，
- * 让真机上「按住说没反应」到底是哪一种失败，一眼看穿，不用猜。
+ * 采集本机 ASR 事实（v1.4.0 抽出）。
+ * 抽出的理由：UI 面板与「一键复制诊断报告」需要**同一份**探测结果，
+ * 两处各写一份必然漂移（这个仓已经因为"两处各写一份默认值"踩过坑）。
  */
-async function probeAsrCapability() {
-  const kv = (k, v, note) =>
-    `<div class="diag-kv"><span>${esc(k)}</span><b>${esc(String(v))}` +
-    `${note ? ` <i style="opacity:.6;font-weight:400">${esc(note)}</i>` : ''}</b></div>`;
-
+async function collectAsrFacts() {
   const native = isNativeApp();
   const present = nativeAsr.nativeSpeechPresent();
   let available = false, perm = 'unknown', raw = '-';
@@ -2144,6 +2176,36 @@ async function probeAsrCapability() {
   const cap = asr.capability();
   let cloud = '-';
   try { cloud = await asr.probeCloud(true); } catch (e) { cloud = '探测异常'; }
+  return { native, present, available, perm, raw, cap, cloud };
+}
+
+/** ASR 事实 → 一句结论（UI 与报告共用） */
+function asrVerdict(f) {
+  if (!f.native) {
+    return f.cap.canRecord
+      ? '浏览器环境：优先云端 ASR，云端不可用时用 Web Speech，都失败才打字。'
+      : '浏览器环境且拿不到麦克风：只能打字。';
+  }
+  if (f.available) return 'APK + 设备识别可用：正常走原生识别，无需网络，这是最理想的状态。';
+  if (f.cloud === 'ready') return 'APK 但设备无识别服务，且云端 ASR 可用：将走云端识别。';
+  return '⚠️ APK 且无任何可用识别通道（设备无识别服务 + 云端不可用）：按住说必失败，只能打字。' +
+    '要让它真能用，只有两条路：① 部署云端 ASR 后端（server.cjs + 真实 ASR 密钥，全设备通用）；' +
+    '② 内置离线识别引擎（Vosk/FunASR，不依赖 GMS）。或换一台装了 Google 语音服务的设备。';
+}
+
+/**
+ * 本机 ASR 通道实测（v1.1.9）。
+ * 把「插件是否注册 / 设备是否有识别服务 / 云端是否可用」一次性摆出来，
+ * 让真机上「按住说没反应」到底是哪一种失败，一眼看穿，不用猜。
+ */
+async function probeAsrCapability() {
+  const kv = (k, v, note) =>
+    `<div class="diag-kv"><span>${esc(k)}</span><b>${esc(String(v))}` +
+    `${note ? ` <i style="opacity:.6;font-weight:400">${esc(note)}</i>` : ''}</b></div>`;
+
+  const f = await collectAsrFacts();
+  const native = f.native, present = f.present, available = f.available, perm = f.perm, raw = f.raw;
+  const cap = f.cap, cloud = f.cloud;
 
   const rows = [
     kv('运行环境', native ? 'Android(APK)' : 'Web', native ? '原生容器' : '浏览器'),
@@ -2156,22 +2218,113 @@ async function probeAsrCapability() {
     kv('云端 ASR 通道', cloud, cloud === 'unavailable' ? '静态托管下无后端 ⇒ 不可用' : (cloud === 'ready' ? '可用' : '未配置')),
   ];
 
-  let verdict;
-  if (!native) {
-    verdict = cap.canRecord
-      ? '浏览器环境：优先云端 ASR，云端不可用时用 Web Speech，都失败才打字。'
-      : '浏览器环境且拿不到麦克风：只能打字。';
-  } else if (available) {
-    verdict = 'APK + 设备识别可用：正常走原生识别，无需网络，这是最理想的状态。';
-  } else if (cloud === 'ready') {
-    verdict = 'APK 但设备无识别服务，且云端 ASR 可用：将走云端识别。';
-  } else {
-    verdict = '⚠️ APK 且无任何可用识别通道（设备无识别服务 + 云端不可用）：按住说必失败，只能打字。' +
-      '要让它真能用，只有两条路：① 部署云端 ASR 后端（server.cjs + 真实 ASR 密钥，全设备通用）；' +
-      '② 内置离线识别引擎（Vosk/FunASR，不依赖 GMS）。或换一台装了 Google 语音服务的设备。';
-  }
+  const verdict = asrVerdict(f);
   return rows.join('') +
     `<div class="diag-kv" style="margin-top:8px"><span>结论</span><b style="white-space:normal">${esc(verdict)}</b></div>`;
+}
+
+/**
+ * 一键生成「真机诊断报告」（v1.4.0，Task #143）。
+ *
+ * 为什么需要：开发者（我）看不到用户真机，而"按住说没反应""检查更新连不上"这类问题
+ * 只有真机现场数据才能定位。本函数把散落各处的事实**实时采集**后拼成一段可直接粘贴的文本：
+ *   ① 环境（版本/平台/页面源/网络/AI 通道）
+ *   ② ASR 能力实测 + 最近一次录音链路
+ *   ③ 版本更新链路（本地版本 / 线上版本 / 检查结果 / 上次失败原因）
+ *   ④ 各阶段耗时与成败
+ *   ⑤ 最近 60 条原始日志
+ * 隐私：只含设备与链路信息；用户正文在日志里本来就只留截断片段（diag.js 的 MAX_TEXT），
+ *       报告末尾会明确写出这一点，避免用户误以为自己在"上传聊天记录"。
+ */
+async function buildDiagReport() {
+  const L = [];
+  const env = diag.environment();
+  const sep = '─'.repeat(46);
+  L.push('════════ 墨小溟 · 真机诊断报告 ════════');
+  L.push(`生成时间：${new Date().toLocaleString('zh-CN')}`);
+  L.push(`应用版本：${env.appVersion || window.APP_VERSION || '-'}`);
+  L.push(`平台：${env.platform || (isNativeApp() ? 'Android(APK)' : 'Web')}`);
+  L.push(`页面源：${location.origin}`);
+  L.push(`网络：${navigator.onLine === false ? '离线' : '在线'}`);
+  L.push(`AI 通道：${env.provider || '-'}`);
+
+  // ① ASR 能力（实时）
+  L.push('', sep, '① 语音识别能力（实时探测）', sep);
+  let f = null;
+  try {
+    f = await collectAsrFacts();
+    L.push(`语音插件是否就位：${f.present ? '是' : '否'}`);
+    L.push(`设备识别服务可用：${f.available ? '是' : '否'}`);
+    L.push(`插件 available() 原始返回：${f.raw}`);
+    L.push(`麦克风授权：${f.perm}`);
+    L.push(`Web 录音能力：${f.cap.canRecord ? '是' : '否'}`);
+    L.push(`Web Speech：${f.cap.webSpeech ? '是' : '否'}`);
+    L.push(`云端 ASR 通道：${f.cloud}`);
+    L.push(`结论：${asrVerdict(f)}`);
+  } catch (e) {
+    L.push('探测异常：' + String((e && e.message) || e));
+  }
+
+  // ② 最近一次录音/识别链路（从日志里捞 mic/asr 两条 stage 的真实字段）
+  L.push('', sep, '② 最近一次录音与识别链路', sep);
+  const all = diag.entries();
+  const micAsr = all.filter((e) => e.stage === 'mic' || e.stage === 'asr').slice(-14);
+  if (micAsr.length) {
+    for (const e of micAsr) {
+      L.push(`${e.ts}  ${e.stage}/${e.event}  ok=${e.ok}  ${e.ms != null ? e.ms + 'ms' : '-'}` +
+        `${e.code ? `  code=${e.code}` : ''}${e.detail ? `  ${e.detail}` : ''}` +
+        `${e.raw ? `\n     raw: ${e.raw}` : ''}`);
+    }
+  } else {
+    L.push('（本次会话还没有录音/识别记录 —— 请先在首页「按住说」一次再生成报告）');
+  }
+
+  // ③ 更新链路（实时探一次）
+  L.push('', sep, '③ 版本更新链路（实时探测）', sep);
+  L.push(`本地版本(APP_VERSION)：${window.APP_VERSION || '-'}`);
+  try {
+    const r = await update.checkUpdate({ manual: true });
+    const d = update.describeCheckResult(r);
+    L.push(`线上版本：${r.latest || '-'}`);
+    L.push(`检查结果：${d.ok ? 'OK' : 'FAIL'} — ${d.text}`);
+    L.push(`reason：${r.reason || '-'}`);
+  } catch (e) {
+    L.push(`检查结果：FAIL — ${String((e && e.message) || e)}`);
+  }
+  L.push(`上次失败原因(lastError)：${update.lastFetchError() || '（无）'}`);
+  L.push(`静态清单候选路径：/api/version/latest → /version.json（前者在纯静态托管下恒 404，属预期）`);
+
+  // ④ 阶段摘要
+  L.push('', sep, '④ 各阶段耗时与成败', sep);
+  const sum = diag.summary();
+  if (sum.length) {
+    for (const s of sum) {
+      L.push(`${s.stage}：${s.calls} 次 · 成功 ${s.ok} · 失败 ${s.fail} · 均值 ${Math.round(s.ms / s.calls)}ms · 峰值 ${s.maxMs}ms` +
+        `${Object.keys(s.models).length ? ' · ' + Object.keys(s.models).join('/') : ''}`);
+    }
+  } else {
+    L.push('（还没有调用记录）');
+  }
+
+  // ⑤ 原始日志
+  L.push('', sep, `⑤ 最近 ${Math.min(60, all.length)} 条原始日志`, sep);
+  const tail = all.slice(-60);
+  if (tail.length) {
+    for (const e of tail) {
+      const tag = e.ok === true ? '[OK]  ' : e.ok === false ? '[FAIL]' : '[ -- ]';
+      L.push(`${tag} ${e.ts} +${String(e.dt).padStart(6)}ms ${e.stage}/${e.event}` +
+        `${e.ms != null ? ` ${e.ms}ms` : ''}${e.model ? ` model=${e.model}` : ''}${e.code ? ` code=${e.code}` : ''}`);
+      if (e.detail) L.push(`      ${e.detail}`);
+      if (e.raw) L.push(`      raw: ${e.raw}`);
+    }
+  } else {
+    L.push('（本机会话暂无日志）');
+  }
+
+  L.push('', '════════ 报告结束 ════════');
+  L.push('说明：本报告只含设备与链路信息，不上传任何内容；');
+  L.push('你倾诉的正文在日志里只保留截断片段，用于定位链路问题。');
+  return L.join('\n');
 }
 
 function bindDiag() {
@@ -2256,6 +2409,35 @@ function bindDiag() {
     if (runningEl) runningEl.hidden = true;
     runBtn.disabled = false;
     refresh();
+  });
+
+  // 一键复制诊断报告（v1.4.0 / Task #143）：真机排障的主入口
+  const reportBtn = document.getElementById('diagReport');
+  if (reportBtn) reportBtn.addEventListener('click', async () => {
+    const old = reportBtn.textContent;
+    reportBtn.disabled = true;
+    reportBtn.textContent = '正在采集…';
+    let text = '';
+    try {
+      text = await buildDiagReport();
+    } catch (e) {
+      reportBtn.disabled = false;
+      reportBtn.textContent = old;
+      softSay('生成报告失败：' + String((e && e.message) || e));
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      diag.note('diag', 'report_copied', { ok: true, detail: `${text.length} 字` });
+      softSay('诊断报告已复制，整段发给开发者即可');
+    } catch (e) {
+      // 剪贴板被拒（非 https / 权限）：退化成"把报告铺到页面上，长按选中复制" —— 不能让排障卡在这一步
+      diag.note('diag', 'report_copy_fallback', { ok: false, code: 'clipboard', detail: String((e && e.message) || e) });
+      softSay('复制失败，报告已显示在下方，可长按选中复制');
+    }
+    if (logEl) logEl.textContent = text || diag.text();
+    reportBtn.disabled = false;
+    reportBtn.textContent = old;
   });
 
   const copyBtn = document.getElementById('diagCopy');

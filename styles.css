@@ -1255,3 +1255,13 @@ body.quiet-mode .talkbtn{opacity:.84}
 .danger-link{color:var(--danger,#e06a6a);background:none;border:0;padding:8px 0;font-size:14px;cursor:pointer;font-family:inherit;display:block}
 /* v1.3.4 开场回应句：独立于 .fu-empathy（模型共情句），是一条更轻的「先接住你」的引入语 */
 .fu-opening{margin:0 0 10px;text-align:center;color:var(--primary-deep);font-size:15px;line-height:1.7}
+
+/* ===== v1.4.0 手动检查更新的结果行 =====
+   为什么要有：以前点「检查更新」，在"已是最新版"时页面一字不变 ⇒ 用户体感=功能坏了。
+   现在永远给一行可见回话（成功绿底 / 失败红底），失败时把真实原因原样写出来，方便截图定位。 */
+.cl-check__result{margin:8px 0 0;padding:9px 11px;border-radius:10px;background:rgba(157,124,216,.10);white-space:normal;word-break:break-all;font-size:13px;line-height:1.6;transition:background .2s}
+.cl-check__result[data-state="ok"]{background:rgba(110,180,140,.16)}
+.cl-check__result[data-state="fail"]{background:rgba(214,110,110,.16);color:#9c4d4d}
+.cl-check__result[data-state="pending"]{opacity:.75}
+/* 诊断报告一键复制按钮：比普通 ghost 更醒目一点（真机排障主入口） */
+.diag-actions #diagReport{font-weight:600}
