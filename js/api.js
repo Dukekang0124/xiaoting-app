@@ -31,13 +31,15 @@ const EMOTIONS = ['愤怒', '委屈', '焦虑', '羞耻', '悲伤', '恐惧', '�
 const PATTERNS = ['绝对化', '灾难化', '读心', '以偏概全', '个人化', '应该化'];
 const NEEDS = ['被重视', '被尊重', '安全感', '控制感', '公平', '被看见', '边界', '可预期', '被理解', '被爱'];
 const BODIES = ['胸闷', '胃紧', '头痛', '想哭', '发抖', '失眠', '心跳快', '无感'];
-const IP_STATES = ['idle', 'listening', 'thinking', 'empathy', 'empathy_tears', 'tender', 'worried', 'happy', 'calm'];
+const IP_STATES = ['idle', 'listening', 'thinking', 'empathy', 'empathy_tears', 'tender', 'worried', 'happy', 'calm', 'angry', 'anxious'];
 /** 模型可能给出带下划线/中文/别名的 ip_state，统一收敛到上面的合法集合 */
 const IP_STATE_ALIASES = {
   empathy_with_tears: 'empathy_tears', empathetic_tears: 'empathy_tears', tearful: 'empathy_tears', crying: 'empathy_tears',
   gentle_gaze: 'tender', tender_gaze: 'tender', soft_gaze: 'tender', warm_gaze: 'tender', tender_look: 'tender',
   concern: 'worried', worried_concern: 'worried', alarm: 'worried', worry: 'worried',
   lean: 'listening', lean_in: 'listening',
+  anger: 'angry', mad: 'angry', rage: 'angry', furious: 'angry', irate: 'angry',
+  anxiety: 'anxious', anxious: 'anxious', panic: 'anxious', nervous: 'anxious', scared: 'anxious', fear: 'anxious', uneasy: 'anxious',
 };
 /** 把模型给的任意 ip_state 字符串归一化到合法集合；不认识就回兜底 */
 export function normalizeIpState(raw, fallback = 'empathy') {

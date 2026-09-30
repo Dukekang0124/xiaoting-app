@@ -1,19 +1,19 @@
 === 墨小溟 · 更新弹窗 APK 启动即弹 · A/B 鉴别力校验 ===
-目标：http://127.0.0.1:4210   模拟 APK 基址：https://xiaoting.app.workbuddy.host   当前版本：1.1.7
+目标：http://127.0.0.1:4210   模拟 APK 基址：https://xiaoting.app.workbuddy.host   当前版本：1.2.0
 
 ──────── variant = new （当前，期望全绿） ────────
-  [A] 清单=1.1.7 → shown=false  title=""
-  [B] 清单=1.1.8 → shown=true  title="墨小溟更新到了 v1.1.8"
+  [A] 清单=1.2.0 → shown=false  title=""
+  [B] 清单=1.2.1 → shown=true  title="墨小溟更新到了 v1.2.1"
   [B] 捕获到的版本清单请求：https://xiaoting.app.workbuddy.host/api/version/latest  |  https://xiaoting.app.workbuddy.host/version.json
 
 ──────── variant = old （修复前，期望红） ────────
-  [A] 清单=1.1.7 → shown=false  title=""
-  [B] 清单=1.1.8 → shown=false  title=""
+  [A] 清单=1.2.0 → shown=false  title=""
+  [B] 清单=1.2.1 → shown=false  title=""
   [B] 捕获到的版本清单请求：http://127.0.0.1:4210/api/version/latest
 
 
 === Service Worker 不缓存版本清单（行为验证）===
-  SW 是否接管页面：true   第一次读到：1.1.7   服务端改成 1.1.8 后再读：1.1.8
+  SW 是否接管页面：true   第一次读到：1.2.0   服务端改成 1.2.1 后再读：1.2.1
   ✅ SW 已注册并接管页面（否则这条验证不成立，不能算通过）
   ✅ 第一次读到的就是服务端清单
   ✅ ★ 服务端发新版后能立刻读到新值（清单没被 SW 缓存住）

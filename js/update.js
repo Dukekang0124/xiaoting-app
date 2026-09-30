@@ -180,7 +180,7 @@ function closeModal() {
 
 function subCopy(p, data) {
   if (p.isWeChat) return '微信里没法直接更新，点右上角「···」在浏览器中打开，就能装最新版啦。';
-  if (p.isApk) return '点「立即更新」会跳到浏览器下载并安装最新安装包，装完回到这里就是新版。';
+  if (p.isApk) return '点「立即更新」会弹出安装指引，跟着 3 步就能装上最新版。';
   return '点击立即更新，墨小溟会自动刷新到最新版。';
 }
 
@@ -305,13 +305,70 @@ export function doUpdate(p, data) {
     return;
   }
   if (p.isApk) {
-    // APK：打开下载地址（安卓壳会触发下载 + 未知来源安装引导）
-    // 🔴 必须绝对地址：APK 页面在 https://localhost，相对路径会去 WebView 里找一个不存在的包。
-    window.location.href = absUrl(data.download_url) || absUrl(data.web_url) || location.href;
+    // APK：不再直接甩系统浏览器（那样用户只看到一团乱跳、还不知道下一步干嘛）。
+    // 改为应用内安装指引弹窗：先讲清 3 步，点「开始下载」才触发下载，下载后提示下拉通知栏安装 + 未知来源权限。
+    showInstallGuide(data, p);
     return;
   }
   // Web / iOS：清空缓存后刷新
   webUpdateReload();
+}
+
+/**
+ * APK 应用内安装指引弹窗（v1.2.0，Task #117）。
+ * 不甩系统浏览器，而是先在应用内讲清 3 步；点「开始下载」才触发下载（WebView 把 .apk 当下载而非页面跳转），
+ * 再把弹窗切换成「下载中 → 完成后下拉通知栏安装 + 未知来源权限提示」，全程用户都知道在干嘛。
+ * 零依赖：不引入任何新原生插件，只靠 DOM 弹窗 + window.location.href 触发下载。
+ */
+function showInstallGuide(data, p) {
+  const url = absUrl(data.download_url) || absUrl(data.web_url) || location.href;
+  const overlay = document.createElement('div');
+  overlay.className = 'install-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.innerHTML = `
+    <div class="install-card">
+      <div class="update-ip">
+        ${mascot('happy', 96)}
+        <div class="update-sign">安装指引</div>
+      </div>
+      <h3 class="update-title">墨小溟 v${esc(data.latest_version)} 已就绪</h3>
+      <p class="update-sub">下面 3 步就能装上最新版，很快：</p>
+      <ol class="install-steps">
+        <li>点「开始下载」，安装包会在后台下载。</li>
+        <li>下载完成后，从屏幕<b>顶部下拉通知栏</b>，点一下「Xiaoting…apk」。</li>
+        <li>若弹出「允许安装未知应用」，打开该权限，再点安装即可。</li>
+      </ol>
+      <div class="install-actions">
+        <button class="update-btn update-btn--primary" id="installStart" type="button">开始下载</button>
+        <button class="update-btn update-btn--ghost" id="installLater" type="button">稍后再说</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const start = document.getElementById('installStart');
+  if (start) start.addEventListener('click', () => {
+    // 触发下载：在 WebView 里指向 .apk 会被当成下载（而不是渲染/跳转），安卓会落盘到下载目录并弹通知。
+    try { window.location.href = url; } catch (e) { /* ignore */ }
+    // 切到「下载中 / 完成指引」—— 全程留在应用内，用户知道下一步干嘛。
+    const card = overlay.querySelector('.install-card');
+    if (card) card.innerHTML = `
+      <div class="update-ip">
+        ${mascot('listening', 96)}
+        <div class="update-sign">下载中</div>
+      </div>
+      <h3 class="update-title">正在下载安装包…</h3>
+      <p class="update-sub update-sub--ok">下载完成后，从屏幕顶部<b>下拉通知栏</b>，点「Xiaoting…apk」即可安装。</p>
+      <p class="update-sub">若提示「允许安装未知应用」，请打开该权限后再点安装。</p>
+      <div class="install-actions">
+        <button class="update-btn update-btn--primary" id="installDone" type="button">我知道了</button>
+      </div>`;
+    const done = document.getElementById('installDone');
+    if (done) done.addEventListener('click', () => { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); });
+  });
+
+  const later = document.getElementById('installLater');
+  if (later) later.addEventListener('click', () => { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); });
 }
 
 /* ---------------- 检测主流程 ---------------- */

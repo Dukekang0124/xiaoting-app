@@ -124,8 +124,22 @@ function waitForBlob(media) {
  */
 function volumeTick() {
   if (!rec.active) return;
-  const lvl = rec.volumeProbe ? rec.volumeProbe.getLevel() : 0;
-  try { document.documentElement.style.setProperty('--ip-vol', String(lvl)); } catch (e) { /* ignore */ }
+  const p = rec.volumeProbe;
+  const lvl = p ? p.getLevel() : 0;
+  const pitchHz = p ? p.getPitch() : 0;
+  const rate = p ? p.getRate() : 0;
+  const tension = p ? p.getTension() : 0;
+  const root = document.documentElement.style;
+  try {
+    // 音量 / 音高 / 语速 / 张力 → 实时驱动墨小溟（@property 让这些变量平滑过渡，不硬跳）
+    root.setProperty('--ip-vol', String(lvl));
+    root.setProperty('--ip-pitch', String(Math.min(1, Math.max(0, (pitchHz - 100) / 250))));
+    root.setProperty('--ip-rate', String(rate));
+    root.setProperty('--ip-tension', String(tension));
+    // 收缩：音量低 + 静默累积 ⇒ 身体微微收缩（准备进入共情，克制，不是真的下结论）
+    const shrink = lvl < 0.05 ? Math.min(1, (rec.lowSince ? (Date.now() - rec.lowSince) / 8000 : 0)) : 0;
+    root.setProperty('--ip-shrink', String(shrink));
+  } catch (e) { /* ignore */ }
   const now = Date.now();
   if (lvl < 0.05) {
     if (!rec.lowSince) rec.lowSince = now;
@@ -1424,7 +1438,7 @@ function pageSettings() {
       <div class="set-title">重要声明</div>
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.1.10')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.2.0')}</p>
   </section>`;
 }
 
@@ -1452,7 +1466,7 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.1.10')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.2.0')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -1461,7 +1475,7 @@ function pageChangelog() {
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.1.10')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.2.0')}</p>
   </section>`;
 }
 

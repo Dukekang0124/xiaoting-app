@@ -37,7 +37,7 @@ D 顺句档挂掉 —— 必须不影响识别结果
   ✅ 退回原文（这是最关键的兜底）
   ✅ cleanup 里如实标注 applied=false
   ✅ 没发生改写就不该出现 text_raw（不留无意义的字段）
-     回包：ok=true text="嗯那个我今天就是有点累不太想说话" cleanup={"applied":false,"reason":"network","model":"","ms":7}
+     回包：ok=true text="嗯那个我今天就是有点累不太想说话" cleanup={"applied":false,"reason":"network","model":"","ms":6}
 
 ==============================================
  ASR 顺句接线端到端：22 通过 / 0 失败

@@ -1207,20 +1207,26 @@ const MOCK_SDK = `(function(){
   check('IP 没有明确嘴巴', st.n.mouth === 0, String(st.n.mouth));
   check('IP 身体半透明（渐变外圈 alpha<1）', Number(st.outerAlpha) < 1, st.outerAlpha);
   check('IP 渐变色解析为真实色彩（var 未丢）', st.stopColors.every((c) => /^rgb/.test(c)), st.stopColors.join('|'));
-  check('IP 主色=柔和紫 #B8A9E8', st.bodyOut.toLowerCase() === '#b8a9e8', st.bodyOut);
-  check('IP 内部微光=暖橙系 #FFE7C4', st.glow.toLowerCase() === '#ffe7c4', st.glow);
+  // v1.2：--ip-* 已注册为 @property <color>，getComputedStyle 返回解析后的 rgb() 而非原始 hex，两侧归一化后再比
+  const colorEq = (v, hex) => {
+    const toRgb = (h) => { const n = parseInt(h.replace('#', ''), 16); return `rgb(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255})`; };
+    const norm = (s) => (/^#/.test(s) ? toRgb(s) : s).replace(/\s+/g, '').toLowerCase();
+    return norm(String(v)) === norm(hex);
+  };
+  check('IP 主色=柔和紫 #B8A9E8', colorEq(st.bodyOut, '#B8A9E8'), st.bodyOut);
+  check('IP 内部微光=暖橙系 #FFE7C4', colorEq(st.glow, '#FFE7C4'), st.glow);
 
   // 六状态：调色板 + 动作
   const rotOf = (m) => { const n = /matrix\(([^)]+)\)/.exec(m); return n ? Number(n[1].split(',')[1]) : 0; };
   check('待机=呼吸浮动', IP.idle.svgAnim.includes('ip-float') && IP.idle.bodyAnim.includes('ip-breathe'), `${IP.idle.svgAnim}/${IP.idle.bodyAnim}`);
   check('倾听=前倾', IP.listening.svgAnim.includes('ip-lean'), IP.listening.svgAnim);
-  check('思考=身体变淡紫', IP.thinking.bodyOut.toLowerCase() === '#b6a3ef', IP.thinking.bodyOut);
+  check('思考=身体变淡紫', colorEq(IP.thinking.bodyOut, '#B6A3EF'), IP.thinking.bodyOut);
   check('思考=触角打转', IP.thinking.svgAnim !== 'none' || rotOf(IP.thinking.antL) !== 0 || IP.thinking.bodyAnim.includes('ip-breathe'), IP.thinking.bodyAnim);
-  check('共情=身体变暖橙', IP.empathy.bodyOut.toLowerCase() === '#ffc79b', IP.empathy.bodyOut);
+  check('共情=身体变暖橙', colorEq(IP.empathy.bodyOut, '#FFC79B'), IP.empathy.bodyOut);
   check('共情=眼睛变湿润', Number(IP.empathy.wet) >= 0.5, IP.empathy.wet);
   check('开心=轻轻弹跳', IP.happy.svgAnim.includes('ip-hop'), IP.happy.svgAnim);
   check('开心=内部光点变亮', IP.happy.glowAnim.includes('ip-blink'), IP.happy.glowAnim);
-  check('担心=身体变灰蓝', IP.worried.bodyOut.toLowerCase() === '#a9bccd', IP.worried.bodyOut);
+  check('担心=身体变灰蓝', colorEq(IP.worried.bodyOut, '#A9BCCD'), IP.worried.bodyOut);
   check('担心=触角向下垂（左右各自向外下垂）', rotOf(IP.worried.antL) < 0 && rotOf(IP.worried.antR) > 0, `L=${IP.worried.antL} R=${IP.worried.antR}`);
   check('头像容器有圆形底衬且不裁掉触角', IP.__avatar.hasAvatar, IP.__avatar.ratio);
 
@@ -1972,8 +1978,22 @@ const MOCK_SDK = `(function(){
   }));
   const H7plat = await page7.evaluate(async () => { const u = await import('/js/update.js'); return u.platform(); });
   check('弹窗·APK 分支平台识别为 isApk（?app=android 命中）', H7plat.isApk === true, JSON.stringify(H7plat));
-  check('弹窗·APK 分支提示「下载并安装」', H7.sub.includes('下载并安装'), H7.sub);
+  check('弹窗·APK 分支提示「安装指引」（v1.2 改应用内引导）', H7.sub.includes('安装指引'), H7.sub);
   check('弹窗·APK 分支主按钮=立即更新', H7.btn.includes('立即更新'), H7.btn);
+  // v1.2 行为变更：APK 点「立即更新」不再甩系统浏览器，而是弹应用内安装指引（3 步 → 开始下载）
+  await page7.click('#updateNow');
+  await page7.waitForSelector('.install-overlay', { timeout: 8000 });
+  const H7g = await page7.evaluate(() => ({
+    steps: [...document.querySelectorAll('.install-steps li')].map((n) => n.textContent.trim()),
+    start: (document.getElementById('installStart') || {}).textContent || '',
+    later: !!document.getElementById('installLater'),
+    title: (document.querySelector('.install-overlay .update-sign') || {}).textContent || '',
+  }));
+  check('弹窗·APK 点立即更新 → 应用内安装指引弹窗（标题=安装指引）', H7g.title.includes('安装指引'), H7g.title);
+  check('弹窗·安装指引列出 3 步', H7g.steps.length === 3, JSON.stringify(H7g.steps));
+  check('弹窗·安装指引有「开始下载」入口且非跳浏览器文案', H7g.start.includes('开始下载'), H7g.start);
+  check('弹窗·安装指引保留「稍后再说」出口', H7g.later, String(H7g.later));
+  await shot(page7, '26b-install-guide.png');
   await shot(page7, '26-update-apk.png');
 
   // H7b. ★ 回归：真机 APK 的判据必须是 Capacitor 桥，不能只认 UA 标记

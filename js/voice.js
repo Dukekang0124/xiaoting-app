@@ -105,39 +105,78 @@ export async function extractVoiceFeatures(blob, transcript = '', durationMs = 0
   };
 }
 
-/* ==================== 实时音量探针（录音阶段驱动墨小溟实时响应） ==================== */
+/* ==================== 实时语音物理特征探针（v1.2.0 升级） ==================== */
 
 /**
- * 从录音 MediaStream 上挂一个非侵入式 AnalyserNode（只读，不连 destination ⇒ 不影响录音链路）。
- * @returns {{getLevel:()=>number, stop:()=>void}}
+ * 从录音 MediaStream 上挂一个**只读** AnalyserNode（不连 destination ⇒ 不影响录音链路，不调用任何模型 ⇒ 零隐私外泄）。
+ * 每帧输出四项实时特征，全部用于驱动墨小溟实时动画：
+ *   volume  音量 RMS 归一(0..1)        → 身体发光强度 + 呼吸急促感
+ *   pitch   基频 Hz（0=静音）          → 触角抖动频率/幅度（尖锐快抖、低沉缓弱）
+ *   rate    语速(0..1)                 → 身体微动
+ *   tension 张力(0..1)=音量*0.55+语速*0.45 → 录音中"克制"的提前紧绷/收缩信号
+ * @returns {{getLevel,getPitch,getRate,getTension,getVoicing,stop}}
  */
 export function createVolumeProbe(stream) {
   const Ctx = (typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext)) || null;
-  if (!Ctx || !stream) return { getLevel: () => 0, stop: () => {} };
-  let ctx, analyser, src, raf = 0, level = 0;
+  if (!Ctx || !stream) return nullProbe();
+  let ctx, analyser, freqData, timeData, src, raf = 0;
+  let level = 0, pitch = 0, rate = 0, tension = 0, voicing = 0;
+  let lastVoiced = false, onsets = [], lastT = 0;
   try {
     ctx = new Ctx();
     src = ctx.createMediaStreamSource(stream);
     analyser = ctx.createAnalyser();
-    analyser.fftSize = 512;
+    analyser.fftSize = 1024;
+    analyser.smoothingTimeConstant = 0.7;
     src.connect(analyser); // 只读
-    const arr = new Uint8Array(analyser.fftSize);
+    freqData = new Uint8Array(analyser.frequencyBinCount);
+    timeData = new Uint8Array(analyser.fftSize);
     const tick = () => {
-      analyser.getByteTimeDomainData(arr);
+      // ① 音量（时域 RMS）
+      analyser.getByteTimeDomainData(timeData);
       let sum = 0;
-      for (let i = 0; i < arr.length; i++) { const v = (arr[i] - 128) / 128; sum += v * v; }
-      const rms = Math.sqrt(sum / arr.length);
-      level = Math.min(1, rms * 3); // 放大，便于视觉响应
+      for (let i = 0; i < timeData.length; i++) { const v = (timeData[i] - 128) / 128; sum += v * v; }
+      const rms = Math.sqrt(sum / timeData.length);
+      level = Math.min(1, rms * 3);
+      // ② 基频（频域峰值，向下回溯到首个显著能量 bin ≈ 基频；比逐样本自相关便宜得多）
+      analyser.getByteFrequencyData(freqData);
+      const nyquist = ctx.sampleRate / 2;
+      const binHz = nyquist / freqData.length;
+      let maxV = 0, maxI = 0;
+      for (let i = 1; i < freqData.length; i++) { if (freqData[i] > maxV) { maxV = freqData[i]; maxI = i; } }
+      if (maxV < 24) { pitch = 0; } // 太安静 / 纯噪声
+      else {
+        let lo = maxI;
+        while (lo > 1 && freqData[lo - 1] > maxV * 0.32) lo--; // 回退到基频，避开谐波峰
+        const f = lo * binHz;
+        pitch = (f < 60 || f > 1000) ? 0 : f;
+      }
+      // ③ 语速（voicing onset 计数 / 3s，归一；>4 次/s ≈ 1）
+      const now = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+      const isVoiced = level > 0.05;
+      if (isVoiced && !lastVoiced) onsets.push(now);
+      lastVoiced = isVoiced;
+      while (onsets.length && now - onsets[0] > 3000) onsets.shift();
+      rate = Math.min(1, (onsets.length / 3) / 4);
+      voicing = isVoiced ? 1 : 0;
+      // ④ 张力：音量 + 语速（录音中"克制"提前切态用）
+      tension = Math.min(1, level * 0.55 + rate * 0.45);
       raf = (typeof requestAnimationFrame !== 'undefined') ? requestAnimationFrame(tick) : 0;
     };
     raf = (typeof requestAnimationFrame !== 'undefined') ? requestAnimationFrame(tick) : 0;
-  } catch (e) { return { getLevel: () => 0, stop: () => {} }; }
+  } catch (e) { return nullProbe(); }
   return {
-    getLevel: () => level,
+    getLevel: () => level, getPitch: () => pitch, getRate: () => rate,
+    getTension: () => tension, getVoicing: () => voicing,
     stop: () => {
       if (raf && typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(raf);
       try { src && src.disconnect(); } catch (e) { /* ignore */ }
       try { ctx && ctx.close(); } catch (e) { /* ignore */ }
     },
   };
+}
+
+/** 探针不可用 / 无 stream 时的空实现（接口一致，调用方无需判空） */
+function nullProbe() {
+  return { getLevel: () => 0, getPitch: () => 0, getRate: () => 0, getTension: () => 0, getVoicing: () => 0, stop: () => {} };
 }

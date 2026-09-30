@@ -13,21 +13,21 @@
   ✅ tried[0] 是失败档（第一档确实挂了）
   ✅ tried[0] 带失败原因 code
   ✅ attempts ≥ 2（计数包含失败尝试）
-     回包：model=glm-4-flash degraded=true attempts=2 ms=1127 code=-
+     回包：model=glm-4-flash degraded=true attempts=2 ms=438 code=-
      尝试轨迹：
-       - [broken] always-down  ok=false  code=network  46ms  attempt#1
-       - [zhipu] glm-4-flash  ok=true  code=-  1076ms  attempt#1
+       - [broken] always-down  ok=false  code=network  19ms  attempt#1
+       - [zhipu] glm-4-flash  ok=true  code=-  418ms  attempt#1
 
 ② analysis（链首故意放 nokey:ghost-model —— 应在解析期被剔除，不出现在 tried 里）
   ✅ HTTP 200
   ✅ 最终落到 zhipu:glm-4-flash
   ✅ ghost-model 从未被真正调用（无密钥档解析期已剔除）
   ✅ broken 档出现在 tried 里（证明它确实试过并失败）
-     回包：model=glm-4-flash degraded=true attempts=3 ms=776
+     回包：model=glm-4-flash degraded=true attempts=3 ms=766
      尝试轨迹：
-       - [broken] always-down  ok=false  code=network  2ms  attempt#1
-       - [broken] also-down  ok=false  code=network  2ms  attempt#1
-       - [zhipu] glm-4-flash  ok=true  code=-  772ms  attempt#1
+       - [broken] always-down  ok=false  code=network  0ms  attempt#1
+       - [broken] also-down  ok=false  code=network  0ms  attempt#1
+       - [zhipu] glm-4-flash  ok=true  code=-  766ms  attempt#1
 
 ③ card（整条链两档全挂）——必须优雅失败，不抛异常
   ✅ HTTP 仍是 200（优雅失败，不是 500）
@@ -37,17 +37,17 @@
   ✅ tried 恰好 2 档（两档都试过）
   ✅ tried 全为失败
   ✅ 回包里没有堆栈（异常被接住了）
-     回包：ok=false code=network degraded=true attempts=2 ms=2
+     回包：ok=false code=network degraded=true attempts=2 ms=1
      尝试轨迹：
        - [broken] always-down  ok=false  code=network  1ms  attempt#1
-       - [broken] also-down  ok=false  code=network  1ms  attempt#1
+       - [broken] also-down  ok=false  code=network  0ms  attempt#1
 
 ④ /api/llm/stats —— 降级率有没有被记下来
      total=3 ok=2 fail=1 degraded=3
   ✅ 统计到 ≥3 次调用
   ✅ degraded 计数 ≥2（两次降级成功被记下）
   ✅ fail 计数 ≥1（card 全挂被记下）
-     byModel：{"zhipu:glm-4-flash":{"calls":2,"ok":2,"fail":0,"ms":1903},"none":{"calls":1,"ok":0,"fail":1,"ms":2}}
+     byModel：{"zhipu:glm-4-flash":{"calls":2,"ok":2,"fail":0,"ms":1204},"none":{"calls":1,"ok":0,"fail":1,"ms":1}}
 
 ==============================================
  HTTP 降级链实证：22 通过 / 0 失败

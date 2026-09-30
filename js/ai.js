@@ -295,6 +295,8 @@ export function analyzeMain(text) {
 /** 由情绪与强度推导一个 IP 状态（规则引擎兜底版；真实模型会直接给 ip_state） */
 function ipStateForMain(emos, intensity) {
   if (emos.includes('开心')) return 'happy';
+  if (emos.includes('愤怒') || emos.includes('生气') || emos.includes('火大')) return 'angry';
+  if (emos.includes('焦虑') || emos.includes('恐惧') || emos.includes('紧张')) return 'anxious';
   if (emos.includes('平静') || emos.includes('安心') || emos.includes('温柔')) return intensity <= 5 ? 'tender' : 'happy';
   if (intensity <= 4) return 'calm';
   if ((emos.includes('悲伤') || emos.includes('委屈') || emos.includes('难过')) && intensity >= 7) return 'empathy_tears';

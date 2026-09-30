@@ -60,10 +60,33 @@ body:not(.has-nav) .tabbar{display:none}
 .loading{text-align:center;color:var(--ink-2);padding:60px 0}
 .muted{color:var(--ink-2)}
 
-/* ---------- 墨小溟 IP（云朵水母 v1.1 重塑） ----------
+/* ---------- 墨小溟 IP（云朵水母 v1.2 升级） ----------
    颜色全部走 --ip-* 变量 ⇒ 切状态只换变量 + 挂动画，SVG 结构零变化。
    状态语义：待机呼吸浮动 / 倾听前倾+触角发光+随声波晃 / 思考淡紫+触角打转 /
-             共情暖橙+眼湿润 / 开心弹跳+光点变亮 / 担心灰蓝+触角下垂。 */
+             共情暖橙+眼湿润 / 开心弹跳+光点变亮 / 担心灰蓝+触角下垂 /
+             愤怒暗红+双眉紧锁+触角震颤 / 焦虑亮紫闪烁+眉头微蹙。
+
+   🔴 v1.2 @property 注册：把 --ip-* 颜色/数值变量注册成「可插值」的自定义属性，
+      并在 .mascot 上挂 transition ⇒ 状态切换时颜色像水流般晕染，不再硬跳变。
+      数值变量（--ip-vol/pitch/rate/tension/shrink）由录音探针每帧写入 documentElement，
+      同样走平滑过渡，墨小溟对声音的反应是连续柔顺的。 */
+@property --ip-body-in  { syntax: '<color>';  inherits: true; initial-value: #F3EEFF; }
+@property --ip-body-mid { syntax: '<color>';  inherits: true; initial-value: #D9CDF5; }
+@property --ip-body-out { syntax: '<color>';  inherits: true; initial-value: #B8A9E8; }
+@property --ip-antenna  { syntax: '<color>';  inherits: true; initial-value: #C0B0EC; }
+@property --ip-tip      { syntax: '<color>';  inherits: true; initial-value: #FFD9A8; }
+@property --ip-glow     { syntax: '<color>';  inherits: true; initial-value: #FFE7C4; }
+@property --ip-glow-2   { syntax: '<color>';  inherits: true; initial-value: #CFE4F7; }
+@property --ip-eye-top  { syntax: '<color>';  inherits: true; initial-value: #6C6689; }
+@property --ip-eye      { syntax: '<color>';  inherits: true; initial-value: #4E4969; }
+@property --ip-halo     { syntax: '<color>';  inherits: true; initial-value: #C9BCF0; }
+@property --ip-wet      { syntax: '<color>';  inherits: true; initial-value: #EAF4FF; }
+@property --ip-blush    { syntax: '<color>';  inherits: true; initial-value: #FFC4A2; }
+@property --ip-vol      { syntax: '<number>'; inherits: true; initial-value: 0; }
+@property --ip-pitch    { syntax: '<number>'; inherits: true; initial-value: 0; }
+@property --ip-rate     { syntax: '<number>'; inherits: true; initial-value: 0; }
+@property --ip-tension  { syntax: '<number>'; inherits: true; initial-value: 0; }
+@property --ip-shrink   { syntax: '<number>'; inherits: true; initial-value: 0; }
 .mascot{
   overflow:visible;display:block;
   --ip-body-in:#F3EEFF;--ip-body-mid:#D9CDF5;--ip-body-out:#B8A9E8;
@@ -71,6 +94,12 @@ body:not(.has-nav) .tabbar{display:none}
   --ip-glow:#FFE7C4;--ip-glow-2:#CFE4F7;
   --ip-eye-top:#6C6689;--ip-eye:#4E4969;
   --ip-halo:#C9BCF0;--ip-wet:#EAF4FF;--ip-blush:#FFC4A2;
+  /* 颜色变量平滑过渡（@property 让它们可插值，消灭硬跳变）；数值变量响应更快（实时探针每帧写） */
+  transition:
+    --ip-body-in .55s ease, --ip-body-mid .55s ease, --ip-body-out .55s ease,
+    --ip-antenna .55s ease, --ip-tip .55s ease, --ip-glow .55s ease, --ip-glow-2 .55s ease,
+    --ip-eye-top .55s ease, --ip-eye .55s ease, --ip-halo .55s ease, --ip-wet .55s ease, --ip-blush .55s ease,
+    --ip-vol .14s linear, --ip-pitch .2s ease, --ip-rate .2s ease, --ip-tension .2s ease, --ip-shrink .4s ease;
 }
 .mascot__body{transform-origin:100px 116px}
 .mascot__antennae{transform-origin:100px 52px}
@@ -105,9 +134,16 @@ body:not(.has-nav) .tabbar{display:none}
 .mascot--listening .wisp--2{animation-delay:-.3s}
 .mascot--listening .wisp--3{animation-delay:-.6s}
 
-/* 倾听·微动作增强（v1.2）：点头 + 实时音量驱动触角（--ip-vol 由录音流音量探针每帧写入 documentElement） */
+/* 倾听·微动作增强（v1.2）：点头 + 实时语音特征驱动（--ip-vol/pitch/rate/tension/shrink 由录音流探针每帧写入 documentElement）
+   · 音量→发光强度 + 呼吸急促（tip-glow 放大、body 微胀）
+   · 音高→触角抖动频率/幅度（pitch 越高，摆动越快）
+   · 语速→身体微动（rate 越大，点头幅度越大）
+   · 张力→触角前倾紧绷（tension=音量*0.55+语速*0.45，录音中"克制"的提前紧绷信号）
+   · 收缩→声音变小+长停顿，身体微缩预备共情（克制，不真下结论） */
 .mascot--listening .mascot__body{animation:ip-breathe-nod 3.2s ease-in-out infinite}
-.mascot--listening .mascot__antennae{transform:rotate(calc(var(--ip-vol,0) * 5deg));transition:transform .15s ease}
+.mascot--listening .mascot__antennae{transform:rotate(calc(var(--ip-vol,0) * 4deg + var(--ip-tension,0) * 7deg));transition:transform .15s ease}
+.mascot--listening .ant--l{animation:ip-ant-l calc(1.5s - var(--ip-pitch,0) * 1.15s) ease-in-out infinite}
+.mascot--listening .ant--r{animation:ip-ant-r calc(1.5s - var(--ip-pitch,0) * 1.15s) ease-in-out infinite}
 .mascot--listening .mascot__tip-glow{transform-box:fill-box;transform-origin:center;transform:scale(calc(1 + var(--ip-vol,0) * .9));transition:transform .15s ease}
 .mascot--listening .mascot__tip{opacity:calc(.55 + var(--ip-vol,0) * .45)}
 
@@ -226,10 +262,56 @@ body.thinking--stuck .stuck-bubble{opacity:1;transform:translateY(0)}
 @keyframes ip-drift{0%,100%{transform:translate(0,0)}33%{transform:translate(3px,-4px)}66%{transform:translate(-3px,3px)}}
 @keyframes ip-sway{0%,100%{transform:translateX(-1.6px)}50%{transform:translateX(1.6px)}}
 @keyframes ip-wisp{0%,100%{transform:rotate(-3deg)}50%{transform:rotate(3deg)}}
-@keyframes ip-breathe-nod{0%,100%{transform:scale(1) translateY(0)}50%{transform:scale(calc(1 + var(--ip-vol,0) * .08)) translateY(2px)}}
+@keyframes ip-breathe-nod{0%,100%{transform:scale(calc(1 + var(--ip-vol,0) * .08 + var(--ip-rate,0) * .04 - var(--ip-shrink,0) * .06)) translateY(0)}50%{transform:scale(calc(1 + var(--ip-vol,0) * .08 + var(--ip-rate,0) * .04 - var(--ip-shrink,0) * .06)) translateY(2px)}}
 @keyframes ip-tear{0%{transform:translateY(-2px);opacity:0}12%{opacity:.9}100%{transform:translateY(13px);opacity:0}}
 @keyframes ip-spark{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1.15)}}
 @keyframes ip-breath-ring{0%,100%{transform:scale(.92);opacity:.5}50%{transform:scale(1.08);opacity:.14}}
+
+/* 待机/倾听眨眼（v1.2）：眼睛周期性轻眨，让墨小溟"活"起来 */
+@keyframes ip-blink-eye{0%,92%,100%{transform:scaleY(1)}95.5%{transform:scaleY(.08)}98%{transform:scaleY(1)}}
+.mascot--idle .mascot__eyes,
+.mascot--listening .mascot__eyes{
+  transform-box:fill-box;transform-origin:center;
+  animation:ip-blink-eye 5.4s ease-in-out infinite;
+}
+
+/* 愤怒·暗红（v1.2）：暗红身体 + 双眉下压紧锁 + 触角快速震颤 */
+@keyframes ip-shake-l{0%,100%{transform:rotate(0)}25%{transform:rotate(-7deg)}75%{transform:rotate(7deg)}}
+@keyframes ip-shake-r{0%,100%{transform:rotate(0)}25%{transform:rotate(7deg)}75%{transform:rotate(-7deg)}}
+.mascot--angry{
+  --ip-body-in:#FFE6E2;--ip-body-mid:#F2A99E;--ip-body-out:#DC7368;
+  --ip-halo:#EF9E92;--ip-tip:#E0624C;--ip-antenna:#D88A7E;
+  --ip-glow:#F6C4BA;--ip-glow-2:#F2D2CB;
+  --ip-eye-top:#7A4A44;--ip-eye:#5C332E;--ip-wet:#F4D9D2;--ip-blush:#F2A99E;
+  animation:ip-float 5s ease-in-out infinite;
+}
+.mascot--angry .mascot__body{animation:ip-breathe 2.1s ease-in-out infinite}
+.mascot--angry .mascot__brow{opacity:.92}
+.mascot--angry .brow--l{transform:rotate(22deg)}
+.mascot--angry .brow--r{transform:rotate(-22deg)}
+.mascot--angry .ant--l{animation:ip-shake-l .16s ease-in-out infinite}
+.mascot--angry .ant--r{animation:ip-shake-r .16s ease-in-out infinite}
+.mascot--angry .blush{opacity:.16}
+
+/* 焦虑·亮紫/暗紫交替闪烁（v1.2）：身体在亮紫与暗紫间快速呼吸；眉头微蹙 + 触角轻颤 */
+.mascot--anxious{
+  --ip-body-in:#F1E8FF;--ip-body-mid:#C7B1F4;--ip-body-out:#A88FE0;
+  --ip-halo:#D6C2FF;--ip-tip:#C6A6FF;--ip-antenna:#BBA1EC;
+  --ip-glow:#E6D6FF;--ip-glow-2:#CFC0F0;
+  --ip-eye-top:#675A8C;--ip-eye:#4E4470;--ip-wet:#E5DCFF;--ip-blush:#CDB6F2;
+  animation:ip-float 4.4s ease-in-out infinite, ip-anx-flicker 1.05s ease-in-out infinite;
+}
+.mascot--anxious .mascot__body{animation:ip-breathe 3s ease-in-out infinite}
+.mascot--anxious .mascot__brow{opacity:.5}
+.mascot--anxious .brow--l{transform:rotate(11deg)}
+.mascot--anxious .brow--r{transform:rotate(-11deg)}
+.mascot--anxious .ant--l{animation:ip-stir-l 1.6s ease-in-out infinite}
+.mascot--anxious .ant--r{animation:ip-stir-r 1.6s ease-in-out infinite}
+.mascot--anxious .blush{opacity:.22}
+@keyframes ip-anx-flicker{
+  0%,100%{--ip-body-mid:#C7B1F4;--ip-body-out:#A88FE0;--ip-halo:#D6C2FF}
+  50%{--ip-body-mid:#9377D8;--ip-body-out:#6E50B8;--ip-halo:#A684EA}
+}
 
 /* 圆形头像容器（我的页顶部 / 列表小脸） */
 .avatar{
@@ -739,6 +821,22 @@ body.thinking--stuck .stuck-bubble{opacity:1;transform:translateY(0)}
   box-shadow:inset 0 0 0 1px var(--line);
 }
 .update-btn--ghost:active{transform:scale(.985);color:var(--ink)}
+
+/* ---------- 墨小溟 · APK 应用内安装指引弹窗（v1.2.0，Task #117） ---------- */
+.install-overlay{
+  position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;
+  padding:24px;background:rgba(58,46,78,.34);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);
+  animation:update-fade .22s ease both;
+}
+.install-card{
+  width:100%;max-width:340px;background:var(--bg);border-radius:var(--radius);
+  padding:24px 22px 20px;text-align:center;box-shadow:0 18px 50px rgba(90,70,130,.30),0 0 0 1px rgba(184,169,232,.18);
+  animation:update-pop .5s cubic-bezier(.22,1.2,.36,1) both;
+}
+.install-steps{text-align:left;margin:4px 2px 16px;padding-left:20px;color:var(--ink);font-size:14px;line-height:1.75}
+.install-steps li{margin:7px 0}
+.install-steps b{color:var(--primary-deep)}
+.install-actions{display:flex;flex-direction:column;gap:10px}
 
 /* ---------- 墨小溟 · 首次欢迎弹窗（§3.3 / §4.3） ---------- */
 .welcome-overlay{
