@@ -1,0 +1,7 @@
+name = "xiaoting-asr"
+compatibility_date = "2026-09-01"
+pages_build_output_dir = "public"
+
+# Workers AI 绑定：Whisper 靠它跑，缺了就是 503 asr_not_configured（函数里显式判定）
+[ai]
+binding = "AI"

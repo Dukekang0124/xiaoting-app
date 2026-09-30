@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>墨小溟 · 云端语音识别连通性自测</title>
+<style>
+  :root{--bg:#0d1020;--fg:#e8e6f5;--mut:#9a96b8;--ok:#4ade80;--bad:#f87171;--war:#fbbf24;--card:#171a2e}
+  *{box-sizing:border-box}
+  body{margin:0;padding:20px 16px 48px;background:var(--bg);color:var(--fg);
+       font:15px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+       -webkit-text-size-adjust:100%}
+  h1{font-size:18px;margin:0 0 4px}
+  .sub{color:var(--mut);font-size:13px;margin:0 0 18px}
+  .card{background:var(--card);border-radius:14px;padding:16px;margin-bottom:14px}
+  .row{display:flex;justify-content:space-between;gap:12px;padding:7px 0;
+       border-bottom:1px solid rgba(255,255,255,.06);font-size:14px}
+  .row:last-child{border-bottom:0}
+  .k{color:var(--mut);flex:0 0 auto}
+  .v{text-align:right;word-break:break-all;font-variant-numeric:tabular-nums}
+  button{width:100%;padding:15px;font-size:16px;border:0;border-radius:12px;
+         background:#6d5ce7;color:#fff;font-weight:600;-webkit-tap-highlight-color:transparent}
+  button:disabled{opacity:.45}
+  button.rec{background:#e5484d;animation:pulse 1.1s infinite}
+  @keyframes pulse{50%{opacity:.72}}
+  .out{white-space:pre-wrap;word-break:break-word;font-size:15px;min-height:22px}
+  .big{font-size:20px;font-weight:600;color:var(--ok)}
+  .tag{display:inline-block;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:600}
+  .tag.ok{background:rgba(74,222,128,.16);color:var(--ok)}
+  .tag.bad{background:rgba(248,113,113,.16);color:var(--bad)}
+  .tag.war{background:rgba(251,191,36,.16);color:var(--war)}
+  .hint{color:var(--mut);font-size:12px;margin-top:10px}
+  textarea{width:100%;min-height:96px;background:#0f1224;color:var(--fg);border:1px solid #2a2e4a;
+           border-radius:10px;padding:10px;font:13px/1.5 ui-monospace,Menlo,monospace}
+</style>
+</head>
+<body>
+<h1>墨小溟 · 云端语音识别自测</h1>
+<p class="sub">这一页就是 v1.4.1 要接的 ASR 后端。手机能打开本页 = 网络这一关过了。</p>
+
+<div class="card">
+  <div class="row"><span class="k">本页地址</span><span class="v" id="origin">—</span></div>
+  <div class="row"><span class="k">接口</span><span class="v">/api/asr</span></div>
+  <div class="row"><span class="k">健康检查</span><span class="v" id="health">检测中…</span></div>
+  <div class="row"><span class="k">AI 绑定</span><span class="v" id="aibind">—</span></div>
+  <div class="row"><span class="k">模型</span><span class="v" id="model">—</span></div>
+</div>
+
+<div class="card">
+  <button id="btn">按住说话</button>
+  <div class="hint">松开后自动转写。会走 16kHz 单声道 WAV —— 和 App 内完全相同的链路。</div>
+</div>
+
+<div class="card">
+  <div class="row"><span class="k">识别结果</span><span class="v" id="status">待测</span></div>
+  <div class="out big" id="text"></div>
+  <div class="row"><span class="k">耗时</span><span class="v" id="ms">—</span></div>
+  <div class="row"><span class="k">音频字节</span><span class="v" id="bytes">—</span></div>
+</div>
+
+<div class="card">
+  <div class="row"><span class="k">原始返回（可截图发我）</span></div>
+  <textarea id="raw" readonly></textarea>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+$('origin').textContent = location.origin;
+
+async function health() {
+  const t0 = Date.now();
+  try {
+    const r = await fetch('/api/health', { cache: 'no-store' });
+    const j = await r.json();
+    const ms = Date.now() - t0;
+    $('health').innerHTML = `<span class="tag ok">HTTP ${r.status}</span> ${ms}ms`;
+    $('aibind').innerHTML = j.ai_binding
+      ? '<span class="tag ok">已绑定</span>'
+      : '<span class="tag bad">缺失</span>';
+    $('model').textContent = j.model || '—';
+  } catch (e) {
+    $('health').innerHTML = `<span class="tag bad">不可达</span>`;
+    $('aibind').textContent = String(e.message || e);
+  }
+}
+health();
+
+// —— 16kHz 单声道 WAV：与 App 内 voice.js 完全同一条路，不引入第二套变量 ——
+function encodeWav(f32, rate) {
+  const n = f32.length;
+  const buf = new ArrayBuffer(44 + n * 2);
+  const v = new DataView(buf);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE');
+  w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true);
+  v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) {
+    const s = Math.max(-1, Math.min(1, f32[i]));
+    v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return new Uint8Array(buf);
+}
+function toB64(u8) {
+  let s = '';
+  const C = 0x8000;
+  for (let i = 0; i < u8.length; i += C) s += String.fromCharCode.apply(null, u8.subarray(i, i + C));
+  return btoa(s);
+}
+async function downsample16k(f32, inRate) {
+  if (inRate === 16000) return f32;
+  const ratio = inRate / 16000;
+  const out = new Float32Array(Math.floor(f32.length / ratio));
+  for (let i = 0; i < out.length; i++) {
+    const a = Math.floor(i * ratio), b = Math.min(f32.length, Math.floor((i + 1) * ratio));
+    let s = 0;
+    for (let j = a; j < b; j++) s += f32[j];
+    out[i] = s / Math.max(1, b - a);
+  }
+  return out;
+}
+
+let rec = null, chunks = [], startedAt = 0;
+const btn = $('btn');
+
+btn.addEventListener('pointerdown', async (e) => {
+  e.preventDefault();
+  if (rec) return;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    rec = new MediaRecorder(stream);
+    chunks = [];
+    rec.ondataavailable = (ev) => ev.data.size && chunks.push(ev.data);
+    rec.start();
+    startedAt = Date.now();
+    btn.classList.add('rec');
+    btn.textContent = '正在录音… 松开结束';
+    $('status').textContent = '录音中';
+    $('text').textContent = '';
+  } catch (err) {
+    $('status').innerHTML = '<span class="tag bad">麦克风不可用</span>';
+    $('raw').value = String((err && err.message) || err);
+  }
+});
+
+async function stop() {
+  if (!rec) return;
+  btn.classList.remove('rec');
+  btn.textContent = '按住说话';
+  const durMs = Date.now() - startedAt;
+  const audioBlob = await new Promise((res) => {
+    rec.onstop = () => res(new Blob(chunks, { type: rec.mimeType || 'audio/webm' }));
+    rec.stop();
+  });
+  rec.stream.getTracks().forEach((t) => t.stop());
+  rec = null;
+
+  if (durMs < 400) {
+    $('status').innerHTML = '<span class="tag war">太短</span>';
+    $('raw').value = '录音仅 ' + durMs + 'ms，太短';
+    return;
+  }
+
+  $('status').textContent = '转写中…';
+  try {
+    const ab = await audioBlob.arrayBuffer();
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AC();
+    const decoded = await ctx.decodeAudioData(ab);
+    const inRate = decoded.sampleRate;
+    const mono = decoded.getChannelData(0);
+    const pcm = await downsample16k(mono, inRate);
+    const wav = encodeWav(pcm, 16000);
+    ctx.close();
+
+    $('bytes').textContent = wav.length + ' B（' + inRate + 'Hz→16kHz）';
+
+    const t0 = Date.now();
+    const r = await fetch('/api/asr', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ speech: toB64(wav), lang: 'zh' }),
+    });
+    const j = await r.json();
+    const total = Date.now() - t0;
+
+    $('raw').value = JSON.stringify(j, null, 2) + '\n\nHTTP ' + r.status + ' · 端到端 ' + total + 'ms';
+    $('ms').textContent = 'HTTP ' + (j.ms != null ? j.ms : '?') + 'ms / 端到端 ' + total + 'ms';
+
+    if (j.ok) {
+      $('status').innerHTML = '<span class="tag ok">识别成功</span>';
+      $('text').textContent = j.text;
+    } else {
+      $('status').innerHTML = '<span class="tag bad">失败</span>';
+      $('text').textContent = (j.error || '') + (j.detail ? ' — ' + j.detail : '');
+    }
+  } catch (err) {
+    $('status').innerHTML = '<span class="tag bad">异常</span>';
+    $('text').textContent = String((err && err.message) || err);
+    $('raw').value = String((err && err.stack) || err);
+  }
+}
+
+btn.addEventListener('pointerup', stop);
+btn.addEventListener('pointercancel', stop);
+btn.addEventListener('pointerleave', stop);
+</script>
+</body>
+</html>

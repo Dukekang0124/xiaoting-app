@@ -28,3 +28,9 @@ data/
 keystore/
 *.p12
 keystore/.creds.json
+
+# 临时排障脚本（CF 探测等），不入库
+_probe/
+
+# 由未知流程生成的锁文件，仓库原本没有，不入库避免噪声
+package-lock.json

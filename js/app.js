@@ -2229,10 +2229,11 @@ async function probeAsrCapability() {
  * 为什么需要：开发者（我）看不到用户真机，而"按住说没反应""检查更新连不上"这类问题
  * 只有真机现场数据才能定位。本函数把散落各处的事实**实时采集**后拼成一段可直接粘贴的文本：
  *   ① 环境（版本/平台/页面源/网络/AI 通道）
- *   ② ASR 能力实测 + 最近一次录音链路
- *   ③ 版本更新链路（本地版本 / 线上版本 / 检查结果 / 上次失败原因）
- *   ④ 各阶段耗时与成败
- *   ⑤ 最近 60 条原始日志
+ *   ② 语音识别能力实测（插件是否就位 / 设备是否有识别服务 / 云端通道）
+ *   ③ 返回键与侧滑返回（Capacitor 桥 / App 插件 / 监听是否真绑定 —— v1.4.0 新增）
+ *   ④ 版本更新链路（本地版本 / 线上版本 / 检查结果 / 上次失败原因）
+ *   ⑤ 各阶段耗时与成败
+ *   ⑥ 最近 60 条原始日志
  * 隐私：只含设备与链路信息；用户正文在日志里本来就只留截断片段（diag.js 的 MAX_TEXT），
  *       报告末尾会明确写出这一点，避免用户误以为自己在"上传聊天记录"。
  */
@@ -2265,8 +2266,18 @@ async function buildDiagReport() {
     L.push('探测异常：' + String((e && e.message) || e));
   }
 
-  // ② 最近一次录音/识别链路（从日志里捞 mic/asr 两条 stage 的真实字段）
-  L.push('', sep, '② 最近一次录音与识别链路', sep);
+  // ② 返回键 / 侧滑返回（v1.4.0 新增：这条链路最容易"看着接上了其实没接"）
+  L.push('', sep, '② 返回键与侧滑返回（本机实测）', sep);
+  const bw = backWiringFacts();
+  L.push(`Capacitor 桥：${bw.capBridge ? '有' : '无'}`);
+  L.push(`App 插件（@capacitor/app）：${bw.appPlugin ? '已注册' : '未注册'}`);
+  L.push(`backButton 监听：${bw.bound ? '已绑定' : '未绑定'}`);
+  L.push(`应用内左边缘侧滑：${bw.swipeBound ? '已启用' : '未启用'}`);
+  if (bw.err) L.push(`接线异常：${bw.err}`);
+  L.push(`结论：${backVerdict(bw)}`);
+
+  // ③ 最近一次录音/识别链路（从日志里捞 mic/asr 两条 stage 的真实字段）
+  L.push('', sep, '③ 最近一次录音与识别链路', sep);
   const all = diag.entries();
   const micAsr = all.filter((e) => e.stage === 'mic' || e.stage === 'asr').slice(-14);
   if (micAsr.length) {
@@ -2279,8 +2290,8 @@ async function buildDiagReport() {
     L.push('（本次会话还没有录音/识别记录 —— 请先在首页「按住说」一次再生成报告）');
   }
 
-  // ③ 更新链路（实时探一次）
-  L.push('', sep, '③ 版本更新链路（实时探测）', sep);
+  // ④ 更新链路（实时探一次）
+  L.push('', sep, '④ 版本更新链路（实时探测）', sep);
   L.push(`本地版本(APP_VERSION)：${window.APP_VERSION || '-'}`);
   try {
     const r = await update.checkUpdate({ manual: true });
@@ -2294,8 +2305,8 @@ async function buildDiagReport() {
   L.push(`上次失败原因(lastError)：${update.lastFetchError() || '（无）'}`);
   L.push(`静态清单候选路径：/api/version/latest → /version.json（前者在纯静态托管下恒 404，属预期）`);
 
-  // ④ 阶段摘要
-  L.push('', sep, '④ 各阶段耗时与成败', sep);
+  // ⑤ 阶段摘要
+  L.push('', sep, '⑤ 各阶段耗时与成败', sep);
   const sum = diag.summary();
   if (sum.length) {
     for (const s of sum) {
@@ -2306,8 +2317,8 @@ async function buildDiagReport() {
     L.push('（还没有调用记录）');
   }
 
-  // ⑤ 原始日志
-  L.push('', sep, `⑤ 最近 ${Math.min(60, all.length)} 条原始日志`, sep);
+  // ⑥ 原始日志
+  L.push('', sep, `⑥ 最近 ${Math.min(60, all.length)} 条原始日志`, sep);
   const tail = all.slice(-60);
   if (tail.length) {
     for (const e of tail) {
@@ -2795,14 +2806,48 @@ export function handleHardwareBack() {
   }
 }
 
+/**
+ * 返回键接线状态（v1.4.0 新增，用于真机自证）。
+ *
+ * 为什么必须留痕：`@capacitor/app` 没装时 `Capacitor.Plugins.App` 是 undefined，
+ * 监听**静默失效**——按钮在、函数在、代码全绿，真机按返回键却直接退出 App。
+ * 本仓已经因为同类「接线了但没接上」吃过一次亏（v1.1.6 的 isApk 恒 false），
+ * 所以这里把接线事实记下来，真机诊断报告里直接读得到。
+ */
+const _backWiring = { tried: false, capBridge: false, appPlugin: false, bound: false, err: '' };
+let _swipeBound = false;
+
 /** 注册 Android 物理/手势返回键监听（仅原生容器有效；浏览器无此插件则忽略） */
 function registerBackHandler() {
+  _backWiring.tried = true;
   try {
+    _backWiring.capBridge = !!window.Capacitor;
     const App = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
+    _backWiring.appPlugin = !!App;
     if (App && typeof App.addListener === 'function') {
       App.addListener('backButton', () => { handleHardwareBack(); });
+      _backWiring.bound = true;
     }
-  } catch (e) { /* 非原生环境忽略 */ }
+  } catch (e) { _backWiring.err = String((e && e.message) || e); }
+}
+
+/** 供诊断报告与自测读取（切勿在 UI 里直接展示给用户，属排障信息） */
+export function backWiringFacts() {
+  return Object.assign({}, _backWiring, { swipeBound: _swipeBound });
+}
+
+/** 返回键接线事实 → 一句结论（诊断报告用） */
+function backVerdict(f) {
+  if (!f.tried) return '尚未初始化（页面未完成启动）。';
+  if (!f.capBridge) return '浏览器环境：返回键交给浏览器历史，无需原生接管。';
+  if (!f.appPlugin) {
+    return '⚠️ 物理返回键 / 系统侧滑**不会被接管**：原生壳里没有 @capacitor/app 插件' +
+      '（Capacitor.Plugins.App 不存在）。表现通常是按返回键直接退出 App、' +
+      '子页面无法返回上一级。修法：把 @capacitor/app 加进 package.json 依赖后重新打包。';
+  }
+  if (!f.bound) return '⚠️ App 插件在，但 backButton 监听未绑定成功' + (f.err ? `（${f.err}）` : '') + '。';
+  return '已接管：物理返回键与系统侧滑手势都会走「子页面返回上一级 / 首页双击退出」。' +
+    (f.swipeBound ? '应用内左边缘侧滑（跟手视差）也已启用。' : '应用内左边缘侧滑未启用。');
 }
 
 /* ---------------- 左滑返回手势（v1.2.1 攻坚 · 战役二） ---------------- */
@@ -2925,6 +2970,7 @@ export function initSwipeBack() {
   window.addEventListener('pointermove', onMove, { passive: false });
   window.addEventListener('pointerup', onUp);
   window.addEventListener('pointercancel', onCancel);
+  _swipeBound = true;
 }
 
 /** 离线浮条：断网时浮动提示，恢复后自动隐藏 */
