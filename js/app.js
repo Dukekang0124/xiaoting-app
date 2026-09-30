@@ -542,8 +542,10 @@ function bindRecord(p) {
     const fill = document.getElementById('fillDemo');
     if (fill) fill.addEventListener('click', () => { input.value = '今天又和男朋友吵架了，他很晚才回我消息，我觉得他根本不在乎我。'; input.focus(); });
     if (done) done.addEventListener('click', () => {
+      if (done.disabled) return; // v1.1.10：防重复点击，避免连点生成多张草稿
       const text = (input.value || '').trim();
       if (!text) { store.toast('还没说话呢'); return; }
+      done.disabled = true;
       store.startDraft(text, 'r_' + Date.now().toString(36));
       go('analyzing');
     });
@@ -1296,7 +1298,7 @@ function bindCardDetail() {
 /* ---------------- 页面：周报 ---------------- */
 
 function pageWeekly() {
-  return `<section class="weekly" id="weeklyRoot"><div class="loading">正在整理这一周……</div></section>`;
+  return `<section class="weekly" id="weeklyRoot"><div class="loading"><span class="spinner"></span>正在整理这一周……</div></section>`;
 }
 
 function mountWeekly() {
@@ -1422,7 +1424,7 @@ function pageSettings() {
       <div class="set-title">重要声明</div>
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.1.9')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.1.10')}</p>
   </section>`;
 }
 
@@ -1450,7 +1452,7 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.1.9')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.1.10')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -1459,7 +1461,7 @@ function pageChangelog() {
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.1.9')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.1.10')}</p>
   </section>`;
 }
 
@@ -1479,7 +1481,8 @@ async function bindChangelog() {
         </div>`).join('');
     }
   } catch (e) {
-    el.innerHTML = '<p class="set-sub">更新历史加载失败，请稍后再试。</p>';
+    // v1.1.10：网络拉取失败不再报生硬「加载失败」，改为温柔提示，并保留下方「检查更新」按钮可手动重试。
+    el.innerHTML = '<p class="set-sub">暂时无法连接深海，请稍后再试。</p>';
   }
   const check = document.getElementById('clCheck');
   if (check) check.addEventListener('click', () => {
@@ -1609,8 +1612,8 @@ function pageDiag() {
   const sum = diag.summary();
   return `
   <section class="page page--diag">
+    <div class="page-head"><a class="ghost" href="#/settings">返回</a><div class="page-title">链路诊断</div><span style="width:48px"></span></div>
     <header class="page__head">
-      <h1 class="page__title">链路诊断</h1>
       <p class="page__sub">这一页记录真实发生过的每一步，不是模拟，也不是占位。</p>
     </header>
 
@@ -1894,6 +1897,107 @@ function renderToast() {
   }
 }
 
+/* ---------------- 全局返回 / 退出 + 离线浮条（v1.1.10） ---------------- */
+
+/**
+ * 子页面 → 上一级映射。首页级（say/cards/me）不入表，走「双击退出」。
+ * diag 从「设置」进入 ⇒ 回到 settings；card 回到 cards；其余回到各自入口。
+ */
+const BACK_PARENT = {
+  record: 'say', analyzing: 'say', followup: 'say', gentle: 'say', confirm: 'say', risk: 'say',
+  timeline: 'me', timelines: 'me', weekly: 'me', settings: 'me', changelog: 'me', diag: 'settings',
+  card: 'cards',
+};
+let _exitArmed = false;
+let _exitTimer = null;
+
+/** 是否处于「倾诉进行中」——录音中或分析中，离开需温柔确认 */
+function _isBusy() {
+  if (rec.active) return true;
+  return parseHash().name === 'analyzing';
+}
+function _parentOf(name) { return BACK_PARENT[name] || 'say'; }
+
+/** 温柔确认框（替代浏览器原生 confirm，走墨小溟紫色主题）。返回 Promise<boolean> */
+function gentleConfirm(message, opts) {
+  const o = opts || {};
+  const okText = o.okText || '确定离开';
+  const cancelText = o.cancelText || '再想想';
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'gentle-confirm';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.innerHTML =
+      '<div class="gentle-confirm__card">' +
+        '<div class="gentle-confirm__ip">' + mascot('empathy', 84) + '</div>' +
+        '<p class="gentle-confirm__msg">' + esc(message) + '</p>' +
+        '<div class="gentle-confirm__btns">' +
+          '<button class="ghost" id="gcCancel" type="button">' + esc(cancelText) + '</button>' +
+          '<button class="primary small" id="gcOk" type="button">' + esc(okText) + '</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    const close = (val) => { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); resolve(val); };
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(false); });
+    const ok = document.getElementById('gcOk');
+    const cancel = document.getElementById('gcCancel');
+    if (ok) ok.addEventListener('click', () => close(true));
+    if (cancel) cancel.addEventListener('click', () => close(false));
+  });
+}
+
+/**
+ * 全局硬件返回键处理：供 Android 物理返回键 / 系统侧滑手势（Capacitor App 插件）与浏览器自测调用。
+ * · 子页面 → 返回上一级；倾诉进行中则先弹温柔确认。
+ * · 首页级 → 仅 APK 双击退出；浏览器首页级返回无操作（避免误关整页）。
+ */
+export function handleHardwareBack() {
+  const name = parseHash().name;
+  if (BACK_PARENT[name]) {
+    if (_isBusy()) {
+      gentleConfirm('现在离开的话，这次倾诉的内容会留在这里哦，确定要离开吗？').then((ok) => {
+        if (!ok) return;
+        if (rec.active) { endCapture().then(() => go(_parentOf(name))); }
+        else go(_parentOf(name));
+      });
+      return;
+    }
+    go(_parentOf(name));
+    return;
+  }
+  if (isNativeApp()) {
+    if (_exitArmed) {
+      _exitArmed = false;
+      if (_exitTimer) clearTimeout(_exitTimer);
+      try { const App = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App; if (App && App.exitApp) App.exitApp(); } catch (e) {}
+      return;
+    }
+    _exitArmed = true;
+    softSay('再按一次退出小溟');
+    _exitTimer = setTimeout(() => { _exitArmed = false; }, 2000);
+  }
+}
+
+/** 注册 Android 物理/手势返回键监听（仅原生容器有效；浏览器无此插件则忽略） */
+function registerBackHandler() {
+  try {
+    const App = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
+    if (App && typeof App.addListener === 'function') {
+      App.addListener('backButton', () => { handleHardwareBack(); });
+    }
+  } catch (e) { /* 非原生环境忽略 */ }
+}
+
+/** 离线浮条：断网时浮动提示，恢复后自动隐藏 */
+function updateOfflineBar() {
+  const bar = document.getElementById('offlineBar');
+  if (!bar) return;
+  const offline = navigator.onLine === false;
+  bar.hidden = !offline;
+  document.body.classList.toggle('is-offline', offline);
+}
+
 /* ---------------- 首次欢迎弹窗（墨小溟 · §3.3 / §4.3 版本1） ---------------- */
 
 const WELCOME_KEY = 'moxiaoming:welcomed_v1';
@@ -1948,10 +2052,16 @@ export function boot() {
   asr.probeCloud().catch(() => {});
   // v0.7.0：启动版本检测（打开 App 第一时间知道有新版）+ 回到前台再检测一次
   update.initUpdate();
+  // v1.1.10：全局硬件返回键（物理键 + 系统侧滑手势）+ 离线浮条
+  registerBackHandler();
+  window.addEventListener('online', updateOfflineBar);
+  window.addEventListener('offline', updateOfflineBar);
+  updateOfflineBar();
   // 离开页面时把没发完的埋点送出去（keepalive，不阻塞卸载）
   window.addEventListener('pagehide', () => { asr.flushEvents(); });
   document.addEventListener('visibilitychange', () => { if (document.hidden) asr.flushEvents(); });
 }
 
 // 供自测与调试使用
-export const __test__ = { findForbidden, COPY, api, asr, rec, CAP, store, extractPartialSummary };
+export const __test__ = { findForbidden, COPY, api, asr, rec, CAP, store, extractPartialSummary,
+  handleHardwareBack, gentleConfirm, updateOfflineBar, BACK_PARENT, _isBusy, _parentOf };

@@ -1,22 +1,32 @@
 {
-  "latest_version": "1.1.9",
+  "latest_version": "1.1.10",
   "force_update": false,
-  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.9-release.apk",
+  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.10-release.apk",
   "web_url": "https://xiaoting.app.workbuddy.host/#/say",
   "apk": {
-    "versionCode": 10109,
-    "version": "1.1.9",
-    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.9-release.apk",
-    "md5": "9c2a7c375e6880e37af965dd42334c68",
-    "size": 3371640,
+    "versionCode": 10110,
+    "version": "1.1.10",
+    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.10-release.apk",
+    "md5": "",
+    "size": 0,
     "force": false
   },
   "release_notes": [
-    "新增「语音识别能力（本机实测）」诊断探针：在「我 → 设置 → 链路诊断」页一眼看清插件是否注册、设备有无识别服务、云端通道是否可用，定位真机识别失败不再靠猜",
-    "修复：APK 上若设备没有可用的语音识别服务（常见于无 GMS 的国产 ROM），不再弹「水里有点吵」骗你反复按，而是直说并直接送打字",
-    "为下一步「让语音真正能用」铺路：诊断探针能区分三种不同的失败，确认根因后即可针对性修引擎"
+    "导航与返回大修：捕获 Android 物理返回键与系统侧滑手势，子页面一键返回上一级；首页双击退出；录音或分析中途离开会先弹温柔确认，再也不会「进去出不来」",
+    "版本更新更温柔：更新历史拉取失败不再报生硬「加载失败」，改为「暂时无法连接深海，请稍后再试」并保留「检查更新」按钮手动重试；版本检测补齐 8 秒超时保护",
+    "离线不白屏：断网时顶部浮动提示「深海信号有点弱」，恢复后自动消失；Loading 态改用柔和紫色线条；继续加固空状态与防重复点击等防呆"
   ],
   "history": [
+    {
+      "version": "1.1.10",
+      "date": "2026-09-30",
+      "title": "系统级健壮性大修：全局导航 + 防呆",
+      "notes": [
+        "导航与返回：捕获 Android 物理返回键与系统侧滑手势，子页面（关于/设置/诊断/卡片/时间线等）一键返回上一级；首页双击退出；录音或分析中途离开先温柔确认，再也不会「进去出不来」",
+        "版本更新：更新历史拉取失败不再报生硬「加载失败」，改为「暂时无法连接深海，请稍后再试」并保留「检查更新」按钮手动重试；版本检测补齐 8 秒超时保护",
+        "离线不白屏：断网时顶部浮动提示「深海信号有点弱」，恢复后自动消失；Loading 态改用柔和紫色线条；继续加固空状态与防重复点击等防呆"
+      ]
+    },
     {
       "version": "1.1.9",
       "date": "2026-09-30",

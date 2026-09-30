@@ -894,3 +894,34 @@ body.thinking--stuck .stuck-bubble{opacity:1;transform:translateY(0)}
   font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--ink);
   max-height:52vh;overflow:auto;white-space:pre-wrap;word-break:break-all;margin:0}
 .set-diaglink{display:inline-block;margin-top:8px;font-size:13.5px;color:var(--primary-deep);font-weight:600}
+
+/* ---------------- 离线浮条（v1.1.10） ---------------- */
+.offline-bar{
+  position:fixed;left:50%;top:10px;transform:translateX(-50%);
+  z-index:60;max-width:92%;padding:9px 16px;border-radius:999px;
+  background:rgba(58,58,58,.92);color:#fff;font-size:13px;font-weight:500;
+  box-shadow:var(--shadow-sm);backdrop-filter:blur(4px);
+  display:flex;align-items:center;gap:8px;white-space:nowrap;
+  animation:offbar-in .3s ease both;
+}
+.offline-bar::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--orange);box-shadow:0 0 0 3px rgba(255,184,140,.25)}
+.offline-bar[hidden]{display:none}
+body.is-offline .view{padding-top:46px}
+@keyframes offbar-in{from{opacity:0;transform:translate(-50%,-8px)}to{opacity:1;transform:translateX(-50%)}}
+
+/* ---------------- 柔和紫色 Loading 线条（v1.1.10） ---------------- */
+.loading{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:var(--ink-2);padding:60px 0}
+.spinner{width:30px;height:30px;border:3px solid var(--primary-soft);border-top-color:var(--primary-deep);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ---------------- 温柔确认框（v1.1.10） ---------------- */
+.gentle-confirm{position:fixed;inset:0;z-index:80;background:rgba(58,58,58,.32);display:flex;align-items:center;justify-content:center;padding:24px;animation:offbar-in .2s ease both}
+.gentle-confirm__card{background:#fff;border-radius:var(--radius);padding:24px 22px;max-width:320px;width:100%;box-shadow:var(--shadow);text-align:center}
+.gentle-confirm__ip{display:flex;justify-content:center;margin-bottom:10px}
+.gentle-confirm__msg{font-size:15px;line-height:1.7;color:var(--ink);margin:0 0 18px}
+.gentle-confirm__btns{display:flex;gap:12px;align-items:center}
+.gentle-confirm__btns .ghost{flex:1;text-align:center;color:var(--ink-2);padding:11px 0}
+.gentle-confirm__btns .primary{flex:1;margin-top:0;padding:12px 0;font-size:15px}
+
+/* ---------------- 禁用态（防重复点击） ---------------- */
+.primary:disabled{opacity:.55;pointer-events:none}

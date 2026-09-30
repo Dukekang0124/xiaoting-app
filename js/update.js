@@ -110,9 +110,16 @@ export function setSnoozeDay() {
 }
 
 async function fetchJson(url) {
-  const res = await fetch(url, { cache: 'no-store' });
-  if (!res.ok) throw new Error('http_' + res.status);
-  return res.json();
+  // v1.1.10：版本检测补 8 秒超时保护（ASR/LLM 已有，这里补齐最后一处网络请求）
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const res = await fetch(url, { cache: 'no-store', signal: ctrl.signal });
+    if (!res.ok) throw new Error('http_' + res.status);
+    return res.json();
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
