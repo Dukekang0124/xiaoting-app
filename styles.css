@@ -885,7 +885,8 @@ body.thinking--stuck .stuck-bubble{opacity:1;transform:translateY(0)}
 .diag-kv b{font-weight:600;text-align:right;word-break:break-all;line-height:1.5}
 .diag-empty{font-size:13px;color:var(--ink-3);margin:0}
 .diag-actions{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0 10px}
-.diag-actions .primary,.diag-actions .ghost{flex:1 1 46%;width:auto;margin:0;padding:12px 10px;font-size:14px;font-weight:600;text-align:center}
+.diag-actions .primary{flex:1 1 100%;width:auto;margin:0;padding:13px 10px;font-size:15px;font-weight:600;text-align:center}
+.diag-actions .ghost{flex:1 1 31%;width:auto;margin:0;padding:12px 8px;font-size:13.5px;font-weight:600;text-align:center}
 .diag-running{font-size:13px;color:var(--primary-deep);margin:0 0 10px}
 .diag-log{background:#FBF7F2;border:1px solid var(--line);border-radius:14px;padding:14px;font-size:11.5px;line-height:1.65;
   font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--ink);

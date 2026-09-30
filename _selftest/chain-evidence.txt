@@ -1,121 +1,126 @@
 墨小溟 · 链路诊断日志
-生成时间：2026-09-30 08:58:40.042
+生成时间：2026-09-30 09:07:39.713
 应用版本：1.1.3    平台：Web    网络：在线
 页面源：https://xiaoting.app.workbuddy.host
 
-[OK]   2026-09-30 08:58:21.240  +     1ms  ai/safety
-      2048ms  model=deepseek-v4.1-flash
+[OK]   2026-09-30 09:07:19.835  +     0ms  ai/safety
+      2230ms  model=deepseek-v4.1-flash
       模型返回已解析为 JSON
       raw: {
   "risk_level": "low",
-  "reason": "用户仅表达'我今天很烦'，属于一般情绪低落，未出现自伤、自杀、绝望或危机相关表述。",
+  "reason": "用户表达'我今天很烦'，仅描述情绪烦躁，无自伤、自杀、绝望或暴力表述",
   "action": "continue"
 }
-[OK]   2026-09-30 08:58:21.250  +    11ms  llm/sdk
+[OK]   2026-09-30 09:07:19.845  +    10ms  llm/sdk
       -
       云服务客户端已就绪（先本地副本，失败回 CDN）
-[OK]   2026-09-30 08:58:21.376  +   137ms  llm/ranking
+[OK]   2026-09-30 09:07:19.977  +   142ms  llm/ranking
       -  model=deepseek-v4.1-flash
       tier=fast 目录=30 命中优先序=deepseek-v4.1-flash,glm-5.0,hunyuan-chat 实际序前3=deepseek-v4.1-flash,glm-5.0,hunyuan-chat
-[OK]   2026-09-30 08:58:23.289  +  2050ms  ai/safety.verdict
+[OK]   2026-09-30 09:07:22.066  +  2231ms  ai/safety.verdict
       -
       风险等级=low 动作=continue
-      raw: {"risk_level":"low","action":"continue","reason":"用户仅表达'我今天很烦'，属于一般情绪低落，未出现自伤、自杀、绝望或危机相关表述。","degraded":""}
-[OK]   2026-09-30 08:58:23.289  +  2050ms  ai/main
-      6510ms  model=glm-5.0
-      模型返回已解析为 JSON
-      raw: {
-  "event": "用户感到烦躁，具体事件暂未说明",
-  "people": [],
-  "scene": "",
-  "emotion": ["愤怒", "无力"],
-  "emotion_primary": "愤怒",
-  "emotion_secondary": "无力",
-  "emotion_shift": "",
-  "shift_trigger": "",
-  "hidden_need": "希望有一个出口，能安全地把堵在心里的东西倒出来",
-  "intensity": 5,
-  "body": ["胸闷"],
-  "thought": "我今天很烦。",
-  "cognitive_patterns": [],
-  "need": ["被理解", "边界"],
-  "behavior": "倾诉",
-  "result": "说出了一句「很烦」，尝试给情绪开一道小口子",
-  "pattern": "一句话很短，信息不足，暂无法判断重复模式",
-  "experiment": "现在试着用 10 秒钟原地转一下脖子、耸一下肩再放下，什么都不用想，只感受肩膀落下来的那一瞬间",
-  "summary": "一句「很烦」已经是你今天给情绪找到的第一个出口了，我先在这里接住它。",
-  "ip_state": "listening",
-  "ip_action"…(+184)
-[OK]   2026-09-30 08:58:23.290  +  2051ms  llm/ranking
-      -  model=glm-5.0
-      tier=strong 目录=30 命中优先序=glm-5.0,deepseek-v4.1-flash,hunyuan-chat 实际序前3=glm-5.0,deepseek-v4.1-flash,hunyuan-chat
-[OK]   2026-09-30 08:58:29.800  +  8561ms  ai/main.json
-      -
-      raw: {"event":"用户感到烦躁，具体事件暂未说明","people":[],"scene":"","emotion":["愤怒","无力"],"emotion_primary":"愤怒","emotion_secondary":"无力","emotion_shift":"","shift_trigger":"","hidden_need":"希望有一个出口，能安全地把堵在心里的东西倒出来","intensity":6,"body":["胸闷"],"thought":"我今天很烦。","cognitive_patterns":[],"need":["被理解","边界"],"behavior":"倾诉","result":"说出了一句「很烦」，尝试给情绪开一道小口子","pattern":"一句话很短，信息不足，暂无法判断重复模式","experiment":"现在试着用 10 秒钟原地转一下脖子、耸一下肩再放下，什么都不用想，只感受肩膀落下来的那一瞬间","summary":"一句「很烦」已经是你今天给情绪找到的第一个出口了，我先在这里接住它。","ip_state":"listening","ip_action":"slow_lean_and_breathe","needs_followup":true,"followup_questions":["这种「烦」是一直闷着的，还是今…(+71)
-[OK]   2026-09-30 08:58:29.801  +  8562ms  ai/followup
-      2218ms  model=glm-5.0
+      raw: {"risk_level":"low","action":"continue","reason":"用户表达'我今天很烦'，仅描述情绪烦躁，无自伤、自杀、绝望或暴力表述","degraded":""}
+[OK]   2026-09-30 09:07:22.067  +  2232ms  ai/main
+      5612ms  model=glm-5.0
       模型返回已解析为 JSON
       raw: ```json
 {
-  "empathy": "说出「很烦」，已经很不容易了。",
-  "question": "这种「烦」是今天某件事点着的，还是一直闷着慢慢攒出来的？",
+  "event": "今天感到很烦",
+  "people": ["用户"],
+  "scene": "今天，具体场景未知",
+  "emotion": ["愤怒", "焦虑"],
+  "emotion_primary": "烦躁",
+  "emotion_secondary": "",
+  "emotion_shift": "",
+  "shift_trigger": "",
+  "hidden_need": "",
+  "intensity": 5,
+  "body": ["胸闷"],
+  "thought": "",
+  "cognitive_patterns": [],
+  "need": [],
+  "behavior": "",
+  "result": "",
+  "pattern": "",
+  "experiment": "现在花30秒，把注意力放在呼吸上，吸气4秒、呼气6秒，重复3次，什么都不用想。",
+  "summary": "这份烦闷来得真真切切，我就在这里陪着你。",
+  "ip_state": "listening",
+  "ip_action": "slow_lean_and_breathe",
+  "needs_followup": true,
+  "followup_questions": [
+    "今天发生了什么事让你开…(+72)
+[OK]   2026-09-30 09:07:22.067  +  2232ms  llm/ranking
+      -  model=glm-5.0
+      tier=strong 目录=30 命中优先序=glm-5.0,deepseek-v4.1-flash,hunyuan-chat 实际序前3=glm-5.0,deepseek-v4.1-flash,hunyuan-chat
+[OK]   2026-09-30 09:07:27.680  +  7845ms  ai/main.json
+      -
+      raw: {"event":"今天感到很烦","people":["用户"],"scene":"今天，具体场景未知","emotion":["愤怒","焦虑"],"emotion_primary":"烦躁","emotion_secondary":"","emotion_shift":"","shift_trigger":"","hidden_need":"","intensity":6,"body":["胸闷"],"thought":"","cognitive_patterns":[],"need":["被尊重","公平"],"behavior":"","result":"情绪没有得到处理，还留在身体里","pattern":"","experiment":"现在花30秒，把注意力放在呼吸上，吸气4秒、呼气6秒，重复3次，什么都不用想。","summary":"这份烦闷来得真真切切，我就在这里陪着你。","ip_state":"listening","ip_action":"slow_lean_and_breathe","needs_followup":true,"followup_questions":["今天发生了什么事让你开始觉得烦？","这个'烦'更像是心里堵得慌，还是静不下来？","如果这个烦躁能说话，它第一句想说什么？"]}
+[OK]   2026-09-30 09:07:27.681  +  7846ms  ai/followup
+      2772ms  model=glm-5.0
+      模型返回已解析为 JSON
+      raw: ```json
+{
+  "empathy": "这份烦闷，来得真不轻。",
+  "question": "如果这个烦躁能说话，它第一句想说什么？",
   "round": 1,
   "can_skip": true,
   "ready_for_card": false
 }
 ```
-[OK]   2026-09-30 08:58:32.019  + 10780ms  ai/followup.json
+[OK]   2026-09-30 09:07:30.453  + 10618ms  ai/followup.json
       -
-      raw: {"empathy":"说出「很烦」，已经很不容易了。","question":"这种「烦」是今天某件事点着的，还是一直闷着慢慢攒出来的？","round":1,"can_skip":true,"ready_for_card":false}
-[OK]   2026-09-30 08:58:32.020  + 10781ms  ai/card
-      4243ms  model=glm-5.0
+      raw: {"empathy":"这份烦闷，来得真不轻。","question":"如果这个烦躁能说话，它第一句想说什么？","round":1,"can_skip":true,"ready_for_card":false}
+[OK]   2026-09-30 09:07:30.453  + 10618ms  ai/card
+      5060ms  model=glm-5.0
       模型返回已解析为 JSON
       raw: ```json
 {
   "card_type": "hold",
-  "title": "一句「很烦」，是堵在心里的东西在找出口",
+  "title": "今天很烦，情绪还留在身体里",
   "date": "2025-07-09",
-  "event": "感到烦躁，具体事件暂未说明",
-  "emotion": ["愤怒", "无力"],
+  "event": "今天感到很烦，具体场景未知",
+  "emotion": ["愤怒", "焦虑"],
+  "emotion_primary": "烦躁",
+  "emotion_secondary": "",
   "intensity": 6,
   "body": ["胸闷"],
-  "thought": "我今天很烦。",
-  "need": ["被理解", "边界"],
-  "behavior": "倾诉",
-  "result": "说出了一句「很烦」，尝试给情绪开一道小口子",
-  "pattern": "一句话很短，信息不足，暂无法判断重复模式",
-  "experiment": "现在试着用 10 秒钟原地转一下脖子、耸一下肩再放下，什么都不用想，只感受肩膀落下来的那一瞬间",
-  "summary": "你说的「很烦」不是一个随口的词，是闷在胸口的东西在找出口——能在烦到不想说话的时候，还是把这两个字挤出来，就已经是在替自己开那道口子了。",
-  "emotion_primary": "愤怒",
-  "emotion_secondary": "无力",
-  "hidden_need": "希望有一个出口，能安全地把堵在心里的东西倒出来",
-  "tags": ["烦躁", "胸闷", "…(+37)
-[OK]   2026-09-30 08:58:36.264  + 15025ms  ai/card.json
+  "thought": "",
+  "need": ["被尊重", "公平"],
+  "behavior": "",
+  "result": "情绪没有得到处理，还留在身体里",
+  "pattern": "",
+  "experiment": "现在花30秒，把注意力放在呼吸上，吸气4秒、呼气6秒，重复3次，什么都不用想。",
+  "summary": "你说今天很烦，这份烦闷来得真真切切，它还堵在胸口没走——我就在这里陪着你。",
+  "hidden_need": "",
+  "tags": ["烦躁", "身体感受"],
+  "ip_state": "listening"
+}
+```
+[OK]   2026-09-30 09:07:35.515  + 15680ms  ai/card.json
       -
-      raw: {"title":"把情绪暂时留在深海","date":"2026-09-30","event":"感到烦躁，具体事件暂未说明","emotion":["愤怒","无力"],"emotion_primary":"愤怒","emotion_secondary":"无力","emotion_shift":"","shift_trigger":"","hidden_need":"希望有一个出口，能安全地把堵在心里的东西倒出来","intensity":6,"body":["胸闷"],"thought":"我今天很烦。","need":["被理解","边界"],"behavior":"倾诉","result":"说出了一句「很烦」，尝试给情绪开一道小口子","pattern":"一句话很短，信息不足，暂无法判断重复模式","experiment":"现在试着用 10 秒钟原地转一下脖子、耸一下肩再放下，什么都不用想，只感受肩膀落下来的那一瞬间","summary":"你说的「很烦」不是一个随口的词，是闷在胸口的东西在找出口——能在烦到不想说话的时候，还是把这两个字挤出来，就已经是在替自己开那道口子了。","tags":["烦躁","胸闷","倾诉"],"ip_state":"listening","card_type":"hold","card_layer":"第二层 · 情绪容纳","c…(+170)
-[OK]   2026-09-30 08:58:36.265  + 15026ms  ai/timeline
-      3767ms  model=glm-5.0
+      raw: {"title":"把情绪暂时留在深海","date":"2026-09-30","event":"今天感到很烦，具体场景未知","emotion":["愤怒","焦虑"],"emotion_primary":"烦躁","emotion_secondary":"焦虑","emotion_shift":"","shift_trigger":"","hidden_need":"","intensity":6,"body":["胸闷"],"thought":"","need":["被尊重","公平"],"behavior":"","result":"情绪没有得到处理，还留在身体里","pattern":"","experiment":"现在花30秒，把注意力放在呼吸上，吸气4秒、呼气6秒，重复3次，什么都不用想。","summary":"你说今天很烦，这份烦闷来得真真切切，它还堵在胸口没走——我就在这里陪着你。","tags":["烦躁","身体感受"],"ip_state":"listening","card_type":"hold","card_layer":"第二层 · 情绪容纳","card_name":"情绪安放卡","action_title":"","action_step":"","action_note":"","card_body":"不必强迫自己立刻平复，也不用要求…(+84)
+[OK]   2026-09-30 09:07:35.515  + 15680ms  ai/timeline
+      4181ms  model=glm-5.0
       模型返回已解析为 JSON
-      raw: ```json
-{
+      raw: {
   "nodes": [
     { "emotions": ["开心"], "caption": "早上出门前心情不错，还哼了歌" },
     { "emotions": ["委屈"], "caption": "中午开会当众被领导说了一顿，觉得难堪" },
-    { "emotions": ["愤怒"], "caption": "之后一直很烦，回到家还是闷着" }
+    { "emotions": ["愤怒"], "caption": "之后一直很烦，到家还是闷闷的" }
   ],
-  "summary": "这段对话里，你的感受一直在流动。早上还是开心的，中午被当众说了之后委屈涌上来，之后一直烦着、闷着，到晚上也没散。情绪这种来回起伏，是很自然的。",
+  "summary": "这段对话里，你的感受在流动。早上还是开心的，中午被当众说之后委屈涌上来，到了晚上依然闷着烦。情绪不会一下子散掉，这种持续的起伏是正常的。",
   "action_hint": {
     "title": "给情绪一个空间",
     "step": "把此刻心里最沉重的一句话，直接打字留在这。不用修饰，写完就可以。",
     "note": "写下来，不一定要立刻解决它。"
   }
 }
-```
-[OK]   2026-09-30 08:58:40.033  + 18794ms  ai/timeline.json
+[OK]   2026-09-30 09:07:39.697  + 19862ms  ai/timeline.json
       -
-      raw: {"type":"timeline","nodes":[{"at":1790729920033,"text":"今天一早还挺高兴的，出门前还哼了两句歌。","emotions":["开心"],"merged":false,"count":1,"trigger":null,"marked":false,"caption":"早上出门前心情不错，还哼了歌"},{"at":1790729920033,"text":"中午开会的时候被领导当众说了一顿，特别难堪。","emotions":[],"merged":false,"count":1,"trigger":null,"marked":false,"caption":"中午开会当众被领导说了一顿，觉得难堪"},{"at":1790729920033,"text":"后来就一直很烦，晚上回到家还是闷的。","emotions":[],"merged":false,"count":1,"trigger":null,"marked":false,"caption":"之后一直很烦，回到家还是闷着"}],"summary":"这段对话里，你的感受一直在流动。早上还是开心的，中午被当众说了之后委屈涌上来，之后一直烦着、闷着，到晚上也没散。情绪这种来回起伏，是很自然的。","actionHint":{"title":"给情绪一个空间","step"…(+61)
-[OK]   2026-09-30 08:58:40.033  + 18794ms  diag/selfrun
+      raw: {"type":"timeline","nodes":[{"at":1790730459696,"text":"今天一早还挺高兴的，出门前还哼了两句歌。","emotions":["开心"],"merged":false,"count":1,"trigger":null,"marked":false,"caption":"早上出门前心情不错，还哼了歌"},{"at":1790730459696,"text":"中午开会的时候被领导当众说了一顿，特别难堪。","emotions":[],"merged":false,"count":1,"trigger":null,"marked":false,"caption":"中午开会当众被领导说了一顿，觉得难堪"},{"at":1790730459696,"text":"后来就一直很烦，晚上回到家还是闷的。","emotions":[],"merged":false,"count":1,"trigger":null,"marked":false,"caption":"之后一直很烦，到家还是闷闷的"}],"summary":"这段对话里，你的感受在流动。早上还是开心的，中午被当众说之后委屈涌上来，到了晚上依然闷着烦。情绪不会一下子散掉，这种持续的起伏是正常的。","actionHint":{"title":"给情绪一个空间","step":"把…(+58)
+[OK]   2026-09-30 09:07:39.697  + 19862ms  diag/selfrun
       -
-      自检完成：安全=low/continue；主分析情绪=愤怒、无力 强度=6；追问=已生成；卡片=已生成；时间线=已生成（3 个节点）
+      自检完成：安全=low/continue；主分析情绪=愤怒、焦虑 强度=6；追问=已生成；卡片=已生成；时间线=已生成（3 个节点）
 
-耗时：19137ms
+耗时：20200ms
