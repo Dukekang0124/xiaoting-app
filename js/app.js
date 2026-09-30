@@ -1790,7 +1790,7 @@ function pageSettings() {
       <div class="set-title">重要声明</div>
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.4.1')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.4.2')}</p>
   </section>`;
 }
 
@@ -1945,7 +1945,7 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.4.1')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.4.2')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -1954,7 +1954,7 @@ function pageChangelog() {
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.4.1')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.4.2')}</p>
   </section>`;
 }
 
@@ -2301,6 +2301,21 @@ async function buildDiagReport() {
   L.push(`应用内左边缘侧滑：${bw.swipeBound ? '已启用' : '未启用'}`);
   if (bw.err) L.push(`接线异常：${bw.err}`);
   L.push(`结论：${backVerdict(bw)}`);
+
+  // ②b 左边缘手势实测（v1.4.2）：区分「系统把手势吃了」与「我们自己没认」——
+  //     两者的修法相反，不量就只能猜。真机上请在子页面从左边缘向右滑 1~3 次再复制报告。
+  const ep = edgeProbeFacts();
+  L.push('', sep, '②b 左边缘侧滑实测（是否被系统手势拦截）', sep);
+  L.push(`采样次数：${ep.total}（被取消 ${ep.lost}，正常送达 ${ep.received}）`);
+  L.push(`当前起手区：x ${ep.min}~${ep.max}px${ep.autoMin ? `（已自动避开系统区，原为 0~28）` : ''}`);
+  if (ep.last) {
+    L.push(`最近一次：起点 x=${ep.last.x}px，事件 ${ep.last.kind}，` +
+      `${ep.last.canceled ? '中途被取消' : '正常结束'}，${ep.last.ours ? '我们的手势已接住' : '我们的手势未接住'}`);
+  }
+  if (ep.samples && ep.samples.length) {
+    L.push(`样本：${ep.samples.map((s) => `x${s.x}${s.canceled ? '✗' : '✓'}${s.ours ? '·ours' : ''}`).join('  ')}`);
+  }
+  L.push(`结论：${ep.verdict}`);
 
   // ③ 最近一次录音/识别链路（从日志里捞 mic/asr 两条 stage 的真实字段）
   L.push('', sep, '③ 最近一次录音与识别链路', sep);
@@ -2904,10 +2919,97 @@ function resetSwipe(view) {
   hideSwipeHint();
 }
 
+/* ---------------- 左边缘手势探针（v1.4.2 · 用数据代替猜） ----------------
+ *
+ * 为什么必须先量再改：「左滑没反应」有**两种成因完全相反**的可能，不测就只能猜：
+ *   ① 被 Android 系统返回手势吃了 —— 表现为页面**根本收不到**事件，或中途收到 cancel；
+ *   ② 我们自己的阈值不对 —— 事件收到了，只是起点超出 EDGE 被我们 `return` 掉了。
+ * 两者的修法相反：①要把起手区**往右挪**避开系统区；②反而是要放宽阈值。
+ * 盲改 40px 可能修好 ①，也可能把 ② 弄得更糟 ⇒ 先量，再改，且改完自动生效。
+ */
+const _edgeProbe = { samples: [], autoMin: 0, min: 0, max: 28 };
+const EDGE_PROBE_ZONE = 72;   // 只记录这个范围内的起手，更右侧的与系统手势无关
+let _probeCur = null;
+
+function probePush(s) {
+  _edgeProbe.samples.push(s);
+  if (_edgeProbe.samples.length > 8) _edgeProbe.samples.shift();
+  maybeAdaptEdge();
+}
+
+/**
+ * 自适应：连续 3 次「在左边缘起手、还没完成就被 cancel」⇒ 判定该区间被系统接管，
+ * 把起手区的**下限**抬到被吃掉的最右点 + 8px（上限同步放宽，保证仍然好划）。
+ * 只上调下限、不动上限方向 —— 抬下限是"避开系统区"，放宽上限是"别让人划不中"。
+ */
+function maybeAdaptEdge() {
+  const lost = _edgeProbe.samples.filter((s) => s.canceled && !s.ours);
+  if (lost.length < 3) return;
+  const maxX = Math.max.apply(null, lost.map((s) => s.x));
+  const wantMin = Math.min(56, Math.round(maxX) + 8);
+  if (wantMin > _edgeProbe.min) {
+    _edgeProbe.min = wantMin;
+    _edgeProbe.max = Math.max(120, wantMin + 90);
+    _edgeProbe.autoMin = wantMin;
+  }
+}
+
+/** 当前生效的起手区（x 需落在这个区间内） */
+function edgeZone() { return { min: _edgeProbe.min, max: _edgeProbe.max }; }
+
+/** 供诊断报告与自测读取 */
+export function edgeProbeFacts() {
+  const ss = _edgeProbe.samples;
+  const lost = ss.filter((s) => s.canceled && !s.ours);
+  const got = ss.filter((s) => !s.canceled);
+  const z = edgeZone();
+  let verdict = '还没有采到左边缘滑动的样本（请在子页面从左边缘向右滑一次）。';
+  if (ss.length) {
+    if (lost.length >= 3) {
+      verdict = `⚠️ 疑似被系统手势拦截：${lost.length}/${ss.length} 次在最左侧就被取消` +
+        `（最右被吃点 x=${Math.max.apply(null, lost.map((s) => s.x))}）。已自动把起手区改为 ${z.min}~${z.max}px 避开。`;
+    } else if (lost.length) {
+      verdict = `有 ${lost.length}/${ss.length} 次被取消，尚未达到自动调整阈值（需 3 次）。`;
+    } else if (got.length) {
+      verdict = `事件正常送达（${got.length} 次未被取消），起手区 ${z.min}~${z.max}px 可用。`;
+    }
+  }
+  return {
+    total: ss.length, lost: lost.length, received: got.length,
+    min: z.min, max: z.max, autoMin: _edgeProbe.autoMin,
+    last: ss.length ? ss[ss.length - 1] : null,
+    samples: ss.slice(-4), verdict,
+  };
+}
+
+/** 独立注册探针：即使侧滑逻辑没启用，也能量到"系统到底放不放事件进来" */
+export function initEdgeProbe() {
+  const xOf = (e) => {
+    if (e.clientX != null) return e.clientX;
+    const t = e.touches && e.touches[0];
+    return t ? t.clientX : -1;
+  };
+  const onStart = (e) => {
+    if (_probeCur) return;                       // pointer 与 touch 会双发，只记一次
+    const x = xOf(e);
+    if (x < 0 || x > EDGE_PROBE_ZONE) return;
+    _probeCur = { x: Math.round(x), kind: e.type, ours: false, canceled: false, t: Date.now() };
+  };
+  const onCancel = () => { if (_probeCur) { _probeCur.canceled = true; probePush(_probeCur); _probeCur = null; } };
+  const onEnd = () => { if (_probeCur) { probePush(_probeCur); _probeCur = null; } };
+  const opt = { capture: true, passive: true };
+  document.addEventListener('pointerdown', onStart, opt);
+  document.addEventListener('touchstart', onStart, opt);
+  document.addEventListener('pointercancel', onCancel, opt);
+  document.addEventListener('touchcancel', onCancel, opt);
+  document.addEventListener('pointerup', onEnd, opt);
+  document.addEventListener('touchend', onEnd, opt);
+  window.__edgeProbeMarkOurs = () => { if (_probeCur) _probeCur.ours = true; };
+}
+
 export function initSwipeBack() {
   const view = $view();
   if (!view) return;
-  const EDGE = 28;        // 左边缘起手区
   const THRESH = 0.34;    // 超过屏宽 34% 才真正返回
   const MIN_DX = 12;      // 超过此水平位移才判定为返回意图（区别于点击 / 竖向滚动）
 
@@ -2918,9 +3020,12 @@ export function initSwipeBack() {
     if (!BACK_PARENT[name]) return;                 // 首页级无父级 ⇒ 不启用侧滑返回
     const t = e.target;
     if (t && t.closest && t.closest('button,a,input,textarea,select,[contenteditable]')) return;
-    if (e.clientX > EDGE) return;                   // 只认左边缘起手
+    const z = edgeZone();
+    if (e.clientX < z.min || e.clientX > z.max) return;   // 只认起手区内（区间可随实测自适应）
     startX = e.clientX; startY = e.clientY;
     active = true; decided = false; dir = 0;
+    // 标记"这次事件我们接住了"：探针据此区分"被系统吃掉"与"我们自己没认"
+    if (window.__edgeProbeMarkOurs) window.__edgeProbeMarkOurs();
   };
 
   const onMove = (e) => {
@@ -3071,6 +3176,8 @@ export function boot() {
   // v1.1.10：全局硬件返回键（物理键 + 系统侧滑手势）+ 离线浮条
   registerBackHandler();
   // v1.2.1 攻坚：左滑返回手势（触摸层，与物理键共用父级映射）
+  // v1.4.2：探针必须**先于**侧滑注册，才能量到"系统到底放不放事件进来"
+  initEdgeProbe();
   initSwipeBack();
   // v1.3.0 IP 视觉引擎：轻音效接入全局 + 按开关初始化（默认关）
   window.ipAudio = ipAudio;

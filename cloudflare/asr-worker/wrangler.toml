@@ -1,0 +1,9 @@
+name = "xiaoting-asr-worker"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# Workers AI 绑定：Whisper 靠它跑。
+# 🔴 注意：这里**不需要任何 API Key** —— Workers AI 走的是账号额度，不是密钥调用。
+#    如果你在哪份教程里看到要填 OPENAI_API_KEY，那是调 OpenAI 的 Whisper，不是这个方案。
+[ai]
+binding = "AI"

@@ -21,13 +21,46 @@
 
 ## 为什么是 Pages 而不是 Workers
 
-不是偏好问题，是**实测结论**：
+不是偏好问题，是**实测结论**（2026-10-01 同一份代码、两个入口，当场对比）：
 
-- 三个公共 DNS 查 `*.workers.dev`，全部返回 `face:b00c` 段（Facebook 保留地址），且**三个 IP 互不相同**
-  ⇒ 典型 GFW DNS 污染，国内网络基本访问不到。
-- 同样的查询对 `*.pages.dev` 返回真实 Cloudflare anycast IP，多个 DNS 结果一致 ⇒ 干净。
+| 入口 | 域名 | 实测结果 |
+|---|---|---|
+| Pages | `xiaoting-asr.pages.dev` | **HTTP 200，0.79s**，`ai_binding: true` |
+| Worker | `xiaoting-asr-worker.kang7108558.workers.dev` | **HTTP 000，10 秒超时，连不上** |
 
-所以国内要能用，只能走 Pages。换回 Workers 等于这条链路又变死路。
+DNS 侧同样的结论：
+
+- `*.workers.dev` → `74.86.17.48`，**不是 Cloudflare 的 IP 段**（CF 是 172.64-172.67 / 104.16-104.31 / 188.114…），
+  且首次查询直接超时 ⇒ 劫持。
+- `*.pages.dev` → `172.66.47.47` / `172.66.44.209`，真实 anycast。
+
+⇒ 国内要能用，走 Pages。Worker 版本（`../asr-worker/`）已经部署好留作备用与对照，
+**你自己用手机流量再验一次**：如果 `.workers.dev` 在你的网络下能通，就换过去，我改一行配置即可。
+
+## Worker 版（备用，已部署）
+
+代码在 `../asr-worker/src/index.js`，与 Pages 版逻辑完全一致，只有入口不同：
+- Pages Functions：`export async function onRequest(context)`
+- Worker：`export default { async fetch(request, env) }`
+
+```bash
+cd cloudflare/asr-worker
+npx wrangler deploy          # 常规方式
+```
+
+🔴 本机踩到的坑：`npx wrangler` 会报 `@cloudflare/workerd-windows-64 could not be found`
+（npx 缓存里缺平台二进制）。绕法是用 **REST API 直接上传**，不依赖本地运行时：
+
+```
+PUT https://api.cloudflare.com/client/v4/accounts/<account_id>/workers/scripts/<script_name>
+Content-Type: multipart/form-data
+  part1: metadata  {"main_module":"src/index.js","bindings":[{"type":"ai","name":"AI"}],"compatibility_date":"2026-09-01"}
+  part2: 脚本本体（application/javascript+module，文件名 src/index.js）
+```
+再用 `POST /workers/scripts/<script_name>/subdomain` body `{"enabled":true}` 开通 `*.workers.dev`。
+
+🔴 **不需要任何 API Key**：Workers AI 走的是账号额度 + binding，不是密钥调用。
+你在教程里看到要填 `OPENAI_API_KEY` 的，那是调 OpenAI 的 Whisper，不是这个方案。
 
 ## 目录结构（Pages Functions 是「文件即路由」）
 

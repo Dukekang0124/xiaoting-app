@@ -2059,6 +2059,54 @@ const MOCK_SDK = `(function(){
   check('update·platform 普通浏览器标识正确', H2.platWeb.isWeChat === false && H2.platWeb.isApk === false, JSON.stringify(H2.platWeb));
   check('update·todayStr 返回 YYYY-MM-DD', /^\d{4}-\d{2}-\d{2}$/.test(H2.today), H2.today);
 
+  // H2b. v1.4.2 硬编码兜底 —— 专治「站点漏发 ⇒ 线上清单比本地还旧 ⇒ 永远提示已是最新」
+  //
+  //   这个故障在前一版真的发生过且**前端完全看不出来**：线上 /version.json 返回 200、
+  //   是合法 JSON，只是 latest_version 停在 1.3.5，而用户装的是 1.4.0。
+  //   三条断言分别卡住：常量同步 / 兜底生效 / 兜底不会把人"升级"回旧包。
+  const UV = await page.evaluate(async () => {
+    const u = await import('/js/update.js');
+    return { latest: u.LATEST_VERSION, app: window.APP_VERSION };
+  });
+  check('update·硬编码 LATEST_VERSION 与 APP_VERSION 同步（发版忘改 ⇒ 更新功能反向锁死）',
+    UV.latest === UV.app, `LATEST_VERSION=${UV.latest} APP_VERSION=${UV.app}`);
+
+  // 把线上清单伪装成"比本地还旧"（站点漏发时就是这个样子），看兜底会不会顶上来。
+  //
+  // 🔴 两个候选路径**都要** mock：fetchManifest 是按 LATEST_PATHS 顺序试的，
+  //    第一个 `/api/version/latest` 在本地 server 上是**真有这个端点**的（返回真实 1.4.2），
+  //    只 mock /version.json 的话第一候选就成功了，压根走不到兜底分支 ——
+  //    断言会假绿（latest 恰好对，但 source 是 remote）。第一版脚本就犯了这个错，
+  //    靠断言里同时校验 source 才抓出来。
+  const staleBody = JSON.stringify({
+    latest_version: '1.3.5', release_notes: ['旧版本'],
+    download_url: 'https://example.invalid/old.apk', apk: {}, force_update: false,
+  });
+  const staleRoute = (r) => r.fulfill({ status: 200, contentType: 'application/json', body: staleBody });
+  await page.route('**/api/version/latest', staleRoute);
+  await page.route('**/version.json', staleRoute);
+  const FB = await page.evaluate(async () => {
+    const u = await import('/js/update.js');
+    const d = await u.fetchLatest();
+    return { latest: d.latest_version, url: d.download_url, source: d._source, remote: d._remote };
+  });
+  await page.unroute('**/api/version/latest');
+  await page.unroute('**/version.json');
+  check('update·线上清单比本地旧时（站点漏发）硬编码兜底顶上，不会永远"已是最新"',
+    FB.latest === UV.latest && FB.source === 'hardcoded', JSON.stringify(FB));
+  check('update·兜底地址指向本版安装包，不会拿旧包去"升级"用户',
+    /Xiaoting-v1\.4\.2-release\.apk$/.test(String(FB.url || '')), String(FB.url));
+
+  // H2c. 左边缘手势探针：真机"左滑没反应"必须能自证是被系统吃了还是我们自己没认
+  const EP = await page.evaluate(async () => {
+    const a = await import('/js/app.js');
+    const f = typeof a.edgeProbeFacts === 'function' ? a.edgeProbeFacts() : null;
+    return { hasFn: !!f, f };
+  });
+  check('update·左边缘手势探针可读（真机能自证"被系统吃掉 vs 我们自己没认"）',
+    EP.hasFn && EP.f && ['total', 'lost', 'min', 'max', 'verdict'].every((k) => k in EP.f),
+    JSON.stringify(EP.f && { total: EP.f.total, min: EP.f.min, max: EP.f.max }));
+
   // H3. 非强制弹窗 UI（?fake_version=9.9.9 让"线上最新"高于当前，自动弹出）
   const ctx3 = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'zh-CN', isMobile: true, hasTouch: true });
   await ctx3.addInitScript(() => { try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1'); } catch (e) {} });

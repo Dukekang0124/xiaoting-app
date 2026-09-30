@@ -23,6 +23,28 @@ import * as diag from './diag.js';
 const SNOOZE_KEY = 'xiaoting:update_snooze_day'; // 当天"稍后再说"过的日期
 
 /**
+ * v1.4.2 · 硬编码「已知最新」兜底（康哥要求，但取值规则我改了，理由见下）
+ *
+ * 为什么需要它：线上版本清单是**静态文件**，只有发布站点才会变。
+ *   一旦发版漏了发布站点（v1.4.1 正是如此：APK 发了、www 没发），
+ *   线上 latest 还停在 1.3.5 ⇒ 比用户手上的 1.4.0 还旧 ⇒ 永远判定「已是最新」。
+ *   这类故障前端完全看不出来，用户只会觉得「更新功能是死的」。
+ *
+ * 🔴 取值规则必须是「线上与硬编码**取较大者**」，不能用硬编码直接覆盖：
+ *   直接覆盖 ⇒ 以后每发一版都得回来改这个常量，忘了改就等于把更新功能**反向锁死**
+ *   （新版 1.5.0 上线了，硬编码还写 1.4.2 ⇒ 用户永远收不到 1.5.0 的提示）。
+ *   那等于用一个新坑换掉旧坑。取大者时，它只在「线上更旧/取不到」时才起作用。
+ *
+ * 🔴 与 APP_VERSION 必须同步：自测里有一条断言卡死这条（两者必须相等），
+ *   否则「发版忘改常量」又会变成下一个静默故障。
+ */
+export const LATEST_VERSION = '1.4.2';
+
+/** 兜底安装包地址：必须是**版本化文件名**，不能用 xiaoting-latest.apk 别名
+ *  （别名指向"站点上最新的那一版"，站点没发布时它反而是旧版 ⇒ 会让人装回旧包）。 */
+const FALLBACK_APK_URL = 'https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.4.2-release.apk';
+
+/**
  * 版本清单的两个候选路径，按顺序试（v1.1.4 修）。
  *
  * 🔴 为什么必须走 apiBase()：
@@ -157,7 +179,40 @@ async function fetchManifest(paths) {
 
 /** 取线上最新版本信息（带测试 query 覆盖） */
 export async function fetchLatest() {
-  const data = await fetchManifest(LATEST_PATHS);
+  let data = null;
+  try {
+    data = await fetchManifest(LATEST_PATHS);
+  } catch (e) {
+    data = null; // 失败不抛：下面用硬编码兜底，用户至少还能收到"有新版本"这件事
+  }
+
+  const remoteLatest = String((data && data.latest_version) || '');
+  const remoteIsStale = cmpVersion(remoteLatest || '0', LATEST_VERSION) < 0;
+
+  if (!data) {
+    data = {
+      latest_version: LATEST_VERSION,
+      release_notes: [],
+      force_update: false,
+      download_url: FALLBACK_APK_URL,
+      _source: 'hardcoded',
+      _remote: 'fetch_failed',
+    };
+    diag.note('update', 'manifest_fallback', { source: 'hardcoded', remote: 'fetch_failed', used: LATEST_VERSION });
+  } else if (remoteIsStale) {
+    // 🔴 线上清单比已知最新还旧（典型：发了 APK 没发站点）⇒ 用硬编码的版本号**和下载地址**。
+    //    下载地址必须一起换：否则会拿 1.3.5 的包去"升级"一个 1.4.0 的用户，那是在帮倒忙。
+    data = Object.assign({}, data, {
+      latest_version: LATEST_VERSION,
+      download_url: FALLBACK_APK_URL,
+      _source: 'hardcoded',
+      _remote: remoteLatest,
+    });
+    diag.note('update', 'manifest_fallback', { source: 'hardcoded', remote: remoteLatest, used: LATEST_VERSION });
+  } else {
+    data = Object.assign({}, data, { _source: 'remote', _remote: remoteLatest });
+  }
+
   const q = new URLSearchParams(location.search);
   const fake = q.get('fake_version');
   const forced = q.get('force_update');
