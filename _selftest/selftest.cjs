@@ -2289,6 +2289,14 @@ const MOCK_SDK = `(function(){
 
   await browser.close();
 
+  // 断言总数基线自检：数量对不上就是「有人悄悄删/加了断言」，宁可红一条也不要静默漂移。
+  // 基线单一来源见 _selftest/expected-counts.json（llm-mechanism-verify-all.cjs 的第 ⑦ 项同源）。
+  let EXPECTED = null;
+  try { EXPECTED = JSON.parse(fs.readFileSync(path.join(__dirname, 'expected-counts.json'), 'utf8')).selftest; } catch (e) { /* 基线缺失不阻塞 */ }
+  if (EXPECTED && results.length !== EXPECTED) {
+    check('v1.3.5·断言总数与 expected-counts.json 基线一致', false, `实际 ${results.length} / 期望 ${EXPECTED} —— 新增或删除断言后请同步该文件`);
+  }
+
   const failed = results.filter((r) => !r.ok);
   console.log('\n==== 分区条数 ====');
   sectionCounts().forEach((r) => console.log(`  ${String(r.分区).padEnd(28)} ${String(r.条数).padStart(4)}`));

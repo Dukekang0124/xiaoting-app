@@ -94,11 +94,14 @@ body:not(.has-nav) .tabbar{display:none}
   --ip-glow:#FFE7C4;--ip-glow-2:#CFE4F7;
   --ip-eye-top:#6C6689;--ip-eye:#4E4969;
   --ip-halo:#C9BCF0;--ip-wet:#EAF4FF;--ip-blush:#FFC4A2;
-  /* 颜色变量平滑过渡（@property 让它们可插值，消灭硬跳变）；数值变量响应更快（实时探针每帧写） */
+  /* 颜色变量平滑过渡（@property 让它们可插值，消灭硬跳变）；数值变量响应更快（实时探针每帧写）
+     🔴 时长必须落在 state-machine.js 的 TRANSITION.minMs(600) ~ maxMs(1200) 区间内 ——
+        规格 §三 明确要求情绪切换是 0.6~1.2s 的柔和晕染，低于 0.6s 就会被读成硬跳变。
+        这里取 0.8s（区间中值偏慢）；改这里要同步 `_selftest/ip-state-selftest.cjs` 的区间断言。 */
   transition:
-    --ip-body-in .55s ease, --ip-body-mid .55s ease, --ip-body-out .55s ease,
-    --ip-antenna .55s ease, --ip-tip .55s ease, --ip-glow .55s ease, --ip-glow-2 .55s ease,
-    --ip-eye-top .55s ease, --ip-eye .55s ease, --ip-halo .55s ease, --ip-wet .55s ease, --ip-blush .55s ease,
+    --ip-body-in .8s ease, --ip-body-mid .8s ease, --ip-body-out .8s ease,
+    --ip-antenna .8s ease, --ip-tip .8s ease, --ip-glow .8s ease, --ip-glow-2 .8s ease,
+    --ip-eye-top .8s ease, --ip-eye .8s ease, --ip-halo .8s ease, --ip-wet .8s ease, --ip-blush .8s ease,
     --ip-vol .14s linear, --ip-pitch .2s ease, --ip-rate .2s ease, --ip-tension .2s ease, --ip-shrink .4s ease;
 }
 .mascot__body{transform-origin:100px 116px}
@@ -402,6 +405,8 @@ body.thinking--stuck .stuck-bubble{opacity:1;transform:translateY(0)}
 
 /* ---------- 录音 / 输入 ---------- */
 .record__mascot,.fu-mascot,.cf-mascot,.stage-mascot{display:flex;justify-content:center;padding:8px 0 14px}
+/* 倾听节点要在 IP 下方挂「我在听」常显气泡，故单独改为纵向排列 */
+.record__mascot{flex-direction:column;align-items:center}
 .big-input{
   width:100%;min-height:150px;border-radius:var(--radius);border:1.5px solid var(--line);
   background:#fff;padding:16px;font-size:16px;line-height:1.7;color:var(--ink);resize:vertical;
@@ -1210,6 +1215,8 @@ body.ip-intensity-gentle #ipBg{opacity:.26 !important}
 .say__mascot{position:relative}
 .ip-bubble{position:absolute;left:50%;bottom:-4px;transform:translate(-50%,10px);background:rgba(255,255,255,.96);color:var(--primary-deep);font-size:13.5px;line-height:1;padding:9px 15px;border-radius:14px;box-shadow:0 6px 20px rgba(120,100,170,.2);white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .25s ease,transform .25s ease;z-index:5}
 .ip-bubble--on{opacity:1;transform:translate(-50%,0)}
+/* 常显气泡（倾听节点「我在听」用；不参与点击互动的淡入淡出） */
+.ip-bubble--static{opacity:1;transform:translate(-50%,0);position:static;margin:6px auto 0;white-space:normal;display:table}
 
 /* 点击动画（作用在 IP 容器上；总开关/强度档门禁见下） */
 .say__mascot.ip-tap1{animation:ip-tap1 .8s ease-in-out}

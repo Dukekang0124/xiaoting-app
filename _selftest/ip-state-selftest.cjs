@@ -2,7 +2,9 @@
 // 运行：NODE_PATH=<受管 node_modules> node _selftest/ip-state-selftest.cjs
 // 覆盖：① 真实文本提交→本地分析→情绪渲染链路（愤怒/悲伤） ② 全调色板 studio 渲染（11 态）
 //      ③ receiving 接收节点（气泡+墨汁波纹） ④ danger 高危截断（柔光环+停特效）
-//      ⑤ 总开关一键关全部动画 ⑥ 无运行时报错 ⑦ 屏幕录制 mp4 作为验收证据
+//      ⑤ 总开关一键关全部动画 ⑥ IP 点击轻互动/安静陪伴/问候/开场回应/我页
+//      ⑦ §三 色彩过渡是真插值而非硬切（A/B 双臂） ⑧ §三.4 3 分钟无交互自动回归 idle（含对照臂）
+//      ⑨ 无运行时报错 ⑩ 屏幕录制 webm 作为验收证据
 const { chromium } = require('playwright');
 const { spawn } = require('child_process');
 const path = require('path');
@@ -70,6 +72,22 @@ const waitRoute = async (page, name) => {
 
     await goto(page, '/#/say'); await settle(page);
     await page.waitForFunction(() => !!window.__t, null, { timeout: 6000 }).catch(() => {});
+
+    // ===== ⓪ v1.3.5 settings 默认值与 state-machine 同源（在 store 被任何用例改动之前读）=====
+    // 🔴 这条防的是「常量提出来了但没人用」——IP_SETTINGS_DEFAULT 曾经是个纯死导出：
+    //   store.js 里另抄了一份硬编码默认值，改默认值改一处不生效，且任何静态检查都发现不了。
+    const sameSrc = await page.evaluate(async () => {
+      const sm = await import('/js/state-machine.js');
+      const st = await import('/js/store.js');
+      const s = st.getState().user.settings;
+      const want = Object.assign({}, sm.BASE_SETTINGS_DEFAULT, sm.IP_SETTINGS_DEFAULT);
+      const missing = Object.keys(want).filter((k) => !(k in s));
+      const mismatch = Object.keys(want).filter((k) => (k in s) && s[k] !== want[k]);
+      return { n: Object.keys(want).length, missing, mismatch, ipMotion: s.ipMotion };
+    });
+    check('v1.3.5·settings 覆盖 BASE/IP 两组默认值（无缺键）', sameSrc.missing.length === 0, JSON.stringify(sameSrc.missing));
+    check('v1.3.5·settings 默认值逐键等于 state-machine 的定义（同源，不是两处硬编码）',
+      sameSrc.mismatch.length === 0 && sameSrc.ipMotion === true, JSON.stringify(sameSrc.mismatch));
 
     // 断言辅助：等到 receiving 窗口过去、进入情绪渲染态
     const pastReceiving = () => page.waitForFunction(() => { const s = window.__t.store.getState(); return Date.now() > (s.receivingUntil || 0) + 150; }, null, { timeout: 9000 }).catch(() => {});
@@ -266,6 +284,32 @@ const waitRoute = async (page, name) => {
 
     // ===== ⑩ v1.3.4 开场回应 + 我页文案 =====
     await goto(page, '/#/record?mode=text'); await settle(page);
+
+    // ⑩-0 v1.3.5 倾听节点气泡（§一.1）：复用本次录音页跳转，不额外导航（录音态离开会被守卫拦下）
+    // 🔴 这条防的是「规格写了节点气泡、NODE_BUBBLE 却没人消费」——
+    //   receiving 的气泡有人用，listening 的曾经只定义不接线（静默缺功能，静态检查全绿）。
+    const listen = await page.evaluate(async () => {
+      const sm = await import('/js/state-machine.js');
+      const el = document.querySelector('.record__mascot .ip-bubble');
+      const svg = document.querySelector('.record__mascot .mascot');
+      const hint = document.getElementById('recHint');
+      return {
+        text: el ? el.textContent.trim() : '',
+        want: sm.NODE_BUBBLE.listening,
+        opacity: el ? getComputedStyle(el).opacity : '0',
+        state: svg ? svg.getAttribute('data-state') : null,
+        hint: hint ? hint.textContent.trim() : '',
+      };
+    });
+    check('v1.3.5·倾听节点 IP 姿态=listening', listen.state === 'listening', String(listen.state));
+    check('v1.3.5·倾听气泡「我在听」且取自 NODE_BUBBLE（非硬编码）',
+      listen.text === '我在听' && listen.text === listen.want, JSON.stringify(listen));
+    check('v1.3.5·倾听气泡常显（静态气泡，不依赖 hover/计时器）', Number(listen.opacity) > 0.9, String(listen.opacity));
+    // 气泡与轮播提示不能撞同一句，否则 IP 下方会出现两层同样的字（截图里抓到过「我在听」+「我在听……」）
+    check('v1.3.5·轮播提示不与节点气泡重复（不出现两层同义字）',
+      !!listen.hint && !listen.hint.startsWith(listen.text), `hint=「${listen.hint}」 bubble=「${listen.text}」`);
+    await page.screenshot({ path: path.join(OUT, '04b-listening.png'), fullPage: true });
+
     await page.fill('#recInput', '我很生气，他根本不尊重我。');
     await page.click('#recDone');
     await waitRoute(page, 'followup'); await pastReceiving(); await settle(page);
@@ -301,6 +345,102 @@ const waitRoute = async (page, name) => {
     const B2 = await page.evaluate(() => document.getElementById('ipTouch').className);
     check('v1.3.1边界·触碰总开关关闭后点击失效', !/ip-tap/.test(B2), B2);
     await page.evaluate(async () => { const s = await import('/js/store.js'); s.setSetting('ipTouch', true); });
+
+    // ===== ⑪b v1.3.5 规格 §三：情绪色切换必须是 0.6~1.2s 柔和晕染，不是硬切 =====
+    // 🔴 为什么单独立段：render() 是整块 innerHTML 重写 ⇒ IP 节点每次都是新的、出生即目标色，
+    //   @property 过渡天生**不会**触发。发布说明曾写着「平滑晕染、绝不硬切」，实测却是硬切
+    //   （8 次采样全部等于目标值）。这条断言就是那次的护栏，A/B 双臂保证它有鉴别力。
+    // A 臂（动效开）：切到 sad 后 ~140ms 采样应是**中间色**；判据用「三段距离可加」——
+    //   真插值：|起点→中间| + |中间→终点| == |起点→终点|；硬切：中间==终点 ⇒ 左式是右式的两倍。
+    // B 臂（动效关）：同一步操作应立即就是目标色（零过渡）——若 B 臂也「像过渡」，说明 A 臂是恒真的假断言。
+    await goto(page, '/#/say'); await settle(page);
+    await page.evaluate(async () => {
+      const st = await import('/js/store.js');
+      st.setSetting('ipMotion', true);
+      st.setState({ emotionKey: 'default', emotionIntensity: 5, risk: { level: 'none', action: 'continue', hit: false, evidence: '' } });
+      window.__t.render();
+    });
+    await page.waitForTimeout(950); // 先稳定在起点色（default 平静）
+    const rgbOf = (s) => (String(s || '').match(/\d+/g) || []).map(Number).slice(0, 3);
+    const dist = (a, b) => { const x = rgbOf(a); const y = rgbOf(b); return x.length === 3 && y.length === 3 ? Math.abs(x[0] - y[0]) + Math.abs(x[1] - y[1]) + Math.abs(x[2] - y[2]) : -1; };
+
+    const trA = await page.evaluate(async () => {
+      const st = await import('/js/store.js');
+      const node = () => document.querySelector('.say__mascot .mascot');
+      const read = () => getComputedStyle(node()).getPropertyValue('--ip-body-in').trim();
+      const before = read();
+      st.setEmotion('sad', 8);   // L3 → #747494，与平静紫差距足够大
+      window.__t.render();
+      await new Promise((r) => setTimeout(r, 140)); // 过渡进行中
+      const mid = read();
+      await new Promise((r) => setTimeout(r, 950)); // 过渡结束
+      return { before, mid, end: read() };
+    });
+    const trB = await page.evaluate(async () => {
+      const st = await import('/js/store.js');
+      st.setSetting('ipMotion', false); // 关掉动效总开关
+      const node = () => document.querySelector('.say__mascot .mascot');
+      const read = () => getComputedStyle(node()).getPropertyValue('--ip-body-in').trim();
+      st.setEmotion('angry', 9);
+      window.__t.render();
+      await new Promise((r) => setTimeout(r, 140));
+      const mid = read();
+      const st2 = await import('/js/store.js');
+      st2.setSetting('ipMotion', true); // 立刻还原，别影响后面用例
+      return { mid };
+    });
+
+    const dBM = dist(trA.before, trA.mid), dME = dist(trA.mid, trA.end), dBE = dist(trA.before, trA.end);
+    check('v1.3.5·情绪切换是过渡不是硬切（中间色落在起终点之间）',
+      dBE > 60 && dBM > 8 && dME > 8 && Math.abs(dBM + dME - dBE) <= 3,
+      `before=${trA.before} mid=${trA.mid} end=${trA.end} | ${dBM}+${dME} vs ${dBE}`);
+    check('v1.3.5·过渡结束后收敛到目标色（sad L3 #747494）',
+      dist(trA.end, 'rgb(116,116,148)') <= 2, trA.end);
+    check('v1.3.5·A/B 对照：关掉动效后立即即目标色（证明上一条有鉴别力）',
+      dist(trA.end, trB.mid) > 30, `过渡终点=${trA.end} / 关闭动效 140ms=${trB.mid}`);
+
+    // ===== ⑪c v1.3.5 规格 §三.4：3 分钟无交互 → 情绪色自动回归 idle =====
+    // 🔴 这条必须验「计时器真的存在」：原实现只在 render() 那一刻求值一次 isIdleTimeout，
+    //   用户不动页面就永远停在情绪色 ⇒ 规格等于没实现，而 node --check / 静态检查全绿看不出任何异常。
+    // 真等 3 分钟不现实 ⇒ 把 TRANSITION.idleTimeoutMs 临时缩到 800ms（对象成员可写），跑完立刻还原。
+    const idleRevert = await page.evaluate(async () => {
+      const st = await import('/js/store.js');
+      const sm = await import('/js/state-machine.js');
+      const cur = () => document.querySelector('.say__mascot .mascot');
+      const read = () => ({ emo: st.getState().emotionKey, state: cur() ? cur().getAttribute('data-state') : null });
+      const orig = sm.TRANSITION.idleTimeoutMs;
+      // 阈值 800ms：scheduleIdleRevert 的下限是 1000ms，所以计时器在 1000ms 触发时
+      // elapsed(≈1000~1015) > 800 一定成立，不会出现「刚好卡在阈值上不触发」的抖动。
+      sm.TRANSITION.idleTimeoutMs = 800;
+
+      // A 臂：无交互 → 1.8s 后（> 触发点 1.0s）应已回归 idle
+      st.setEmotion('sad', 8);
+      window.__t.render();
+      await new Promise((r) => setTimeout(r, 250));
+      const armed = read();
+      await new Promise((r) => setTimeout(r, 1550));
+      const afterA = read();
+      await new Promise((r) => setTimeout(r, 950)); // 等颜色过渡回退完成
+      const colorA = getComputedStyle(cur()).getPropertyValue('--ip-body-in').trim();
+
+      // B 臂（对照）：同样设情绪，但中途 touchInteraction() 模拟用户动作 → 不应回归
+      st.setEmotion('tired', 8);
+      window.__t.render();
+      await new Promise((r) => setTimeout(r, 300));
+      st.touchInteraction();               // 计时器在 1.0s 触发时 elapsed≈700 < 800 → 判为「有交互」
+      await new Promise((r) => setTimeout(r, 900)); // 累计 1.2s（仍早于重新排的下一次 2.0s）
+      const afterB = read();
+
+      sm.TRANSITION.idleTimeoutMs = orig;
+      st.setEmotion(null, 0);
+      return { armed, afterA, colorA, afterB, orig };
+    });
+    check('v1.3.5·无交互超时后情绪键自动清空', idleRevert.armed.emo === 'sad' && idleRevert.afterA.emo === null,
+      `armed=${idleRevert.armed.emo} → after=${idleRevert.afterA.emo}`);
+    check('v1.3.5·超时后 IP 姿态回到 idle', idleRevert.afterA.state === 'idle', String(idleRevert.afterA.state));
+    check('v1.3.5·超时后颜色平滑回退到默认紫 #F3EEFF', dist(idleRevert.colorA, 'rgb(243, 238, 255)') <= 3, idleRevert.colorA);
+    check('v1.3.5·对照臂：期间有交互则不回归（超时是「无交互」而非「看了很久」）',
+      idleRevert.afterB.emo === 'tired', `afterB=${idleRevert.afterB.emo}`);
 
     // ===== ⑫ 屏幕录制：点击/长按/安静 + 情绪过渡 montage（作为验收证据）=====
     const seq = [
@@ -348,6 +488,13 @@ const waitRoute = async (page, name) => {
       recFile ? `${recFile}（${(recSize / 1048576).toFixed(1)} MB）` : 'no video');
   } finally {
     try { if (srv) srv.kill('SIGTERM'); } catch (e) {}
+  }
+
+  // 断言总数基线自检（同源 _selftest/expected-counts.json）：数量对不上就是有人增删了断言，宁可红一条
+  let EXPECTED = null;
+  try { EXPECTED = JSON.parse(fs.readFileSync(path.join(__dirname, 'expected-counts.json'), 'utf8')).ipState; } catch (e) { /* ignore */ }
+  if (EXPECTED && results.length !== EXPECTED) {
+    check('v1.3.5·断言总数与 expected-counts.json 基线一致', false, `实际 ${results.length} / 期望 ${EXPECTED}`);
   }
 
   const failed = results.filter((r) => !r.ok);

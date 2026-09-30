@@ -9,9 +9,9 @@ PASS  环境变量 LLM_TIER_<MODULE> 能覆盖优先级（不用改代码）  �
 PASS  未配密钥的模型在解析阶段就被剔除（不浪费一次注定失败的往返）  — zhipu:glm-4-flash
 
 --- ② 降级链（第一档必然失败）---
-  结果: ok=true model=glm-4-flash degraded=true attempts=2 2068ms
-    · broken:always-down #1 FAIL network 20ms
-    · zhipu:glm-4-flash #1 OK 2046ms
+  结果: ok=true model=glm-4-flash degraded=true attempts=2 3664ms
+    · broken:always-down #1 FAIL network 19ms
+    · zhipu:glm-4-flash #1 OK 3642ms
 PASS  第一档连不上时自动降级到下一档并成功  — glm-4-flash
 PASS  降级被标记（degraded=true）——排查时要能一眼看出"这次不是正常路径"  — true
 PASS  降级过程被完整记录（每一跳都在 tried 里，含失败原因）  — ["always-down:network","glm-4-flash:ok"]
@@ -23,10 +23,10 @@ PASS  所有档位都失败时返回 ok:false 且带最后的失败码（绝不�
 PASS  全链失败时也留下了 tried 记录（能回答"到底试过谁"）  — 2
 
 --- ④ 用户点名的三个模型（真实调用）---
-  zhipu:glm-5.2          FAIL code=quota_exhausted  115ms
-  zhipu:glm-4.7-flash    FAIL code=rate_limited     4278ms
-  zhipu:glm-4-flash      OK   code=-                2512ms
-PASS  glm-4-flash（兜底档）实测可用 —— 这是本账号上唯一扛得住流量的模型  — 2512ms
+  zhipu:glm-5.2          FAIL code=quota_exhausted  131ms
+  zhipu:glm-4.7-flash    FAIL code=rate_limited     4307ms
+  zhipu:glm-4-flash      OK   code=-                2924ms
+PASS  glm-4-flash（兜底档）实测可用 —— 这是本账号上唯一扛得住流量的模型  — 2924ms
 PASS  glm-5.2 实测不可用（账号侧限制），且失败原因被正确归一（不是 unknown）  — code=quota_exhausted
 
 --- ⑤ JSON 模式 ---
@@ -36,13 +36,13 @@ PASS  json=true 时能拿到可解析的 JSON（response_format 真实生效） 
 PASS  统计能按模块与模型聚合  — total=6 模型数=2
 PASS  降级次数被单独计数（能算降级率）  — degraded=3
 PASS  调用日志已落盘（JSONL，按天分文件）  — llm-test-20260930.jsonl
-PASS  日志每行含 模型/耗时/是否降级/失败原因/模块（排查四要素）  — 共 132 条
+PASS  日志每行含 模型/耗时/是否降级/失败原因/模块（排查四要素）  — 共 150 条
 PASS  日志记录了失败原因（failReasons 非空）  — {"ts":"2026-09-30T01:20:15.465Z","module":"default","ok":true,"provider":"zhipu","model":"glm-4-flash","ms":2568,"degrad
 
 --- ⑦ 密钥零泄漏 ---
 PASS  配置脱敏快照里不含任何密钥  — 检查了 4 把 key
 PASS  配置脱敏快照里能看出"某个模型有没有配好 key"（运维要知道，但不该知道 key 本身）  — "hasKey":true "hasKey":true "hasKey":true
-PASS  调用日志里不含任何密钥  — 日志 24157 字符
+PASS  调用日志里不含任何密钥  — 日志 27448 字符
 PASS  调用日志里不含用户正文（主打敢说真话的产品，自己的日志不能成为泄露源）  — 已核查
 
 --- ⑧ 按模块覆盖优先级 ---
@@ -56,7 +56,7 @@ PASS  ② HTTP 集成验证（生产配置：路由表/脱敏/鉴权/统计/探�
 ==============================================
  内部模型调度 · HTTP 集成验证
  BASE = http://127.0.0.1:4173
- 时间 = 2026-09-30T08:02:06.911Z
+ 时间 = 2026-09-30T12:21:32.092Z
 ==============================================
 
 ① GET /api/llm/config —— 配置快照与脱敏
@@ -99,34 +99,34 @@ PASS  ② HTTP 集成验证（生产配置：路由表/脱敏/鉴权/统计/探�
   ✅ 响应带 degraded 布尔（降没降档）
   ✅ 响应带 ms（耗时）
   ✅ 响应带 tried[]（每一档的尝试轨迹）
-     本次：model=glm-4-flash channel=zhipu degraded=false ms=482 端到端=485ms
+     本次：model=glm-4-flash channel=zhipu degraded=false ms=465 端到端=468ms
      尝试轨迹：
-       - glm-4-flash  ok=true  code=-  482ms  attempt#1
+       - glm-4-flash  ok=true  code=-  464ms  attempt#1
   ✅ 响应体不含上游 endpoint
   ✅ 响应体不含任何密钥片段
   ✅ ok 字段是布尔（无论成败都有明确结果）
 
 ④ POST /api/llm（不传 module）—— default 档
   ✅ default 返回 200
-     default：model=deepseek-v4.1-flash ms=1306 ok=true
+     default：model=deepseek-v4.1-flash ms=1407 ok=true
 
 ⑤ GET /api/llm/stats —— 独立进程内的日志聚合
   ✅ stats 返回 200
   ✅ stats ok:true
      stats：total=3 ok=3 fail=0 degraded=0
-     byModel：{"workbuddy:deepseek-v4.1-flash":{"calls":2,"ok":2,"fail":0,"ms":2671},"zhipu:glm-4-flash":{"calls":1,"ok":1,"fail":0,"ms":482}}
-     byModule：{"default":{"calls":2,"ok":2,"fail":0,"degraded":0,"ms":2671},"safety":{"calls":1,"ok":1,"fail":0,"degraded":0,"ms":482}}
+     byModel：{"workbuddy:deepseek-v4.1-flash":{"calls":2,"ok":2,"fail":0,"ms":2984},"zhipu:glm-4-flash":{"calls":1,"ok":1,"fail":0,"ms":465}}
+     byModule：{"default":{"calls":2,"ok":2,"fail":0,"degraded":0,"ms":2984},"safety":{"calls":1,"ok":1,"fail":0,"degraded":0,"ms":465}}
   ✅ stats.total 是数字
   ✅ stats.total=3 ≥ 2（本次至少打了 2 次）
      recent 条数=3
-     最近一条：ts=2026-09-30T08:02:10.089Z module=default ok=true provider=workbuddy model=deepseek-v4.1-flash ms=1306 degraded=false attempts=1
+     最近一条：ts=2026-09-30T12:21:35.575Z module=default ok=true provider=workbuddy model=deepseek-v4.1-flash ms=1407 degraded=false attempts=1
      字段集：ts, module, ok, provider, model, ms, degraded, attempts, failReasons
   ✅ recent 不含用户正文/Prompt（只留可观测字段）
   ✅ recent 含 model 与 module
   ✅ recent 含 degraded(是否降级) 与 ms(耗时) —— 第 4 条要求
 
 ⑤b server/logs/*.jsonl —— 落盘日志字段与脱敏
-     日志文件：server/logs/llm-20260930.jsonl（96 行）
+     日志文件：server/logs/llm-20260930.jsonl（108 行）
      末行字段：ts, module, ok, provider, model, ms, degraded, attempts, failReasons
   ✅ 日志含 model（用了哪个模型）
   ✅ 日志含 ms（耗时）
@@ -138,9 +138,9 @@ PASS  ② HTTP 集成验证（生产配置：路由表/脱敏/鉴权/统计/探�
 ⑥ POST /api/llm/ping?key=*** —— 真探活
   ✅ 带正确 key 的 ping → 200
   ✅ ping 回 results[]
-       - glm-4-flash  ok=true  320ms  
-       - deepseek-v4.1-flash  ok=true  1072ms  
-       - glm-5.0  ok=false  312ms  unsupported_parameter
+       - glm-4-flash  ok=true  302ms  
+       - deepseek-v4.1-flash  ok=true  1394ms  
+       - glm-5.0  ok=false  333ms  unsupported_parameter
 
 ==============================================
  HTTP 集成验证：39 通过 / 0 失败
@@ -163,21 +163,21 @@ PASS  ③ HTTP 降级链实证（第一档必挂 → 自动落下一档 → 全�
   ✅ tried[0] 是失败档（第一档确实挂了）
   ✅ tried[0] 带失败原因 code
   ✅ attempts ≥ 2（计数包含失败尝试）
-     回包：model=glm-4-flash degraded=true attempts=2 ms=438 code=-
+     回包：model=glm-4-flash degraded=true attempts=2 ms=960 code=-
      尝试轨迹：
-       - [broken] always-down  ok=false  code=network  19ms  attempt#1
-       - [zhipu] glm-4-flash  ok=true  code=-  418ms  attempt#1
+       - [broken] always-down  ok=false  code=network  31ms  attempt#1
+       - [zhipu] glm-4-flash  ok=true  code=-  928ms  attempt#1
 
 ② analysis（链首故意放 nokey:ghost-model —— 应在解析期被剔除，不出现在 tried 里）
   ✅ HTTP 200
   ✅ 最终落到 zhipu:glm-4-flash
   ✅ ghost-model 从未被真正调用（无密钥档解析期已剔除）
   ✅ broken 档出现在 tried 里（证明它确实试过并失败）
-     回包：model=glm-4-flash degraded=true attempts=3 ms=766
+     回包：model=glm-4-flash degraded=true attempts=3 ms=664
      尝试轨迹：
        - [broken] always-down  ok=false  code=network  0ms  attempt#1
-       - [broken] also-down  ok=false  code=network  0ms  attempt#1
-       - [zhipu] glm-4-flash  ok=true  code=-  766ms  attempt#1
+       - [broken] also-down  ok=false  code=network  1ms  attempt#1
+       - [zhipu] glm-4-flash  ok=true  code=-  663ms  attempt#1
 
 ③ card（整条链两档全挂）——必须优雅失败，不抛异常
   ✅ HTTP 仍是 200（优雅失败，不是 500）
@@ -189,15 +189,15 @@ PASS  ③ HTTP 降级链实证（第一档必挂 → 自动落下一档 → 全�
   ✅ 回包里没有堆栈（异常被接住了）
      回包：ok=false code=network degraded=true attempts=2 ms=1
      尝试轨迹：
-       - [broken] always-down  ok=false  code=network  1ms  attempt#1
-       - [broken] also-down  ok=false  code=network  0ms  attempt#1
+       - [broken] always-down  ok=false  code=network  0ms  attempt#1
+       - [broken] also-down  ok=false  code=network  1ms  attempt#1
 
 ④ /api/llm/stats —— 降级率有没有被记下来
      total=3 ok=2 fail=1 degraded=3
   ✅ 统计到 ≥3 次调用
   ✅ degraded 计数 ≥2（两次降级成功被记下）
   ✅ fail 计数 ≥1（card 全挂被记下）
-     byModel：{"zhipu:glm-4-flash":{"calls":2,"ok":2,"fail":0,"ms":1204},"none":{"calls":1,"ok":0,"fail":1,"ms":1}}
+     byModel：{"zhipu:glm-4-flash":{"calls":2,"ok":2,"fail":0,"ms":1624},"none":{"calls":1,"ok":0,"fail":1,"ms":1}}
 
 ==============================================
  HTTP 降级链实证：22 通过 / 0 失败
@@ -227,8 +227,8 @@ B 后端不存在（/api/llm → 404）—— 必须优雅回落，不能卡住
   ✅ 自通道标记为 'down'
   ✅ 失败原因明确：self_channel_absent（不是含糊的 unknown）
   ✅ 回包 channel 不是 'self'（已回落）
-  ✅ 回落耗时可接受（2031ms）
-     第一次调用 channel=undefined code=undefined 耗时=2031ms
+  ✅ 回落耗时可接受（1979ms）
+     第一次调用 channel=undefined code=undefined 耗时=1979ms
      端点被访问次数=1（冷却生效则第二次不该再加 1）
   ✅ 冷却生效：停用后不再重复打这个端点
 
@@ -243,9 +243,9 @@ D 前端能否观测到「后端发生了降级」
   ✅ 前端能看见 degraded=true（可观测，不静默）
   ✅ selfChannelState().degraded === true
   ✅ 前端拿到完整尝试轨迹 tried[]
-       - [broken] always-down ok=false code=network 0ms
-       - [broken] also-down ok=false code=network 1ms
-       - [zhipu] glm-4-flash ok=true code=- 569ms
+       - [broken] always-down ok=false code=network 1ms
+       - [broken] also-down ok=false code=network 3ms
+       - [zhipu] glm-4-flash ok=true code=- 2989ms
 
 ==============================================
  前端自通道真跑：22 通过 / 0 失败
@@ -365,13 +365,13 @@ D 顺句档挂掉 —— 必须不影响识别结果
   ✅ 退回原文（这是最关键的兜底）
   ✅ cleanup 里如实标注 applied=false
   ✅ 没发生改写就不该出现 text_raw（不留无意义的字段）
-     回包：ok=true text="嗯那个我今天就是有点累不太想说话" cleanup={"applied":false,"reason":"network","model":"","ms":6}
+     回包：ok=true text="嗯那个我今天就是有点累不太想说话" cleanup={"applied":false,"reason":"network","model":"","ms":24}
 
 ==============================================
  ASR 顺句接线端到端：22 通过 / 0 失败
 ==============================================
 
-PASS  ⑦ 项目全量自测（确认这套机制未回归既有功能）  —  402 通过 / 0 失败
+PASS  ⑦ 项目全量自测（确认这套机制未回归既有功能）  —  422 通过 / 0 失败
 
 
 ===== 分区 A. 契约与单元 =====
@@ -445,7 +445,7 @@ PASS  输入页 IP=倾听 listening
 PASS  录音中提示来自文案库
 PASS  进入分析中页，IP=思考 thinking
 PASS  分析中首句来自文案库
-PASS  追问页 IP=共情 empathy
+PASS  追问页 IP=按检测到的情绪渲染（v1.3.0 emotion_render，取代恒为 empathy）  — {"key":"mixed","expect":"mixed","dom":"mixed"}
 PASS  追问含共情句（≤15字）  — 这种感觉，真的挺委屈的。
 PASS  追问含过渡语（来自文案库）
 PASS  追问上限 ≤3 轮  — 实际 3 轮
@@ -463,6 +463,7 @@ PASS  强度 ≥7  — 8
 PASS  识别为「读心」类模式
 PASS  保存后回首页且最近卡片=用户编辑值
 PASS  保存后 IP=开心 happy
+PASS  非「收下卡片」的提示不会让首页 IP 变开心（情绪不失真）  — mixed
 PASS  卡片列表出现卡片
 PASS  卡片详情标题正确
 PASS  卡片详情含 #标签
@@ -485,39 +486,49 @@ PASS  开心转委屈·正文逐字 = SSOT  — 你一边感受到喜悦，一�
 PASS  开心转委屈·含「先收下卡片」按钮
 PASS  开心转委屈·含「继续倾诉」按钮
 PASS  开心转委屈·墨小溟用「一边…一边…」承接矛盾（不强行归类）  — 这件事我明明挺开心的，但心里又莫名委屈，有点难受
-一边委屈，一边开心，两种感受同
+心里的感受很复杂，是吗。
+一边
 PASS  开心转委屈·「继续倾诉」未新增卡片（同一段对话最多一张）  — 0
 PASS  开心转委屈·上下文无页面 JS 错误
 
 ===== 分区 C3. 情绪时间线卡片（v1.1.0） =====
-PASS  时间线·每轮 ≤2 并存情绪，按出现顺序抽取  — 开心 → 委屈 → 愤怒
-PASS  时间线·矛盾情绪支持「A+B」并存（喜悦+不甘）  — 开心+不甘
-PASS  时间线·只用普通人情绪词（无心理学术语）  — 开心、委屈、愤怒、疲惫、迷茫、不甘、心酸、麻木
+PASS  时间线·每轮 ≤2 并存情绪，按出现顺序抽取  — 喜悦 → 委屈 → 愤怒
+PASS  时间线·矛盾情绪支持「A+B」并存（喜悦+不甘）  — 喜悦+不甘
+PASS  时间线·只用普通人情绪词（无心理学术语）  — 喜悦、悲伤、愤怒、焦虑、惊讶、厌恶、愧疚、疲惫、孤单、矛盾、期待落空、模糊情绪、委屈、迷茫、麻木、心酸、不甘
 PASS  时间线·全程无情绪 → 简化（type=no-emotion）  — 本次对话更多是陈述事件，没有捕捉到明显情绪
 PASS  时间线·最多 6 节点（超出合并）  — 6
-PASS  时间线·小结描述流动、不评判不鸡汤  — 这段对话里，你的感受一直在流动。先是开心，中间经过委屈，最后落在愤怒。很多时候情绪并不会一直保持同一种状态，这种来回起伏，是很自然的。
+PASS  时间线·小结描述流动、不评判不鸡汤  — 这段对话里，你的感受一直在流动。先是喜悦，中间经过委屈，最后落在愤怒。很多时候情绪并不会一直保持同一种状态，这种来回起伏，是很自然的。
 PASS  时间线·微小停靠提示来自既有微小行动卡库  — 深海呼吸
+PASS  时间线·v1.2.1 首节点双情绪并列「喜悦 + 委屈」  — {"node_index":1,"emotion_text":"喜悦 + 委屈","desc_text":"今天项目终于上线了特别开心，…"}
+PASS  时间线·v1.2.1 desc_text 简洁准确（全部 ≤15 字）  — 今天项目终于上线了特别开心，… | 越想越生气，我真的很愤怒 | 说了一晚上，现在整个人很累很…
+PASS  时间线·v1.2.1 含标准 UI 字段（card_title/subtitle/footer/btn）  — 本次深海情绪记录 / 重新倾诉
+PASS  时间线·v1.2.1 向后兼容：legacy nodes/summary/actionHint 仍在  — nodes=3
 PASS  时间线·三轮对话均到达确认页  — true/true/true
 PASS  时间线·首页出现「结束倾诉」入口
 PASS  时间线·标题逐字 = 「本次深海情绪记录」  — 本次深海情绪记录
 PASS  时间线·副标题逐字 = 「情绪本来就会起伏波动，没有好坏」  — 情绪本来就会起伏波动，没有好坏
-PASS  时间线·节点数 = 3（开心/委屈/愤怒各一段）  — ["开心","委屈","愤怒"]
-PASS  时间线·每节点情绪 ≤2 且只用普通词  — ["开心","委屈","愤怒"]
-PASS  时间线·节点情绪序列 = 开心 → 委屈 → 愤怒  — 开心 → 委屈 → 愤怒
+PASS  时间线·节点数 = 3（喜悦/委屈/愤怒各一段）  — ["喜悦","委屈","愤怒"]
+PASS  时间线·每节点情绪 ≤2 且只用普通词  — ["喜悦","委屈","愤怒"]
+PASS  时间线·节点情绪序列 = 喜悦 → 委屈 → 愤怒  — 喜悦 → 委屈 → 愤怒
 PASS  时间线·曲线柔和（贝塞尔 C 曲线 + 圆头描边）  — M 30.0 76.0 C 95.0 76.0 95.0 58.0 160.0  | cap=round
 PASS  时间线·曲线圆点与节点数一致  — 3
-PASS  时间线·小结描述流动、不评判不鸡汤  — 这段对话里，你的感受一直在流动。先是开心，中间经过委屈，最后
+PASS  时间线·小结描述流动、不评判不鸡汤  — 这段对话里，你的感受一直在流动。先是喜悦，中间经过委屈，最后
 PASS  时间线·含【保存卡片】按钮
 PASS  时间线·含【重新倾诉】按钮
 PASS  时间线·底部静态免责小字（非心理评估）  — 提示：这只是本次倾诉过程中情绪的简单记录，不是心
 PASS  时间线·上下文无页面 JS 错误
 PASS  时间线·全程无情绪 → 简化卡（提示只陈述事实）  — 本次对话更多是陈述事件，没有捕捉到明显情绪
 PASS  时间线·命中高危阻断时不生成时间线（走危机提示）  — timeline=0 risk=1
+PASS  时间线·v1.2.1 双情绪并列节点「喜悦 + 委屈」已渲染  — 喜悦 + 委屈 | 愤怒 | 疲惫
+PASS  时间线·v1.2.1 desc_text 简洁（≤15 字）  — 今天项目终于上线了特别开心，… | 越想越生气，我真的很愤怒 | 说了一晚上，现在整个人很累很…
+PASS  时间线·v1.2.1 节点情绪序列涵盖 喜悦/委屈/愤怒/疲惫  — 喜悦 + 委屈 → 愤怒 → 疲惫
+PASS  时间线·v1.2.1 卡片标题/副标题逐字  — 情绪本来就会起伏波动，没有好坏
+PASS  时间线·v1.2.1 上下文无页面 JS 错误
 
 ===== 分区 C4. 审计修复回归（v1.1.2） =====
 PASS  [P0] 云端有返回但本地判无情绪 → 仍返回 no-emotion（不返回空 nodes 的 timeline）  — {"type":"no-emotion","hasNodes":false}
 PASS  [P0] 空 nodes 的时间线渲染不抛错（页面仍在）  — []
-PASS  [反脑补] 模型给「愤怒」但原话只有开心 → 愤怒被丢弃  — ["开心"]
+PASS  [反脑补] 模型给「愤怒」但原话只有喜悦 → 愤怒被丢弃  — ["喜悦"]
 PASS  [P1] 连点保存只存 1 份（不重复落库）  — 0 → 1
 PASS  [P2] 保存后按钮变「已保存」且不可再点  — {"n":1,"btn":"已保存 ✓","disabled":true}
 PASS  [P1] 「保存为图片」触发 PNG 下载  — 墨小溟-情绪时间线-2026-09-30.png
@@ -526,11 +537,11 @@ PASS  [P1] 「我的」页出现情绪时间线入口  —
         情绪时间线已保存 1 次倾诉的起伏
         ›
       
-PASS  [P1] 已保存的时间线可回看（列表 → 详情）  — {"hash":"#/timeline?id=tl_muntiwwc2rpc","title":"深海情绪记录","emos":["开心","委屈","愤怒"]}
+PASS  [P1] 已保存的时间线可回看（列表 → 详情）  — {"hash":"#/timeline?id=tl_muo2trxkc9h7","title":"本次深海情绪记录","emos":["喜悦","委屈","愤怒"]}
 PASS  [P2] 已保存记录可删除（不再只增不减）  — 1 → 0
 PASS  [P1] 高危后再倾诉一轮，结束倾诉仍走危机提示（不生成时间线）  — {"hash":"#/risk?level=high","tl":0,"risk":1}
 PASS  [P2] 刷新后本次会话仍在，「结束倾诉」入口不消失  — {"log":2,"btn":true}
-PASS  [P1] /api/health 版本 = 前端 APP_VERSION（服务端常量不再漏改）  — {"health":"1.2.0","front":"1.2.0"}
+PASS  [P1] /api/health 版本 = 前端 APP_VERSION（服务端常量不再漏改）  — {"health":"1.3.5","front":"1.3.5"}
 PASS  [护栏] C4 全程无未捕获异常  — []
 
 ===== 分区 C5. 真机修复回归（v1.1.2） =====
@@ -554,8 +565,8 @@ PASS  [护栏] C5 全程无未捕获异常  — []
 
 ===== 分区 C6. AI 链路诊断（v1.1.3） =====
 PASS  C6·diag 导出完整 API（mark/begin/end/note/snapshot/text/json/summary/clear/restore）
-PASS  C6·日志条目带绝对时间戳（YYYY-MM-DD HH:mm:ss.mmm）  — 2026-09-30 16:03:23.493
-PASS  C6·begin/end 配对能补记耗时 / 成败 / 模型名  — {"n":1,"ms":48,"ok":true,"model":"m-test","ts":"2026-09-30 16:03:23.493"}
+PASS  C6·日志条目带绝对时间戳（YYYY-MM-DD HH:mm:ss.mmm）  — 2026-09-30 20:23:47.509
+PASS  C6·begin/end 配对能补记耗时 / 成败 / 模型名  — {"n":1,"ms":50,"ok":true,"model":"m-test","ts":"2026-09-30 20:23:47.509"}
 PASS  C6·导出文本含表头与阶段行（能直接给人看）  — 墨小溟 · 链路诊断日志
 PASS  C6·summary 能按阶段聚合耗时与成败  — 1
 PASS  C6·clear 能清空  — 0
@@ -580,8 +591,8 @@ PASS  C6·设置页有诊断入口（真机上找得到这一页）
 PASS  C6·诊断日志只写 localStorage，不发任何网络请求  — 仅 localStorage
 PASS  C6·卡片日期由本机给出，模型给的日期一律丢弃  — 模型给 2025-07-09 → 实际写入 2026-09-30（本机 2026-09-30）
 PASS  C6·normalizeCard 源码里不再信任模型的 date 字段
-PASS  C6·版本号第六处：server.cjs 的 VERSION 与页面一致  — server.cjs=1.2.0 页面=1.2.0
-PASS  C6·版本号第七处：server/version.json 的 latest_version 与页面一致  — version.json=1.2.0 页面=1.2.0
+PASS  C6·版本号第六处：server.cjs 的 VERSION 与页面一致  — server.cjs=1.3.5 页面=1.3.5
+PASS  C6·版本号第七处：server/version.json 的 latest_version 与页面一致  — version.json=1.3.5 页面=1.3.5
 
 ===== 分区 D. 分级安全 UI =====
 PASS  中风险 → 温和确认页（gentle_check）
@@ -590,7 +601,9 @@ PASS  温和确认提供 3 个选择
 PASS  温和确认→专业帮助 可进入转介页（轻度风险脚本）
 PASS  高风险 → 强制弹窗（温馨提示卡片，低饱和暗紫）
 PASS  强制弹窗按钮=「我已了解」（必须点击才能继续对话）
-PASS  强制弹窗 IP=担心 worried
+PASS  强制弹窗 IP=danger（v1.3.0 高危截断节点，不再是 worried）  — {"state":"danger","bodyIn":"rgb(68, 44, 80)","bodyAnim":"none","haloAnim":"ip-warn-ring"}
+PASS  强制弹窗 IP 用低饱和暗紫（调色板 danger #442c50，不是高饱和警示红）  — rgb(68, 44, 80)
+PASS  强制弹窗 IP 停情绪动画、只留柔和警示光圈（ip-warn-ring）  — none/ip-warn-ring
 PASS  弹窗正文∈高危文案库（对话区同步输出）
 PASS  弹窗固定展示热线 400-161-9995
 PASS  弹窗固定展示热线 010-82951332
@@ -598,12 +611,12 @@ PASS  对话区同步输出墨小溟安抚文字（§3.3 第3条）
 PASS  点击「我已了解」后弹窗关闭并回到对话
 PASS  critical → 强制弹窗（risk-modal）
 PASS  紧急弹窗按钮=「我已了解」
-PASS  紧急弹窗 IP=担心 worried
+PASS  紧急弹窗 IP=danger（v1.3.0 高危截断节点）
 PASS  紧急弹窗含热线 400-161-9995 与 010-82951332
 
 ===== 分区 E. 视觉精装修（v1.1 + v1.2 §1） =====
-PASS  IP 标记 v1.2  — v1.2
-PASS  IP 有云朵水母身体（圆顶+波浪裙摆）  — url(#body-m26)
+PASS  IP 标记 v1.3  — v1.3
+PASS  IP 有云朵水母身体（圆顶+波浪裙摆）  — url(#body-m29)
 PASS  IP 头顶触角 2 根（独立分组，末端光点跟随）  — ant=2
 PASS  IP 垂须 3 条  — 3
 PASS  IP 体内流动微光 4 点  — 4
@@ -636,25 +649,33 @@ PASS  首页 IP 待机呼吸浮动  — ip-float
 PASS  §1.1 按钮有柔和待机光晕（btn-halo，非静态色块）  — btn-halo
 PASS  §1.1 按钮渐变为主紫→浅紫三段过渡（非两色硬切）  — 色停=3
 PASS  §1.1 按钮保留白色高光层（云朵水母的半透明质感）  — radial 高光在
-PASS  §1.2 IP 与按钮贴合（间距 ≤12px，实测 2px）  — 5.7px
+PASS  §1.2 IP 与按钮贴合（间距 ≤12px，实测 2px）  — 2px
 PASS  §1.2 顶部区块留白收紧（头/问候下边距 0）  — 0px/0px
-PASS  §1.2 视觉重心偏上（按钮顶端在视口 45% 以内）  — 292.9px / 844px
+PASS  §1.2 视觉重心偏上（按钮顶端在视口 45% 以内）  — 331px / 844px
 PASS  按住有缩放反馈  — none → matrix(0.955, 0, 0, 0.955, 0, 0)
 PASS  按住有发光反馈  — rgba(140, 120, 190, 0.46) 0px 8px 22px 0
 PASS  底部提示更柔和（第三级文字色，不抢焦点）  — rgb(176, 170, 164)
-PASS  底部提示原文保留  — 还没有卡片。说一次，就会有一张。 / 13px
+PASS  底部提示来自文案库（v1.3.3 起轮换）  — 每一次倾诉，都会生成一张情绪卡片。 / 13px
 PASS  卡片空态有占位预览卡  — ok
 PASS  占位卡为虚线半透明  — dashed/linear-gradient(150deg, rgba
 PASS  占位卡倾斜并浮动  — matrix(0.999507, -0.0314108, 0.0314108, 0.999507, 0, 0)/ghost-float
 PASS  占位卡在「去说一次」按钮上方  — true
 PASS  「去说一次」与首页按钮同一质感  — linear-gradient(135deg, rgb(201, 188
 PASS  我的页头像=墨小溟 IP（非系统默认）  — true
-PASS  我的页列表 5 项且各有线性图标（含「情绪时间线」「关于墨小溟」）  — rows=5 icons=5
-PASS  图标为线性描边（fill:none）  — none|none|none|none|none
-PASS  图标用辅助色点缀（4 色互不相同）  — rgb(168, 200, 232) | rgb(158, 140, 216) | rgb(158, 140, 216) | rgb(127, 191, 168) | rgb(255, 184, 140)
-PASS  图标含淡蓝（心电图）  — rgb(168, 200, 232) | rgb(158, 140, 216) | rgb(158, 140, 216) | rgb(127, 191, 168) | rgb(255, 184, 140)
-PASS  列表卡有白底 + 阴影（层次分明）  — rgb(255, 255, 255)/rgba(160, 140, 200, 0.13) 0px 6px 
-PASS  列表卡圆角 20px  — 20px
+PASS  我的页标题=「深海空间」（v1.3.4 文案植入生效）  — 你的深海空间
+PASS  我的页关键入口齐全（情绪时间线/我的记忆/互动设置/关于）  — timeline=1 memory=1 settings=1 about=1
+PASS  我的页每个入口都有线性图标  — rows=7 icons=7
+PASS  图标为线性描边（fill:none）  — none|none|none|none|none|none|none
+PASS  图标用辅助色点缀（≥4 色互不相同）  — rgb(158, 140, 216) | rgb(168, 200, 232) | rgb(158, 140, 216) | rgb(255, 184, 140) | rgb(127, 191, 168) | rgb(201, 138, 122) | rgb(255, 184, 140)
+PASS  图标含淡蓝（心电图）  — rgb(158, 140, 216) | rgb(168, 200, 232) | rgb(158, 140, 216) | rgb(255, 184, 140) | rgb(127, 191, 168) | rgb(201, 138, 122) | rgb(255, 184, 140)
+PASS  分区卡有白底 + 阴影（层次分明）  — rgb(255, 255, 255)/rgba(160, 140, 200, 0.1) 0px 4px 1
+PASS  分区卡圆角 20px  — 20px
+PASS  我的页信息分区 ≥6 块（碎片/记忆/设置/存储/边界/支持/关于/协议）  — blocks=9
+PASS  情绪支持 FAQ 可展开（≥3 条）  — faq=3
+PASS  陪伴边界声明在页内可见（不能替代专业诊疗）  — 陪伴边界提示墨小溟是情绪倾听陪伴伙伴，不能替代心理咨询师、医生或专业心理诊疗。如果长期被痛苦困扰
+PASS  情绪记录可导出（导出入口存在）  — #meExport=1
+PASS  记忆可清空（清空入口存在）  — #meClearMemory=1
+PASS  入口副文案用第三级灰 #B0AAA4  — rgb(176, 170, 164)
 PASS  免责声明用次级灰 #8A8A8A  — rgb(138, 138, 138)
 PASS  免责声明原文保留  — 墨小溟不会诊断，也不是心理医生。它只是陪你把心事说出来。
 PASS  卡片生成有「被接住」动效  — cf-lead catch-in/catch-drop
@@ -668,8 +689,8 @@ PASS  转介页按钮走灰蓝（低饱和，非高饱和紫）  — background:
 
 ===== 分区 F. 一键删除与运行期错误 =====
 PASS  一键删除后卡片清空
-PASS  sw.js 的 ASSETS 覆盖 js/ 下全部模块（否则离线时该模块 404）  — 14 个模块全在
-PASS  版本号五处一致（index / sw / manifest / app.js 兜底 / package.json）  — 1.2.0 / 1.2.0 / 1.2.0 / 1.2.0 / 1.2.0
+PASS  sw.js 的 ASSETS 覆盖 js/ 下全部模块（否则离线时该模块 404）  — 20 个模块全在
+PASS  版本号五处一致（index / sw / manifest / app.js 兜底 / package.json）  — 1.3.5 / 1.3.5 / 1.3.5 / 1.3.5 / 1.3.5
 PASS  sw.js 不接管数据面 /.cloud/（否则模型目录被缓存且绕过服务端）  — 已排除
 PASS  sw.js 不接管自建后端 /api/（否则"能不能用语音"的判断会停在旧结果）  — 已排除
 PASS  sw.js 只接管同源请求（跨域一律直连）  — 同源判定在
@@ -711,7 +732,7 @@ PASS  AI·请求 JSON 模式
 PASS  AI·按段封顶输出长度（防跑飞，不是极限压延迟）  — safety=600 main=1200 followup=400 card=900 weekly=1200
 PASS  AI·温度按 MODEL_CONFIG 分段（0/.3/.5/.4/.4）  — safety=0 main=0.3 followup=0.5 card=0.4 weekly=0.4
 PASS  AI·安全识别 Prompt 收到用户原话  — 1154 字
-PASS  AI·主分析 Prompt 收到用户原话  — 3970 字
+PASS  AI·主分析 Prompt 收到用户原话  — 4272 字
 PASS  AI·调用轨迹全部成功  — ok=7 fail=0
 PASS  AI·provider=cloud 且模型已选定  — cloud/mock-chat
 PASS  AI·选型避开「只思考」模型（onlyReasoning=true 降权）  — mock-chat
@@ -743,7 +764,7 @@ PASS  兜底·截断事件进轨迹（可观测，不静默）  — gateway_stre
 ===== 分区 G3. 最小闭环 5 项验收 =====
 PASS  闭环①·按住说真的开了麦克风  — 1 次
 PASS  闭环①·录音态生效（波形/计时/按钮高亮）  — rec=true live=true t=0.5s
-PASS  闭环①·录音期间屏幕有实时反馈（有字幕显示字幕，没字幕显示安抚话术）  — sr=true 「我在听……」
+PASS  闭环①·录音期间屏幕有实时反馈（有字幕显示字幕，没字幕显示安抚话术）  — sr=true 「不用急着说清楚。」
 PASS  闭环①·松手后带着转写进入分析页（v0.5.0 起转写优先来自云端 ASR）  — #/analyzing
 PASS  闭环①·云端识别端点真的被调用了（不是悄悄退回本地）  — asrCalls=1
 PASS  闭环①·转写内容完整带进草稿  — 今天又和男朋友吵架了，他很晚才回我消息，我觉得他…
@@ -766,12 +787,12 @@ PASS  流式·summary 不在末尾也不泄漏其他字段  — 被听见的感�
 
 ===== 分区 H. 版本更新与自动弹窗（v1.0.0-RC） =====
 PASS  版本API·/api/version/latest 含 5 字段  — ["latest_version","release_notes","download_url","force_update","web_url"]
-PASS  版本API·latest_version 与服务端真相一致（1.2.0）  — 1.2.0
-PASS  版本API·latest_version 与页面版本一致（页面 1.2.0）  — 1.2.0 vs 1.2.0
-PASS  版本API·release_notes 为非空数组  — 4
+PASS  版本API·latest_version 与服务端真相一致（1.3.5）  — 1.3.5
+PASS  版本API·latest_version 与页面版本一致（页面 1.3.5）  — 1.3.5 vs 1.3.5
+PASS  版本API·release_notes 为非空数组  — 10
 PASS  版本API·force_update 为布尔  — false
-PASS  版本API·/api/version/history 含 versions 数组  — 18
-PASS  版本API·history 最新项与服务端真相一致（1.2.0）且含 notes  — 1.2.0
+PASS  版本API·/api/version/history 含 versions 数组  — 21
+PASS  版本API·history 最新项与服务端真相一致（1.3.5）且含 notes  — 1.3.5
 PASS  update·cmpVersion 新>旧=正  — 1
 PASS  update·cmpVersion 相等=0  — 0
 PASS  update·cmpVersion 旧<新=负  — -1
@@ -781,7 +802,7 @@ PASS  弹窗·卡片暖奶油白 #FFF8F0  — rgb(255, 248, 240)
 PASS  弹窗·圆角 20px  — 20px
 PASS  弹窗·顶部墨小溟举牌 IP 在  — true/有新版啦
 PASS  弹窗·标题含版本号  — 墨小溟更新到了 v9.9.9
-PASS  弹窗·release_notes 逐条小圆点展示（≥1 条）  — 4 条/6px
+PASS  弹窗·release_notes 逐条小圆点展示（≥1 条）  — 10 条/6px
 PASS  弹窗·非强制有「稍后再说」  — true
 PASS  弹窗·立即更新按钮柔紫渐变（含 #B8A9E8）  — linear-gradient(135deg, rgb(184, 169, 232), rg
 PASS  弹窗·稍后再说后关闭  — false
@@ -803,9 +824,9 @@ PASS  弹窗·安装指引有「开始下载」入口且非跳浏览器文案  �
 PASS  弹窗·安装指引保留「稍后再说」出口  — true
 PASS  ★ APK 分支·Capacitor 就位即认作 APK（不再依赖从未设过的 UA 标记）  — {"isApk":true,"base":"https://xiaoting.app.workbuddy.host"}
 PASS  ★ APK 分支·鉴别力反向：无 Capacitor 的普通浏览器不认作 APK  — {"isApk":false}
-PASS  更新日志·渲染历史条目（≥1）  — 18
-PASS  更新日志·最新条目=1.2.0  — v1.2.0
-PASS  更新日志·当前版本显示 1.2.0  — 当前版本 v1.2.0
+PASS  更新日志·渲染历史条目（≥1）  — 21
+PASS  更新日志·最新条目=1.3.5  — v1.3.5
+PASS  更新日志·当前版本显示 1.3.5  — 当前版本 v1.3.5
 PASS  更新日志·有「检查更新」按钮  — true
 
 ===== 分区 I. v0.8.0 情绪共鸣与 IP 生命感 =====
@@ -817,8 +838,8 @@ PASS  模块三·IP 新增 tears/brow/spark/breath 四组元素  — {"tears":1,
 PASS  模块三·共情落泪态=泪滴可见  — {"tearsInEmpathy":1,"tearsInIdle":0,"browInWorried":0.85,"browInIdle":0,"sparkInHappy":1,"sparkInIdle":0}
 PASS  模块三·担心态=眉毛可见  — {"tearsInEmpathy":1,"tearsInIdle":0,"browInWorried":0.85,"browInIdle":0,"sparkInHappy":1,"sparkInIdle":0}
 PASS  模块三·开心态=星光可见  — {"tearsInEmpathy":1,"tearsInIdle":0,"browInWorried":0.85,"browInIdle":0,"sparkInHappy":1,"sparkInIdle":0}
-PASS  模块三·实时音量驱动触角发光（--ip-vol=1 时 tip-glow 缩放放大）  — {"before":"matrix(1, 0, 0, 1, 0, 0)","after":"matrix(1.88397, 0, 0, 1.88397, 0, 0)"}
-PASS  模块三·呼吸引导环（停顿>3s 联动）默认隐藏、激活可见  — {"off":0,"on":0.479652}
+PASS  模块三·实时音量驱动触角发光（--ip-vol=1 时 tip-glow 缩放放大）  — {"before":"matrix(1, 0, 0, 1, 0, 0)","after":"matrix(1.8502, 0, 0, 1.8502, 0, 0)"}
+PASS  模块三·呼吸引导环（停顿>3s 联动）默认隐藏、激活可见  — {"off":0,"on":0.480544}
 PASS  模块三·防呆气泡文案含安心语义  — 我在认真听，别急～
 PASS  模块三·防呆气泡（等待>10s 联动）默认隐藏、激活可见  — {"exists":true,"text":"我在认真听，别急～","off":0,"on":1}
 
@@ -827,14 +848,14 @@ PASS  模块三·防呆气泡（等待>10s 联动）默认隐藏、激活可见 
   A2. JSON 提取与输入清洗               11
   A3. 四类场景卡片引擎                   17
   B. 文案库                          9
-  C. UI 核心流程                     38
+  C. UI 核心流程                     39
   C2. 开心转委屈 UI 验收                 9
-  C3. 情绪时间线卡片（v1.1.0）            23
+  C3. 情绪时间线卡片（v1.1.0）            32
   C4. 审计修复回归（v1.1.2）             13
   C5. 真机修复回归（v1.1.2）             17
   C6. AI 链路诊断（v1.1.3）            29
-  D. 分级安全 UI                     16
-  E. 视觉精装修（v1.1 + v1.2 §1）       63
+  D. 分级安全 UI                     18
+  E. 视觉精装修（v1.1 + v1.2 §1）       71
   F. 一键删除与运行期错误                  24
   G0. 通道结构性不可用兜底                  3
   G1. 真实管线契约                     28
@@ -844,26 +865,26 @@ PASS  模块三·防呆气泡（等待>10s 联动）默认隐藏、激活可见 
   H. 版本更新与自动弹窗（v1.0.0-RC）        42
   I. v0.8.0 情绪共鸣与 IP 生命感         12
 
-==== 汇总：402/402 通过 ====
+==== 汇总：422/422 通过 ====
 
 PASS  ⑧ 更新弹窗 APK 启动即弹（A/B 鉴别力 + SW 不缓存清单）  —  16 通过 / 0 失败
 
 === 墨小溟 · 更新弹窗 APK 启动即弹 · A/B 鉴别力校验 ===
-目标：http://127.0.0.1:4210   模拟 APK 基址：https://xiaoting.app.workbuddy.host   当前版本：1.2.0
+目标：http://127.0.0.1:4210   模拟 APK 基址：https://xiaoting.app.workbuddy.host   当前版本：1.3.5
 
 ──────── variant = new （当前，期望全绿） ────────
-  [A] 清单=1.2.0 → shown=false  title=""
-  [B] 清单=1.2.1 → shown=true  title="墨小溟更新到了 v1.2.1"
+  [A] 清单=1.3.5 → shown=false  title=""
+  [B] 清单=1.3.6 → shown=true  title="墨小溟更新到了 v1.3.6"
   [B] 捕获到的版本清单请求：https://xiaoting.app.workbuddy.host/api/version/latest  |  https://xiaoting.app.workbuddy.host/version.json
 
 ──────── variant = old （修复前，期望红） ────────
-  [A] 清单=1.2.0 → shown=false  title=""
-  [B] 清单=1.2.1 → shown=false  title=""
+  [A] 清单=1.3.5 → shown=false  title=""
+  [B] 清单=1.3.6 → shown=false  title=""
   [B] 捕获到的版本清单请求：http://127.0.0.1:4210/api/version/latest
 
 
 === Service Worker 不缓存版本清单（行为验证）===
-  SW 是否接管页面：true   第一次读到：1.2.0   服务端改成 1.2.1 后再读：1.2.1
+  SW 是否接管页面：true   第一次读到：1.3.5   服务端改成 1.3.6 后再读：1.3.6
   ✅ SW 已注册并接管页面（否则这条验证不成立，不能算通过）
   ✅ 第一次读到的就是服务端清单
   ✅ ★ 服务端发新版后能立刻读到新值（清单没被 SW 缓存住）

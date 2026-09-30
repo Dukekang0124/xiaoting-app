@@ -287,11 +287,21 @@ export function isIdleTimeout(lastInteractionAt, now = Date.now(), timeoutMs = T
 
 /* ===================== 六、用户可控开关（与 store.settings 对齐） ===================== */
 
-// 三个开关（写入「我的」页设置）：
-//   ipMotion:   总开关，false → 关闭全部色彩/动画/特效（body.ip-motion-off）
+// IP 相关设置的**唯一默认值来源（SSOT）**：store.js 直接 spread 本对象建初始 settings，
+//   「我的」页设置区的五个开关全部归口在这里；改默认值只改这里。
+//   ipMotion:   动效总开关，false → 关闭全部色彩/动画/特效（body.ip-motion-off）
 //   ipIntensity:'gentle' | 'standard'（柔和/标准 两档，body.ip-intensity-gentle 减速减幅）
-//   soundOn:    音效开关，默认 false（独立，Web Audio 合成水墨/气泡轻音）
-export const IP_SETTINGS_DEFAULT = { ipMotion: true, ipIntensity: 'standard', soundOn: false };
+//   soundOn:    轻音效开关，默认 false（Web Audio 合成水墨/气泡轻音，零素材）
+//   ipTouch:    触碰互动总开关（点击/长按的动画与气泡）
+//   ipBubble:   气泡文字开关（关掉只留动画）
+export const IP_SETTINGS_DEFAULT = {
+  ipMotion: true, ipIntensity: 'standard', soundOn: false, ipTouch: true, ipBubble: true,
+};
+
+/** 非 IP 类设置默认值（与 IP 设置合并成完整 settings；同样只在这里定义一次） */
+export const BASE_SETTINGS_DEFAULT = {
+  autoDeleteAudio: true, ttsHint: true, cloudAsr: true, memory_on: true, notify_on: false,
+};
 
 /** 总开关门禁：关掉 → 强制回退到中性 idle 静态（色彩/动画/特效全停） */
 export function gateByMotion(descriptor, ipMotion) {
@@ -308,6 +318,6 @@ export function gateByMotion(descriptor, ipMotion) {
 
 export const __test__ = {
   NODES, NODE_BUBBLE, PALETTE, PALETTE_KEYS, EMOTION_RENDER_STATE, EMOTION_KEY_ALIASES,
-  TRANSITION, IP_SETTINGS_DEFAULT,
+  TRANSITION, IP_SETTINGS_DEFAULT, BASE_SETTINGS_DEFAULT,
   intensityTier, selectColors, resolveEmotionKey, resolveRender, resolveNode, isIdleTimeout, gateByMotion, renderDanger, renderReceiving,
 };

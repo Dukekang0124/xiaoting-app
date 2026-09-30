@@ -1,8 +1,13 @@
 // 墨小溟 · 状态管理（单一 store + 订阅 + localStorage 持久化）
 // 对应技术设计 §5。无第三方依赖。
 
+import { IP_SETTINGS_DEFAULT, BASE_SETTINGS_DEFAULT } from './state-machine.js';
+
 const KEY = 'xiaoting:v1';
 const listeners = new Set();
+
+/** settings 的完整默认值：IP 类与非 IP 类分别由 state-machine 单点定义，这里只做合并（防止默认值两处漂移） */
+const SETTINGS_DEFAULT = Object.assign({}, BASE_SETTINGS_DEFAULT, IP_SETTINGS_DEFAULT);
 
 /** @type {{user:any,draft:any,cards:any[],risk:any,route:string,ipState:string,toast:any}} */
 let state = {
@@ -10,9 +15,7 @@ let state = {
     id: 'local-user',
     nickname: '',
     createdAt: Date.now(),
-    // v1.3.0/1.3.1 IP 视觉与互动开关：ipMotion 动效总开关 / ipIntensity 柔和·标准 / soundOn 音效（默认关）
-    //   ipTouch 触碰互动总开关（点击/长按动画+气泡）/ ipBubble 气泡文字开关
-    settings: { autoDeleteAudio: true, ttsHint: true, cloudAsr: true, memory_on: true, ipMotion: true, ipIntensity: 'standard', soundOn: false, ipTouch: true, ipBubble: true, notify_on: false },
+    settings: Object.assign({}, SETTINGS_DEFAULT),
   },
   // draft: { recordId, transcript, safety, analysis, asked[], currentQuestion, empathy, card, round, createdAt }
   draft: null,
@@ -54,7 +57,7 @@ let state = {
   toast: null,
 };
 
-const freshUser = () => ({ id: 'local-user', nickname: '', createdAt: Date.now(), settings: { autoDeleteAudio: true, ttsHint: true, cloudAsr: true, memory_on: true, ipMotion: true, ipIntensity: 'standard', soundOn: false, ipTouch: true, ipBubble: true, notify_on: false } });
+const freshUser = () => ({ id: 'local-user', nickname: '', createdAt: Date.now(), settings: Object.assign({}, SETTINGS_DEFAULT) });
 const freshRisk = () => ({ level: 'none', action: 'continue', hit: false, evidence: '' });
 
 /** 一次「会话」的有效期：超过就当作新会话，清空 sessionLog（6 小时） */
@@ -167,7 +170,14 @@ export function startSession() {
 
 /** v1.3.0：分析完成后写入检测到的情绪（键 + 强度），供情绪渲染节点消费 */
 export function setEmotion(emotionKey, intensity) {
-  setState({ emotionKey: emotionKey || null, emotionIntensity: Number(intensity) || 5 });
+  // 情绪刚写入 = 一次有效交互，重置 3 分钟回归计时（§三.4）
+  setState({ emotionKey: emotionKey || null, emotionIntensity: Number(intensity) || 5, lastInteractionAt: Date.now() });
+}
+
+/** §三.4 3 分钟无交互 → 回归 idle 的计时基准。任何一次真实用户动作都应调用它。
+ *  注意：绝不能在 render() 里无条件写 lastInteractionAt —— 那会让计时器永远差 0ms、永远不触发。 */
+export function touchInteraction() {
+  state.lastInteractionAt = Date.now();
 }
 
 /** v1.3.0：首页「刚收下卡片」的开心窗口（显式时间戳，其它 toast 不会误触发开心） */

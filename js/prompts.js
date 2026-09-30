@@ -604,7 +604,10 @@ export const COPY = {
     evening: '晚上好，今天过得怎么样？',
     lateNight: '这么晚还没睡，心里有事吗？',
   },
-  recording: ['我在听……', '慢慢说，不着急。', '想到哪说到哪就好。'],
+  // 🔴 recording 这条列表里**不要**再出现「我在听」：v1.3.5 起 IP 下方有常显的节点气泡「我在听」
+  //   （state-machine.js 的 NODE_BUBBLE.listening），轮播提示若也撞同一句，屏幕上会出现两层同样的字。
+  //   断言见 _selftest/ip-state-selftest.cjs 的「提示语不与节点气泡重复」。
+  recording: ['不用急着说清楚。', '慢慢说，不着急。', '想到哪说到哪就好。'],
   analyzing: ['我在听……', '我在整理你说的话……', '我好像听到一个重复的模式……', '快好了，让我再想想。'],
   followupLead: ['我想多问一句。', '还有一个问题。', '最后再问一个。', '不想说也没关系，可以跳过。'],
   cardDone: [

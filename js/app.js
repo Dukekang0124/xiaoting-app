@@ -545,6 +545,7 @@ function handleIpTap(count, el) {
   // 抑制长按松手泄漏出的那次点击；同时把计数归零，避免"被抑制的这一次"仍推进连击计数
   if (Date.now() < suppressTapUntil) { if (sayIpCtl && sayIpCtl.reset) sayIpCtl.reset(); return; }
   if (ipInteractionDisabled()) return;
+  store.touchInteraction(); // §三.4：点一下 IP 算有效交互，重置 3 分钟回归计时
   const st = store.getState();
   const text = st.quietMode ? cw.quietTapBubble(count) : cw.normalTapBubble(count, st.emotionKey);
   const cls = tapAnimClass(count);
@@ -652,7 +653,7 @@ function pageRecord(p) {
       <div class="page-title">${mode === 'text' ? '打字说' : '正在听'}</div>
       <span style="width:48px"></span>
     </div>
-    <div class="record__mascot">${mascot('listening', 140)}</div>
+    <div class="record__mascot">${mascot('listening', 140)}<div class="ip-bubble ip-bubble--static">${esc(ipSM.NODE_BUBBLE.listening)}</div></div>
     <div class="rec-hint" id="recHint">${COPY.recording[0]}</div>
     ${mode === 'text' ? `
       <textarea class="big-input" id="recInput" placeholder="想到哪说到哪，不用组织语言……"></textarea>
@@ -758,7 +759,7 @@ function pageAnalyzing() {
   return `
   <section class="center-stage">
     <div class="stage-mascot">${mascot('thinking', 190)}<div class="ip-ripple" id="recvRipple"></div></div>
-    <div class="ip-recv-bubble" id="recvBubble" hidden>正在接住你的情绪</div>
+    <div class="ip-recv-bubble" id="recvBubble" hidden>${esc(ipSM.NODE_BUBBLE.receiving)}</div>
     <div class="stage-copy" id="analyzingCopy">${COPY.analyzing[0]}</div>
     <div class="stage-summary" id="analyzingSummary"></div>
     <div class="stuck-bubble" id="stuckBubble">我在认真听，别急～</div>
@@ -1763,7 +1764,7 @@ function pageSettings() {
       <div class="set-title">重要声明</div>
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.3.4')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.3.5')}</p>
   </section>`;
 }
 
@@ -1918,7 +1919,7 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.3.4')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.3.5')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -1927,7 +1928,7 @@ function pageChangelog() {
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.3.4')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.3.5')}</p>
   </section>`;
 }
 
@@ -2330,7 +2331,8 @@ function render() {
   try { document.body.classList.remove('thinking--stuck', 'recording--breath'); } catch (e) { /* ignore */ }
 
   const s = store.getState();
-  s.lastInteractionAt = Date.now();
+  // 🔴 这里**不能**写 s.lastInteractionAt = Date.now()：那样 isIdleTimeout 永远差 0ms、3 分钟回归永不触发。
+  //    交互时间戳只由真实用户动作推进（store.touchInteraction()：导航、IP 点击、提交、写入情绪）。
   // v1.3.0 AI 回复微动作：followup/gentle/confirm 且对话区末尾是 AI 回应时，叠加「缓缓靠近」呼吸
   s.aiReplying = ['followup', 'gentle', 'confirm'].includes(p.name) && (s.conversation || []).slice(-1)[0] && (s.conversation || []).slice(-1)[0].role === 'ai';
   // v1.3.0 §三.4 超时回归：3 分钟无交互 → 情绪缓慢回归 idle（emotionKey 置空，CSS 过渡平滑回退）
@@ -2347,6 +2349,9 @@ function render() {
   }), s.user.settings.ipMotion !== false);
   currentIpDesc = desc;
   store.getState().ipState = desc.state;
+  // §三.4 真正的回归计时器：只在「有情绪底色」时挂一次，到点自动清空洞色并重渲染。
+  //   缺了它，isIdleTimeout 只在 render() 那一刻被求值一次 ⇒ 用户不动页面就永远停在情绪色（等于没实现）。
+  scheduleIdleRevert();
 
   document.body.dataset.route = p.name;
   document.body.classList.toggle('has-nav', page.nav !== false);
@@ -2358,7 +2363,12 @@ function render() {
 
   const v = $view();
   if (v) {
+    // v1.3.5 色彩过渡修复（补 v1.3.4 遗漏）：render() 是整块 innerHTML 重写，IP 节点每次都是全新的、
+    //   出生即带目标色 ⇒ @property 过渡永不触发（探针实测：8 次采样全为目标值 = 硬切）。
+    //   这里先记下上一帧的真实（可能正插值中的）颜色，替换后让新节点从它平滑走过去。
+    const prevIpColors = readIpColors(v.querySelector('.mascot'));
     v.innerHTML = page.render(p);
+    replayIpColors(v.querySelector('.mascot'), prevIpColors);
     // 柔和淡入淡出：先摘掉再强制回流，保证同一动画能重放
     v.classList.remove('view--enter');
     void v.offsetWidth;
@@ -2377,6 +2387,96 @@ function render() {
 
 /* v1.3.0 IP 情绪视觉引擎：当前渲染描述符（render() 计算，各页 ipMascot 读取） */
 let currentIpDesc = null;
+
+/* ---------- v1.3.5：色彩过渡重放（让 @property 插值真的发生） ----------
+ * 问题：render() 整块重写 #view ⇒ IP 节点是新建的，出生就把 inline --ip-* 写成目标色，
+ *       浏览器的 @property 过渡需要一个「起始值 → 目标值」的变化才会跑，全新节点等于没有变化 ⇒ 硬切。
+ * 做法：替换前读上一帧的真实色（可能是插值中的中间色），插入后先把新节点压回旧色，
+ *       再**跨帧**（双 rAF）写回目标色 —— 过渡就在第二帧真正跑起来（0.8s，落 §三 的 0.6~1.2s 区间）。
+ * 🔴 必须跨帧：`设置起点 → getBoundingClientRect() 强制回流 → 设置目标` 这个经典写法在自定义属性上**不成立**，
+ *   浏览器会把同一任务内的两次赋值合并（实测直接从更早的颜色往目标插值，中间色被整个吞掉 ⇒ 仍是硬切）。
+ * 门禁：ip-motion-off（总开关关）时直接跳过，不做任何动画（规格要求此时零动效）。 */
+const IP_COLOR_VARS = [
+  '--ip-body-in', '--ip-body-mid', '--ip-body-out', '--ip-antenna', '--ip-tip',
+  '--ip-glow', '--ip-glow-2', '--ip-eye-top', '--ip-eye', '--ip-halo', '--ip-wet', '--ip-blush',
+];
+
+function readIpColors(el) {
+  if (!el || !el.style) return null;
+  // 只用于**替换前的旧节点**：优先读计算值（无情绪时节点没有 inline 色，走 .mascot 的 CSS 默认；
+  // 过渡进行中读到的就是插值中的中间色，正好用作继续插值的起点 → 视觉连续）。
+  let cs = null;
+  try { cs = getComputedStyle(el); } catch (e) { cs = null; }
+  const out = {};
+  IP_COLOR_VARS.forEach((k) => {
+    let v = '';
+    if (cs) v = String(cs.getPropertyValue(k) || '').trim();
+    if (!v) v = el.style.getPropertyValue(k).trim();
+    if (v) out[k] = v;
+  });
+  return Object.keys(out).length ? out : null;
+}
+
+/** 只读**内联**色 —— 给刚创建的新节点用。
+ *  🔴 绝对不要在新节点上调用 getComputedStyle：那会强制一次样式解析，把「目标色」登记成该元素的
+ *     起始样式，于是紧接着写旧色反而触发一次「目标→旧」的过渡，再写目标色就没有变化了 ⇒ 仍然是硬切。 */
+function readIpInlineColors(el) {
+  if (!el || !el.style) return null;
+  const out = {};
+  IP_COLOR_VARS.forEach((k) => { const v = el.style.getPropertyValue(k).trim(); if (v) out[k] = v; });
+  return Object.keys(out).length ? out : null;
+}
+
+function writeIpColors(el, colors) {
+  if (!el || !el.style || !colors) return;
+  Object.keys(colors).forEach((k) => el.style.setProperty(k, colors[k]));
+}
+
+function replayIpColors(node, from) {
+  if (!node || !from) return;
+  if (store.getState().user.settings.ipMotion === false) return;
+  // 目标色 = mascot() 刚写进新节点的 inline 值（只读属性，不触发样式解析）
+  const target = readIpInlineColors(node);
+  if (!target) return;
+  // 起点只取「两边都有」的变量（selectColors 只产 --ip-body-in/out 两个），不污染其它变量
+  const start = {};
+  let changed = false;
+  Object.keys(target).forEach((k) => {
+    if (from[k]) { start[k] = from[k]; changed = true; }
+  });
+  if (!changed) return;
+  writeIpColors(node, start);
+  // 强制一次样式解析 ⇒ 让「旧色」成为该新节点的初始样式（新元素没有 before-change 样式，
+  // 必须先把起点落定，下一次改写入才会被浏览器读作「一次变化」并启动过渡）
+  void node.getBoundingClientRect();
+  // 跨帧写目标色（双 rAF）：同一任务内连写两次会被合并，过渡不会发生
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (node.isConnected) writeIpColors(node, target);
+  }));
+}
+
+/* ---------- v1.3.5：§三.4 3 分钟无交互 → 情绪缓慢回归 idle ---------- */
+let idleRevertTimer = null;
+
+function scheduleIdleRevert() {
+  if (idleRevertTimer) { clearTimeout(idleRevertTimer); idleRevertTimer = null; }
+  const s = store.getState();
+  // 只在「有情绪底色、且不在高危截断/接收窗口」时挂计时器；否则无事可回归
+  const hasEmotion = !!s.emotionKey && s.emotionKey !== 'default';
+  if (!hasEmotion || s.risk.level === 'high' || s.risk.level === 'critical') return;
+  const elapsed = Date.now() - (s.lastInteractionAt || Date.now());
+  const remain = Math.max(1000, ipSM.TRANSITION.idleTimeoutMs - elapsed);
+  idleRevertTimer = setTimeout(() => {
+    idleRevertTimer = null;
+    const cur = store.getState();
+    if (!cur.emotionKey || cur.emotionKey === 'default') return;
+    // 期间有交互（点了 IP / 换了页）→ 不回归，按新基准重新排一次（否则这次静默失效后就再没人排了）
+    if (!ipSM.isIdleTimeout(cur.lastInteractionAt)) { scheduleIdleRevert(); return; }
+    store.setEmotion(null, 0); // 清空洞色（CSS 过渡平滑回退），随后重渲染
+    render();
+  }, remain);
+  timers.push(() => { if (idleRevertTimer) { clearTimeout(idleRevertTimer); idleRevertTimer = null; } });
+}
 
 /** 渲染当前情绪态 IP：用 state-machine 解析出的姿态 + 内联调色板色 + 节点附加类 */
 function ipMascot(size) {
@@ -2698,7 +2798,8 @@ export function boot() {
   // 后面的耗时与错误码在离开这台机器之后就没有上下文了。
   diag.snapshot({ platform: isNativeApp() ? 'Android(APK)' : 'Web', provider: api.aiStatus().provider });
   store.subscribe(() => { renderToast(); });
-  onChange(() => render());
+  // 路由切换 = 一次真实用户动作：推进交互时间戳，重置 §三.4 的 3 分钟回归计时
+  onChange(() => { store.touchInteraction(); render(); });
   if (!location.hash) location.hash = '#/say';
   render();
   // v1.3.3：异步取历史情绪偏向 → 生成首页问候（首帧先用时段问候兜底，取到后重渲染）

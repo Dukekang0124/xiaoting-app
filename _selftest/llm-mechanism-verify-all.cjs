@@ -13,14 +13,24 @@
  *   llm-front-self-channel.cjs  浏览器内真跑前端接入（自通道通/缺后端回落/脏结构停用/冷却）
  *   asr-cleanup.cjs          ASR 顺句策略穷举（护栏与边界，桩替换 router）
  *   asr-cleanup-wire.cjs     ASR 顺句接线端到端（真实 /api/asr + 开关 A/B + 零成本证伪）
- *   selftest.cjs             项目全量自测（402 项，确认这套机制没有回归既有功能）
+ *   selftest.cjs             项目全量自测（条数基线见 expected-counts.json，确认这套机制没有回归既有功能）
  *
  * 运行：node _selftest/llm-mechanism-verify-all.cjs
+ *
+ * 🔴 期望条数一律从 _selftest/expected-counts.json 读，不要往本文件里写数字：
+ *   曾经这里硬编码 selftest 期望 402，主套件涨到 422 后第 ⑦ 项就每次假红
+ *   —— 期望值散落两处 = 每次加断言都要记得改两个地方，迟早忘。
  */
 
 const { spawn } = require('child_process');
 const http = require('http');
 const path = require('path');
+const fs = require('fs');
+
+/** 断言条数基线（单一来源）。读不到就返回 null ⇒ 该项退化为「只看失败数」，不阻塞。 */
+const EXPECTED = (() => {
+  try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'expected-counts.json'), 'utf8')); } catch (e) { return {}; }
+})();
 
 const ROOT = path.join(__dirname, '..');
 const PORT_PROD = Number(process.env.PORT_PROD || 4173);
@@ -128,7 +138,7 @@ async function run(title, args, env, expect) {
   await run('⑥ ASR 顺句接线端到端（真 /api/asr + 开关 A/B + 关闭零成本）', ['_selftest/asr-cleanup-wire.cjs'], {}, 22);
 
   // ⑦ 项目全量自测（需要生产服务在跑）
-  await run('⑦ 项目全量自测（确认这套机制未回归既有功能）', ['_selftest/selftest.cjs'], { BASE: `http://127.0.0.1:${PORT_PROD}` }, 402);
+  await run('⑦ 项目全量自测（确认这套机制未回归既有功能）', ['_selftest/selftest.cjs'], { BASE: `http://127.0.0.1:${PORT_PROD}` }, EXPECTED.selftest);
 
   // ⑧ 更新弹窗「APK 启动即弹」A/B 鉴别力校验（自带服务与端口，不依赖上面两个实例）
   //    含反向断言：拿修复前的基线夹具跑同一套断言，必须"表现差" —— 否则说明断言没鉴别力。

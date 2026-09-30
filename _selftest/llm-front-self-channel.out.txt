@@ -20,8 +20,8 @@ B 后端不存在（/api/llm → 404）—— 必须优雅回落，不能卡住
   ✅ 自通道标记为 'down'
   ✅ 失败原因明确：self_channel_absent（不是含糊的 unknown）
   ✅ 回包 channel 不是 'self'（已回落）
-  ✅ 回落耗时可接受（2031ms）
-     第一次调用 channel=undefined code=undefined 耗时=2031ms
+  ✅ 回落耗时可接受（1979ms）
+     第一次调用 channel=undefined code=undefined 耗时=1979ms
      端点被访问次数=1（冷却生效则第二次不该再加 1）
   ✅ 冷却生效：停用后不再重复打这个端点
 
@@ -36,9 +36,9 @@ D 前端能否观测到「后端发生了降级」
   ✅ 前端能看见 degraded=true（可观测，不静默）
   ✅ selfChannelState().degraded === true
   ✅ 前端拿到完整尝试轨迹 tried[]
-       - [broken] always-down ok=false code=network 0ms
-       - [broken] also-down ok=false code=network 1ms
-       - [zhipu] glm-4-flash ok=true code=- 569ms
+       - [broken] always-down ok=false code=network 1ms
+       - [broken] also-down ok=false code=network 3ms
+       - [zhipu] glm-4-flash ok=true code=- 2989ms
 
 ==============================================
  前端自通道真跑：22 通过 / 0 失败
