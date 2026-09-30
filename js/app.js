@@ -358,6 +358,15 @@ async function endCapture() {
     asr.logEvent('asr_empty', { reason: fail ? (fail.code || 'failed') : (blob ? 'no_speech' : 'no_audio'),
       had_sr: srText ? 1 : 0, mode: rec.mode });
     store.setState({ ipState: 'idle' });
+    // v1.1.9：APK 上若原生识别本就不可用（设备无识别服务 / 插件未注册），云端 ASR 在静态托管下又永远
+    // 404，再弹「水里有点吵」是在骗用户——那条路永远听不清。改成直说，并把用户送到打字，
+    // 而不是让他对着一个必然失败的按钮反复按。只有「真录上了但云端/原生都没吐字」才走原来的温和提示。
+    const cloudViable = cloudAllowed && (await asr.probeCloud()) !== 'unavailable';
+    if (isNativeApp() && rec.mode !== 'native' && !cloudViable) {
+      softSay('这台设备暂时没有可用的语音识别服务，墨小溟听不到语音。你可以先打字告诉我，或者换一台装了语音服务的设备。');
+      go('record?mode=text');
+      return;
+    }
     // v1.1.2：原来这里弹的是黑色系统警告条，真机上很吓人。改成墨小溟的柔和提示，
     // 并区分「压根没录上」和「录上了但没听清」—— 前者是自责感最强的失败，必须说得具体。
     const durMs = Date.now() - (rec.t0 || Date.now());
@@ -1413,7 +1422,7 @@ function pageSettings() {
       <div class="set-title">重要声明</div>
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.1.8')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.1.9')}</p>
   </section>`;
 }
 
@@ -1441,7 +1450,7 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.1.8')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.1.9')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -1450,7 +1459,7 @@ function pageChangelog() {
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.1.8')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.1.9')}</p>
   </section>`;
 }
 
@@ -1614,6 +1623,13 @@ function pageDiag() {
       <div class="diag-kv"><span>AI 通道</span><b>${esc(String(env.provider || '-'))}</b></div>
     </div>
 
+    <div class="diag-card" id="asrCapCard">
+      <div class="diag-card__t">语音识别能力（本机实测）</div>
+      <div id="asrCapBody"><p class="diag-empty">正在探测本机 ASR 通道…</p></div>
+      <button class="ghost" id="asrProbeBtn" type="button" style="margin-top:8px">重新探测语音识别能力</button>
+      <p class="foot-note">这一块能区分「插件没注册」「设备没识别服务」「云端不可用」三种不同的失败，是定位真机识别失败的关键。</p>
+    </div>
+
     <div class="diag-card">
       <div class="diag-card__t">各阶段耗时与成败</div>
       ${sum.length ? sum.map((s) => `
@@ -1633,9 +1649,80 @@ function pageDiag() {
   </section>`;
 }
 
+/**
+ * 本机 ASR 通道实测（v1.1.9）。
+ * 把「插件是否注册 / 设备是否有识别服务 / 云端是否可用」一次性摆出来，
+ * 让真机上「按住说没反应」到底是哪一种失败，一眼看穿，不用猜。
+ */
+async function probeAsrCapability() {
+  const kv = (k, v, note) =>
+    `<div class="diag-kv"><span>${esc(k)}</span><b>${esc(String(v))}` +
+    `${note ? ` <i style="opacity:.6;font-weight:400">${esc(note)}</i>` : ''}</b></div>`;
+
+  const native = isNativeApp();
+  const present = nativeAsr.nativeSpeechPresent();
+  let available = false, perm = 'unknown', raw = '-';
+  if (present) {
+    try { available = await nativeAsr.nativeSpeechAvailable(); } catch (e) { available = false; }
+    try { perm = await nativeAsr.nativeSpeechPermission(); } catch (e) { perm = 'unknown'; }
+    try {
+      const p = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.SpeechRecognition;
+      raw = (p && p.available) ? JSON.stringify(await p.available()) : '无 available()';
+    } catch (e) { raw = 'available() 抛错: ' + String((e && e.message) || e); }
+  }
+  const cap = asr.capability();
+  let cloud = '-';
+  try { cloud = await asr.probeCloud(true); } catch (e) { cloud = '探测异常'; }
+
+  const rows = [
+    kv('运行环境', native ? 'Android(APK)' : 'Web', native ? '原生容器' : '浏览器'),
+    kv('语音插件是否就位', present ? '是' : '否', present ? 'SpeechRecognition 插件已注册' : '插件未注册 ⇒ 原生通道根本不存在'),
+    kv('设备识别服务可用', available ? '是' : '否', available ? '系统 SpeechRecognizer 可用' : '系统无可用识别服务（常见于无 GMS 的国产 ROM）'),
+    kv('插件 available() 原始返回', raw, ''),
+    kv('麦克风授权', perm, ''),
+    kv('Web 录音能力', cap.canRecord ? '是' : '否', ''),
+    kv('Web Speech', cap.webSpeech ? '是' : '否', cap.webSpeech ? '' : '安卓 WebView 不支持'),
+    kv('云端 ASR 通道', cloud, cloud === 'unavailable' ? '静态托管下无后端 ⇒ 不可用' : (cloud === 'ready' ? '可用' : '未配置')),
+  ];
+
+  let verdict;
+  if (!native) {
+    verdict = cap.canRecord
+      ? '浏览器环境：优先云端 ASR，云端不可用时用 Web Speech，都失败才打字。'
+      : '浏览器环境且拿不到麦克风：只能打字。';
+  } else if (available) {
+    verdict = 'APK + 设备识别可用：正常走原生识别，无需网络，这是最理想的状态。';
+  } else if (cloud === 'ready') {
+    verdict = 'APK 但设备无识别服务，且云端 ASR 可用：将走云端识别。';
+  } else {
+    verdict = '⚠️ APK 且无任何可用识别通道（设备无识别服务 + 云端不可用）：按住说必失败，只能打字。' +
+      '要让它真能用，只有两条路：① 部署云端 ASR 后端（server.cjs + 真实 ASR 密钥，全设备通用）；' +
+      '② 内置离线识别引擎（Vosk/FunASR，不依赖 GMS）。或换一台装了 Google 语音服务的设备。';
+  }
+  return rows.join('') +
+    `<div class="diag-kv" style="margin-top:8px"><span>结论</span><b style="white-space:normal">${esc(verdict)}</b></div>`;
+}
+
 function bindDiag() {
   const logEl = document.getElementById('diagLog');
   const refresh = () => { if (logEl) logEl.textContent = diag.text(); };
+
+  // 本机 ASR 通道探测：进页面自动跑一次，按钮可重跑
+  const probeBtn = document.getElementById('asrProbeBtn');
+  const probeBody = document.getElementById('asrCapBody');
+  const runProbe = async () => {
+    if (probeBody) probeBody.innerHTML = '<p class="diag-empty">探测中…</p>';
+    if (probeBtn) probeBtn.disabled = true;
+    try {
+      if (probeBody) probeBody.innerHTML = await probeAsrCapability();
+      diag.note('asr', 'capability_probe', { ok: true, detail: '已在链路诊断页输出本机 ASR 通道实测' });
+    } catch (e) {
+      if (probeBody) probeBody.innerHTML = '<p class="diag-empty">探测失败：' + esc(String((e && e.message) || e)) + '</p>';
+    }
+    if (probeBtn) probeBtn.disabled = false;
+  };
+  if (probeBtn) probeBtn.addEventListener('click', runProbe);
+  runProbe();
 
   const runBtn = document.getElementById('diagRun');
   if (runBtn) runBtn.addEventListener('click', async () => {

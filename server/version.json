@@ -1,23 +1,32 @@
 {
-  "latest_version": "1.1.8",
+  "latest_version": "1.1.9",
   "force_update": false,
-  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.8-release.apk",
+  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.9-release.apk",
   "web_url": "https://xiaoting.app.workbuddy.host/#/say",
   "apk": {
-    "versionCode": 10108,
-    "version": "1.1.8",
-    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.8-release.apk",
-    "md5": "eb4eb9986af9b2e7e8154614333da0c4",
-    "size": 3367544,
+    "versionCode": 10109,
+    "version": "1.1.9",
+    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.9-release.apk",
+    "md5": "",
+    "size": 0,
     "force": false
   },
   "release_notes": [
-    "把上线审计里还能在纯前端闭环的问题都修了：埋点不再丢数据（远端不可用时自动存本地、可在「关于」页导出）、清掉一批只定义没调用的死代码、去掉悬空的 favicon 白名单条目",
-    "「关于墨小溟」页多了一个「下载安卓安装包」入口：用手机浏览器打开就能直接装，不用再找人要包",
-    "下载地址用的是永久链接，以后发新版它会自动指向最新版，不会过期",
-    "这次也顺便验证了「打开就提示更新 → 点一下就装上新版」这条链路，装 1.1.6 的手机会收到提示"
+    "新增「语音识别能力（本机实测）」诊断探针：在「我 → 设置 → 链路诊断」页一眼看清插件是否注册、设备有无识别服务、云端通道是否可用，定位真机识别失败不再靠猜",
+    "修复：APK 上若设备没有可用的语音识别服务（常见于无 GMS 的国产 ROM），不再弹「水里有点吵」骗你反复按，而是直说并直接送打字",
+    "为下一步「让语音真正能用」铺路：诊断探针能区分三种不同的失败，确认根因后即可针对性修引擎"
   ],
   "history": [
+    {
+      "version": "1.1.9",
+      "date": "2026-09-30",
+      "title": "语音识别诊断探针 + 诚实兜底",
+      "notes": [
+        "新增「语音识别能力（本机实测）」探针：在链路诊断页区分「插件未注册 / 设备无识别服务 / 云端不可用」三种不同的真机识别失败，定位不再靠猜",
+        "修复：APK 上设备无可用识别服务时，不再弹「水里有点吵，我没听清」误导用户反复按，改为明确说明并直接送打字",
+        "本次属诊断与体验修复：真正的「让语音在所有设备都能识别」需待探针确认根因后，走云端 ASR 后端或内置离线引擎"
+      ]
+    },
     {
       "version": "1.1.8",
       "date": "2026-09-30",
