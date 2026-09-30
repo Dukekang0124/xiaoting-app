@@ -1,23 +1,35 @@
 {
-  "latest_version": "1.1.5",
+  "latest_version": "1.1.6",
   "force_update": false,
-  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.5-release.apk",
+  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.6-release.apk",
   "web_url": "https://xiaoting.app.workbuddy.host/#/say",
   "apk": {
-    "versionCode": 10105,
-    "version": "1.1.5",
-    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.5-release.apk",
-    "md5": "6b31521e0c7ff4af8b408fbc69ec7f6b",
-    "size": 3367544,
+    "versionCode": 10106,
+    "version": "1.1.6",
+    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.6-release.apk",
+    "md5": "",
+    "size": 0,
     "force": false
   },
   "release_notes": [
-    "「立即更新」现在真的能下到安装包了：之前那个下载地址是空的，点下去只有 404",
-    "安装包放进了墨小溟自己的站内地址，安卓手机拿到一个链接就能装，不用再绕第三方",
-    "下载后会跳到系统浏览器，装完回来打开就是新版",
+    "修好了安卓 App 里的「立即更新」按钮：以前点它只是把页面刷新一下，永远装不上新版",
+    "现在点更新会真的去下载安装包，装完回来就是新版",
+    "安卓上的更新提示文案也改准了：会明确告诉你「跳到浏览器下载并安装」",
     "顺手清掉一处重复定义的常量（对使用没有任何影响）"
   ],
   "history": [
+    {
+      "version": "1.1.6",
+      "date": "2026-09-30",
+      "title": "安卓「立即更新」按钮真的能更新了",
+      "notes": [
+        "修复：安卓壳里的平台判据失效 —— 代码靠一个 UA 标记来认「我在 APK 里」，但那个标记全仓库从来没有被设置过（capacitor.config.json 没有 appendUserAgent，CI 生成安卓工程时也没注入）。结果真机里永远认成普通浏览器：更新提示给的是网页文案，点「立即更新」走的是「清缓存 + 刷新页面」那条路 —— 而 APK 的资源是打包在壳里的，刷新不可能变成新版。表现就是「弹窗弹得出来、按钮点不动」",
+        "修复：判据改用 Capacitor 桥（与 apiBase() 同一个信号），它才是「我此刻跑在原生壳里」的可靠事实来源；UA 标记与 ?app=android 保留为兜底与自测入口",
+        "测试：补上一条本该早就有的回归断言 —— 只注入 Capacitor、URL 不带 ?app=android、UA 不带标记时，平台必须识别为 APK。原来那条用例用 ?app=android 模拟，正好绕开了真正的判据，所以一直全绿也发现不了这个缺陷",
+        "测试：新增 _selftest/platform-cap-abi.cjs 做鉴别力校验（A/B 换源码：新版判据为真、退回只认 UA 时为假 = 缺陷重现）",
+        "说明：装 v1.1.4 / v1.1.5 的机器上，这个按钮本身就带着缺陷（它们的「立即更新」仍只会刷新），需要手动下载一次安装包；装上本版之后，后续更新就能一键完成了"
+      ]
+    },
     {
       "version": "1.1.5",
       "date": "2026-09-30",

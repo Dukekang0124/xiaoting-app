@@ -1976,6 +1976,31 @@ const MOCK_SDK = `(function(){
   check('弹窗·APK 分支主按钮=立即更新', H7.btn.includes('立即更新'), H7.btn);
   await shot(page7, '26-update-apk.png');
 
+  // H7b. ★ 回归：真机 APK 的判据必须是 Capacitor 桥，不能只认 UA 标记
+  // 背景（v1.1.6 修）：那个 UA 标记（xiaotingandroid）全仓库从没被设置过
+  //   ⇒ 真机 isApk 恒 false ⇒ 点「立即更新」走 Web 分支只刷新 ⇒ 永远装不上新版。
+  //   上面 H7 用 ?app=android 模拟，正好绕开了真正的判据，所以它当时全绿也发现不了这个缺陷。
+  //   这里刻意 **不带** ?app=android、UA 也不带标记，只靠 Capacitor 桥来认 —— 这才对应真机。
+  const ctxCap = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: 'zh-CN' });
+  await ctxCap.addInitScript(() => {
+    window.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'android', platform: 'android' };
+    try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1'); } catch (e) {}
+  });
+  const pageCap = await ctxCap.newPage();
+  await pageCap.goto(BASE + '/#/say', { waitUntil: 'domcontentloaded' });
+  const APC = await pageCap.evaluate(async () => {
+    const u = await import('/js/update.js');
+    const c = await import('/js/config.js');
+    return { isApk: u.platform().isApk, base: c.apiBase() };
+  });
+  const NOAPC = await page3.evaluate(async () => {
+    const u = await import('/js/update.js');
+    return { isApk: u.platform().isApk };
+  });
+  check('★ APK 分支·Capacitor 就位即认作 APK（不再依赖从未设过的 UA 标记）', APC.isApk === true, JSON.stringify(APC));
+  check('★ APK 分支·鉴别力反向：无 Capacitor 的普通浏览器不认作 APK', NOAPC.isApk === false, JSON.stringify(NOAPC));
+  await ctxCap.close();
+
   // H6. 关于墨小溟 / 更新历史页
   const page6 = await ctx3.newPage();
   await page6.goto(BASE + '/#/changelog', { waitUntil: 'domcontentloaded' });

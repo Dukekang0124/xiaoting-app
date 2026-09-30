@@ -15,7 +15,7 @@
 //   ?app=android         → 模拟 APK 分支（正常安卓壳靠 UA 标记识别）
 
 import { mascot } from './ip.js';
-import { apiBase } from './config.js';
+import { apiBase, isNativeApp } from './config.js';
 import * as diag from './diag.js';
 
 /* ---------------- 常量 ---------------- */
@@ -79,14 +79,26 @@ export function cmpVersion(a, b) {
   return 0;
 }
 
-/** 平台识别：微信 / Android(APK) / iOS / 普通浏览器 */
+/**
+ * 平台识别：微信 / Android(APK) / iOS / 普通浏览器
+ *
+ * 🔴 v1.1.6 修：`isApk` 曾经**只看 UA 标记**（`xiaotingandroid|xiaoting_app`），
+ *   但那个标记全仓库从来没有被设过——`capacitor.config.json` 里没有 `appendUserAgent`，
+ *   CI 生成 android 工程时也没注入。后果是真机里 `isApk` 恒为 false：
+ *     · 弹窗走 Web 文案（"会自动刷新到最新版"，而 APK 里资源是打包在壳内的，刷新不可能变新版）
+ *     · 点「立即更新」进 `webUpdateReload()` —— 清缓存 + reload，**永远装不上新版**
+ *   即"弹窗弹得出来、按钮点不动"，断的正是「可供更新」那一半。
+ *   判据改成 Capacitor 桥（`isNativeApp()`）——和 `apiBase()` 用的是同一个信号，
+ *   它才是"我此刻跑在原生壳里"的可靠事实来源；UA 标记与 `?app=android` 保留为兜底/自测入口。
+ */
 export function platform() {
   const ua = navigator.userAgent || '';
   const isWeChat = /micromessenger/i.test(ua);
   const isIOS = /iphone|ipad|ipod/i.test(ua);
   const isAndroid = /android/i.test(ua);
-  // 我们的安卓壳：UA 含标记，或 URL 带 ?app=android（便于在普通浏览器里模拟 APK 分支自测）
-  const isApk = /xiaotingandroid|xiaoting_app/i.test(ua) || /[?&]app=android\b/.test(location.search);
+  const isApk = isNativeApp()
+    || /xiaotingandroid|xiaoting_app/i.test(ua)
+    || /[?&]app=android\b/.test(location.search);
   return { ua, isWeChat, isIOS, isAndroid, isApk };
 }
 
