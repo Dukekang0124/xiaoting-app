@@ -145,17 +145,44 @@ async function tapIp(page) {
   });
   check('soundOn 有真实下游（ip-audio 模块提供 setEnabled）', sOn.hasApi, JSON.stringify(sOn));
 
-  // ⑤ notify_on：死开关判定
-  const lsBefore = await page.evaluate(() => JSON.stringify(Object.keys(localStorage).sort()));
-  await setSetting(page, 'notify_on', true);
-  await page.waitForTimeout(2500);
+  // ⑤ notify_on（v1.4.1 已从死开关修复为真实功能）
+  //
+  // 旧判据是比较 localStorage 的**键集合** —— 键一直都在，所以那条断言几乎恒真，
+  // 检测不出任何东西。真正要防的不是"有没有写值"，而是**假象**：
+  // 用户拨了开关、UI 显示已开启，但什么都不会发生。
+  // 所以新判据验两件事：① 一定有回话（toast）② 环境不支持时开关必须拨回，不留"已开启"的假象。
+  // 🔴 #meNotify 在「我」页（#/me），而上面几组测试把页面留在了 #/say ——
+  //    不切页直接 click 会 30s 超时（第一版脚本就挂在 audit-settings-effective.cjs:165）。
+  await page.evaluate(() => { location.hash = '#/me'; });
+  await page.waitForSelector('#meNotify', { timeout: 10000 });
+  await page.waitForTimeout(700);
+
+  const toastSeen = await page.evaluate(() => {
+    window.__toastSeen = false;
+    const t = document.querySelector('.toast');
+    if (!t) return false;
+    const ob = new MutationObserver(() => {
+      if (t.classList.contains('toast--on')) window.__toastSeen = true;
+    });
+    ob.observe(t, { attributes: true, attributeFilter: ['class'] });
+    return true;
+  });
+  await page.evaluate(() => { const s = document.getElementById('meNotify'); if (s) s.disabled = false; });
+  await page.click('#meNotify');
+  await page.waitForTimeout(1200);
   const after = await page.evaluate(async () => {
     const st = await import('/js/store.js');
-    return { val: st.getState().user.settings.notify_on, ls: JSON.stringify(Object.keys(localStorage).sort()), txt: document.body.textContent.length };
+    const el = document.getElementById('meNotify');
+    return {
+      val: st.getState().user.settings.notify_on,
+      checked: el ? el.checked : null,
+      seen: !!window.__toastSeen,
+    };
   });
-  const noEffect = after.ls === lsBefore;
-  check('notify_on 拨动后应产生可观测副作用（无 = 死开关）', !noEffect,
-    `store.notify_on=${after.val}；2.5s 内 localStorage/页面均无变化 ⇒ 用户拨了等于没拨`);
+  check('notify_on 拨动后有明确回话（不留"拨了没反应"）', after.seen === true,
+    `toastSeen=${after.seen}（监视器已挂载=${toastSeen}）`);
+  check('notify_on 不留假象：Web 端不支持时开关回退为关，UI 不显示"已开启"',
+    after.checked === false && after.val === false, `checked=${after.checked} store=${after.val}`);
 
   const finalVal = await readSetting(page, 'notify_on');
   console.log(`\n==== 设置项行为审计：PASS ${pass} / FAIL ${fail} ====`);

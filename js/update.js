@@ -327,6 +327,81 @@ export function doUpdate(p, data) {
  * 再把弹窗切换成「下载中 → 完成后下拉通知栏安装 + 未知来源权限提示」，全程用户都知道在干嘛。
  * 零依赖：不引入任何新原生插件，只靠 DOM 弹窗 + window.location.href 触发下载。
  */
+/* ---------------- 应用内安装器（v1.4.1 · Task #141） ---------------- */
+
+/**
+ * 惰性加载安装器插件。
+ *
+ * 🔴 必须动态 import，不能静态 import：这两个插件**只在原生壳里存在**。
+ * 静态 import 会让 Web 端整个 update.js 模块加载失败 —— 一崩就是
+ * 「检查更新」这个刚修好的功能也跟着没了。那比功能缺失严重得多。
+ *
+ * @returns null 表示不可用（Web 端 / 插件没装 / 插件没注册），调用方据此降级。
+ */
+async function loadInstaller() {
+  if (!isNativeApp()) return null;
+  try {
+    const [fsm, fom] = await Promise.all([
+      import('@capacitor/filesystem'),
+      import('@capacitor-community/file-opener'),
+    ]);
+    if (!fsm || !fsm.Filesystem || !fom || !fom.FileOpener) return null;
+    return { Filesystem: fsm.Filesystem, Directory: fsm.Directory, FileOpener: fom.FileOpener };
+  } catch (e) {
+    diag.note('update', 'installer_unavailable', { detail: String((e && e.message) || e).slice(0, 120) });
+    return null;
+  }
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => {
+      const s = String(fr.result || '');
+      resolve(s.slice(s.indexOf(',') + 1));
+    };
+    fr.onerror = () => reject(new Error('read_failed'));
+    fr.readAsDataURL(blob);
+  });
+}
+
+/**
+ * 应用内下载安装包 → 写入缓存目录 → 调起系统安装器。
+ *
+ * 与旧流程（触发下载 + 让用户自己去通知栏找）的区别：
+ * 旧流程把「在通知栏里找到一个叫 Xiaoting…apk 的文件」这个动作甩给了用户，
+ * 很多人就卡在这一步。新流程下完直接弹系统安装界面。
+ *
+ * 依赖（缺一不可，CI 已注入/打包）：
+ *   · REQUEST_INSTALL_PACKAGES 权限 —— 缺了系统静默拒绝，表现为「点了没反应」
+ *   · @capacitor/filesystem        —— 落盘并换取 content:// URI（Android 7+ 直接给文件路径会被拒）
+ *   · @capacitor-community/file-opener —— 发 ACTION_VIEW 唤起安装器
+ *
+ * @returns {{ok:true}|{ok:false, reason:string, detail?:string}}
+ */
+export async function installApkInApp(url, version = '') {
+  const kit = await loadInstaller();
+  if (!kit) return { ok: false, reason: 'plugin_missing' };
+  const { Filesystem, Directory, FileOpener } = kit;
+  const file = `xiaoting-v${String(version || 'latest').replace(/[^\w.]/g, '')}.apk`;
+  try {
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) return { ok: false, reason: 'download_failed', detail: 'HTTP ' + res.status };
+    const blob = await res.blob();
+    if (!blob || blob.size < 1024) return { ok: false, reason: 'download_empty', detail: String((blob && blob.size) || 0) };
+    const b64 = await blobToBase64(blob);
+    await Filesystem.writeFile({ path: file, directory: Directory.Cache, data: b64, recursive: true });
+    const uri = await Filesystem.getUri({ path: file, directory: Directory.Cache });
+    await FileOpener.open({ url: uri.uri, contentType: 'application/vnd.android.package-archive' });
+    diag.note('update', 'installer_opened', { ok: true, detail: `已唤起系统安装器 ${uri.uri} 大小=${blob.size}B` });
+    return { ok: true, size: blob.size };
+  } catch (e) {
+    const detail = String((e && e.message) || e);
+    diag.note('update', 'installer_failed', { ok: false, detail: detail.slice(0, 160) });
+    return { ok: false, reason: 'installer_failed', detail };
+  }
+}
+
 function showInstallGuide(data, p) {
   const url = absUrl(data.download_url) || absUrl(data.web_url) || location.href;
   const overlay = document.createElement('div');
@@ -354,24 +429,43 @@ function showInstallGuide(data, p) {
   document.body.appendChild(overlay);
 
   const start = document.getElementById('installStart');
-  if (start) start.addEventListener('click', () => {
-    // 触发下载：在 WebView 里指向 .apk 会被当成下载（而不是渲染/跳转），安卓会落盘到下载目录并弹通知。
-    try { window.location.href = url; } catch (e) { /* ignore */ }
-    // 切到「下载中 / 完成指引」—— 全程留在应用内，用户知道下一步干嘛。
+  if (start) start.addEventListener('click', async () => {
     const card = overlay.querySelector('.install-card');
-    if (card) card.innerHTML = `
-      <div class="update-ip">
-        ${mascot('listening', 96)}
-        <div class="update-sign">下载中</div>
-      </div>
-      <h3 class="update-title">正在下载安装包…</h3>
-      <p class="update-sub update-sub--ok">下载完成后，从屏幕顶部<b>下拉通知栏</b>，点「Xiaoting…apk」即可安装。</p>
-      <p class="update-sub">若提示「允许安装未知应用」，请打开该权限后再点安装。</p>
-      <div class="install-actions">
-        <button class="update-btn update-btn--primary" id="installDone" type="button">我知道了</button>
-      </div>`;
-    const done = document.getElementById('installDone');
-    if (done) done.addEventListener('click', () => { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); });
+    const showStep = (sign, title, sub, extra) => {
+      if (!card) return;
+      card.innerHTML = `
+        <div class="update-ip">
+          ${mascot(sign, 96)}
+          <div class="update-sign">${esc(sign === 'happy' ? '搞定' : '下载中')}</div>
+        </div>
+        <h3 class="update-title">${esc(title)}</h3>
+        <p class="update-sub">${sub}</p>
+        ${extra || ''}
+        <div class="install-actions">
+          <button class="update-btn update-btn--primary" id="installDone" type="button">我知道了</button>
+        </div>`;
+      const done = document.getElementById('installDone');
+      if (done) done.addEventListener('click', () => { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); });
+    };
+
+    // v1.4.1 Task #141：先试应用内安装（下完直接弹系统安装界面）。
+    // 拿不到插件（Web 端 / 未装插件）时**必须**回落旧流程，而不是卡住不给反馈 ——
+    // 旧流程虽然绕，但它是能装上的；新流程失败就什么都不做，那才是真坏。
+    start.disabled = true;
+    start.textContent = '准备中…';
+    const r = await installApkInApp(url, data.latest_version);
+
+    if (r.ok) {
+      showStep('happy', '已唤起系统安装界面',
+        '下面按系统提示点「安装」即可。<br/>若提示「允许安装未知应用」，打开该权限后再点一次。');
+      return;
+    }
+
+    // 降级：触发下载（WebView 里指向 .apk 会被当成下载而非跳转），再给通知栏指引。
+    try { window.location.href = url; } catch (e) { /* ignore */ }
+    showStep('listening', '正在下载安装包…',
+      '下载完成后，从屏幕顶部<b>下拉通知栏</b>，点「Xiaoting…apk」即可安装。<br/>若提示「允许安装未知应用」，请打开该权限后再点安装。',
+      r.reason === 'plugin_missing' ? '' : `<p class="update-sub">（应用内安装未生效：${esc(String(r.reason || ''))}，已改用下载方式）</p>`);
   });
 
   const later = document.getElementById('installLater');

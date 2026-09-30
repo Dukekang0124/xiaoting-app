@@ -1039,14 +1039,18 @@ const MOCK_SDK = `(function(){
   await pageN.goto(BASE + '/#/say', { waitUntil: 'domcontentloaded' });
   await pageN.waitForTimeout(300);
   const Z5 = await pageN.evaluate(async () => {
-    const { apiBase } = await import('/js/config.js');
+    const { apiBase, CLOUD_ASR } = await import('/js/config.js');
     const asr = await import('/js/asr.js');
     const st = await asr.probeCloud(true);
-    return { base: apiBase(), probe: st };
+    return { base: apiBase(), probe: st, cloudOrigin: CLOUD_ASR.origin };
   });
   check('[原生基址] 原生容器 apiBase → 线上域名（不再打 https://localhost）',
     Z5.base === 'https://xiaoting.app.workbuddy.host', JSON.stringify(Z5));
-  check('[原生基址] probeCloud 实际请求的是绝对地址', capturedUrl.startsWith('https://xiaoting.app.workbuddy.host/api/health'), capturedUrl);
+  // v1.4.1：probeCloud 的探测目标从同源 /api/health 换成 Cloudflare 云端（同源那个在线上恒 404）。
+  // 断言的价值在于「必须是配置里的绝对地址，而不是 WebView 里的相对路径」——
+  // 所以这里从 config 读真实配置来比对，不硬编码域名，改后端时不会假红。
+  check('[原生基址] probeCloud 请求的是配置里的云端绝对地址（非 https://localhost 相对路径）',
+    capturedUrl === Z5.cloudOrigin + '/api/health' && /^https:\/\//.test(capturedUrl), capturedUrl);
 
   // ⑥ 提示气泡：不再是黑条（柔和奶油白 + 深色字）
   await pageZ.evaluate(async () => { const s = await import('/js/store.js'); s.toast('测试提示'); });
@@ -1119,7 +1123,10 @@ const MOCK_SDK = `(function(){
   check('C6·埋点·原生识别：设备识别结果单独留痕', /diag\.note\('asr', 'native'/.test(appSrcC6));
   check('C6·埋点·进入 AI 链路的文本留痕', /diag\.note\('input', 'transcript'/.test(appSrcC6));
   check('C6·埋点·ASR：探测服务端留痕', /diag\.begin\('asr', 'probe'/.test(asrSrcC6));
-  check('C6·埋点·ASR：识别成功与失败都留痕（含错误码与 err_no）', /diag\.end\(dseq[\s\S]{0,400}?ok: true/.test(asrSrcC6) && /err_no=/.test(asrSrcC6));
+  // v1.4.1：后端从百度换成 Cloudflare 后不再有百度专属的 err_no，统一用通用错误码 code=。
+  // 断言的意图是「成功与失败都要留痕，且带上可追查的错误码」——字段名变了，意图没变，
+  // 所以改成校验 code=；仍保留对 diag.end 成功分支的检查，避免这条断言退化成恒真。
+  check('C6·埋点·ASR：识别成功与失败都留痕（含错误码 code）', /diag\.end\(dseq[\s\S]{0,400}?ok: true/.test(asrSrcC6) && /code=/.test(asrSrcC6) && /识别失败/.test(asrSrcC6));
   check('C6·埋点·安全识别：放行/拦截结论单独留痕（safety.verdict）', /diag\.note\('ai', 'safety\.verdict'/.test(apiSrcC6));
   check('C6·埋点·五个业务阶段全部有起止记录', ['safety', 'main', 'followup', 'card', 'timeline'].every((s) => {
     return new RegExp("stage:\\s*'" + s + "'").test(apiSrcC6);
@@ -1152,6 +1159,29 @@ const MOCK_SDK = `(function(){
 
   // ⑤ 诊断日志只存本机，不上传 —— 主打"敢说真话"的产品，日志本身不能成为泄露源
   check('C6·诊断日志只写 localStorage，不发任何网络请求', !/fetch\(|XMLHttpRequest/.test(diagSrc), diagSrc.includes('localStorage') ? '仅 localStorage' : '未找到存储');
+
+  // ⑤b 返回键 / 侧滑诊断段（v1.4.1 对外承诺过，但此前**零断言** —— 典型「承诺了没人验」的盲区）
+  //
+  //   这里之所以要卡**两**条而不是一条：缺任何一条都会造成同一种真机事故——
+  //   代码看着接上了，真机按返回键却直接退出 App，而且**静默失效、没有任何报错**。
+  //     · 有 backWiringFacts()      ⇒ 接线事实能被读出来，真机诊断报告可自证「到底接没接上」
+  //     · package.json 声明了插件   ⇒ Capacitor.Plugins.App 才会存在
+  //   历史上这一条真的漏过：v1.4.1 开发时诊断段写完了、@capacitor/app 却没进依赖，
+  //   于是诊断报告会如实报「不会被接管」—— 能看出来，但那是事后；这里把它变成事前护栏。
+  const BW = await page.evaluate(async () => {
+    const m = await import('/js/app.js');
+    const f = typeof m.backWiringFacts === 'function' ? m.backWiringFacts() : null;
+    return { hasFn: typeof m.backWiringFacts === 'function', f };
+  });
+  check('C6·返回键接线事实可被读出（真机能自证「到底接没接上」，不用猜）',
+    BW.hasFn && BW.f && ['tried', 'capBridge', 'appPlugin', 'bound'].every((k) => k in BW.f),
+    JSON.stringify(BW.f));
+  const depsC6 = JSON.parse(fs.readFileSync(path.join(rootC6, 'package.json'), 'utf8')).dependencies || {};
+  check('C6·@capacitor/app 已在依赖里（缺它则物理返回键恒不被接管，且静默失效）',
+    !!depsC6['@capacitor/app'],
+    Object.keys(depsC6).filter((d) => /app|file-opener|filesystem|notifications/.test(d)).join(',') || '（无相关插件）');
+  check('C6·诊断报告含「返回键与侧滑返回」一段（v1.4.1 承诺项，不是只在代码里躺着）',
+    /返回键与侧滑返回/.test(appSrcC6) && /backVerdict/.test(appSrcC6));
 
   // ⑥ 卡片日期不再由模型编造（链路日志里当场抓到过：模型返回 2025-07-09，当天是 2026-09-30）
   const D3 = await page.evaluate(async () => {

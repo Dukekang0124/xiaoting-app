@@ -80,3 +80,32 @@ export const ASR = {
   maxSeconds: 55,            // 录音时长上限，到点自动停（避免录太久被服务端拒）
 };
 
+/**
+ * 云端语音识别后端（v1.4.1 · A' 方案）。
+ *
+ * 【为什么必须换后端】上面 ASR.endpoint 是同源 /api/asr，由 server.cjs 提供。
+ * 但线上是**纯静态托管**（没有 Node 进程）⇒ APK 里这个地址恒 404。
+ * 也就是说：代码里「云端 ASR 优先」这条链路，从上线第一天起就从来没跑通过一次。
+ *
+ * 【为什么是 pages.dev 不是 workers.dev】2026-09-30 实测 DNS：
+ *   · *.workers.dev —— 三个公共 DNS 全部返回 face:b00c（Facebook 段）且三个 IP 互不相同 ⇒ GFW 污染
+ *   · *.pages.dev   —— 返回真实 Cloudflare anycast，且多个 DNS 完全一致 ⇒ 干净
+ * 域名不一样，可达性就是两个世界。
+ *
+ * 【稳定性】实测该后端有两类**瞬态**失败，重试即可成功，绝不能当成"后端坏了"：
+ *   · 403 + error code: 1010 —— Cloudflare 风控，高频请求触发，退避后自愈
+ *   · 3030 Failed to decode audio file —— 同一份输入原封不动重试就成功
+ * 所以接入必须带重试（见 asr.js 的 isTransient）。
+ *
+ * 【成本】Workers AI 免费档约 10k neurons/天（≈45 分钟音频），零成本。
+ */
+export const CLOUD_ASR = {
+  origin: 'https://xiaoting-asr.pages.dev',
+  endpoint: '/api/asr',
+  health: '/api/health',
+  lang: 'zh',
+  timeoutMs: 25000,          // 单次超时。实测 6.7s 音频约 1.8~3.4s，留足一倍余量
+  maxAttempts: 3,            // 含首次，共 3 次（应对上面两类瞬态失败）
+  backoffMs: 700,            // 退避基值，按 700/1400ms 递增
+};
+

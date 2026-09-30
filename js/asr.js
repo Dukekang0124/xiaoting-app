@@ -18,7 +18,7 @@
 // 【复用来源】重采样与 WAV 编码（含 ASR 预处理：去直流 + 预加重 + 峰值归一化）对齐
 //   「英语开口练」已线上验证的实现（index.html encodeWav16kBase64 / preprocessForAsr），不重造。
 
-import { ASR, apiBase } from './config.js';
+import { ASR, CLOUD_ASR, apiBase } from './config.js';
 import { getState } from './store.js';
 import * as diag from './diag.js';
 
@@ -27,6 +27,15 @@ import * as diag from './diag.js';
 /** 端点解析：原生容器里必须拼绝对基址（见 config.js 的 HOSTED_ORIGIN 注释）——
  *  WebView 的源是 https://localhost，相对路径的 /api/* 永远打不到真服务端。 */
 const url = (path) => apiBase() + path;
+
+/**
+ * 云端 ASR 端点（v1.4.1）。
+ * 与上面 url() 的区别：这个是**跨域**的，所以永远拼绝对地址，不经过 apiBase()。
+ * 契约与同源 /api/asr 完全一致（{speech, lang} → {ok, text, engine, ms}），
+ * 换端点不需要改任何解析逻辑 —— 这是当初对接时就定下的，现在兑现了。
+ */
+const cloudUrl = (path) => CLOUD_ASR.origin + path;
+export function cloudEndpoint() { return cloudUrl(CLOUD_ASR.endpoint); }
 
 const AC = typeof window !== 'undefined' ? (window.AudioContext || window.webkitAudioContext) : null;
 const OFFLINE = typeof window !== 'undefined' ? (window.OfflineAudioContext || window.webkitOfflineAudioContext) : null;
@@ -79,26 +88,38 @@ export function pickMime() {
 
 let cloudState = { state: 'unknown', checkedAt: 0, version: '' };
 
-/** 探一次服务端：'ready' 可用 / 'unconfigured' 未配密钥 / 'unavailable' 没这个服务（纯静态托管）。 */
+/**
+ * 探一次云端后端：'ready' 可用 / 'unavailable' 不可用。
+ *
+ * v1.4.1：探测目标从同源 /api/health 换到 Cloudflare 的 /api/health。
+ * 旧目标在线上（纯静态托管）恒 404 —— 也就是说这个探针过去每次都返回 unavailable，
+ * 「云端 ASR 优先」这条链路实际上从未生效过。
+ *
+ * 判定要点：CF 的 health 用 `ok` + `ai_binding` 表达（不是本地的 `asr:'ready'`）。
+ * 服务在但**没绑 AI** 时必须判 unavailable —— 那样识别必然 503，
+ * 若判成 unconfigured 会让上层误以为"值得试一次"，白白多等一个超时。
+ */
 export async function probeCloud(force = false) {
   if (!force && cloudState.state !== 'unknown' && Date.now() - cloudState.checkedAt < 60000) return cloudState.state;
   const t = Date.now();
-  const dseq = diag.begin('asr', 'probe', { detail: '探测服务端识别能力 ' + url(ASR.health) });
+  const ep = cloudUrl(CLOUD_ASR.health);
+  const dseq = diag.begin('asr', 'probe', { detail: '探测云端识别能力 ' + ep });
   try {
-    const r = await fetch(url(ASR.health), { method: 'GET', cache: 'no-store' });
-    const j = await r.json();
+    const r = await fetch(ep, { method: 'GET', cache: 'no-store' });
+    const j = await r.json().catch(() => null);
+    const ready = !!(r.ok && j && j.ok === true && j.ai_binding === true);
     cloudState = {
-      state: j && j.asr === 'ready' ? 'ready' : 'unconfigured',
+      state: ready ? 'ready' : 'unavailable',
       checkedAt: Date.now(),
-      version: (j && j.version) || '',
+      version: (j && j.build) || (j && j.model) || '',
     };
     diag.end(dseq, {
-      ok: r.ok, ms: Date.now() - t,
-      detail: `http=${r.status} 结果=${cloudState.state} 后端版本=${cloudState.version || '-'}`,
+      ok: ready, ms: Date.now() - t,
+      detail: `http=${r.status} 结果=${cloudState.state} 后端=${(j && j.service) || '-'} build=${(j && j.build) || '-'} ai_binding=${!!(j && j.ai_binding)}`,
     });
   } catch (e) {
     cloudState = { state: 'unavailable', checkedAt: Date.now(), version: '' };
-    diag.end(dseq, { ok: false, code: 'network', ms: Date.now() - t, detail: `服务端不可达：${String(e && e.message || e).slice(0, 80)}` });
+    diag.end(dseq, { ok: false, code: 'network', ms: Date.now() - t, detail: `云端不可达：${String(e && e.message || e).slice(0, 80)}` });
   }
   return cloudState.state;
 }
@@ -224,72 +245,123 @@ export async function recognize(blob, { lang = ASR.lang, signal } = {}) {
   }
   diag.note('asr', 'encoded', { ok: true, detail: `16k WAV base64 ${b64.length} 字符，编码耗时 ${Date.now() - t0}ms` });
 
+  // v1.4.1：端点从同源 /api/asr 换到 Cloudflare 云端（同源那个在线上恒 404，从未生效）。
+  // 契约完全一致，所以下面除了地址，没有任何解析逻辑需要改。
+  const reqHeaders = { 'Content-Type': 'application/json' };
+  const ep = cloudUrl(CLOUD_ASR.endpoint);
+
+  // —— 带重试的请求循环 ——
+  // 实测该后端有两类**瞬态**失败：403/1010（Cloudflare 风控）与 3030（解码失败），
+  // 表现都是「同一份输入原封不动再发一次就成功」。不重试的话，偶发抖动会被用户
+  // 直接判定成「语音识别坏了」——这正是这次要把底层打通的意义所在。
+  // 反过来说，请求本身有问题（空音频、超时长度、方法不对）重试毫无意义，立即返回。
+  let last = null;
+  let usedAttempts = 0;
+  for (let attempt = 1; attempt <= CLOUD_ASR.maxAttempts; attempt++) {
+    usedAttempts = attempt;
+    const one = await attemptRecognizeOnce(ep, b64, lang, reqHeaders, signal, attempt);
+    if (one.kind === 'ok') {
+      diag.end(dseq, {
+        ok: true, ms: Date.now() - t0,
+        detail: `识别成功（第 ${attempt} 次）engine=${one.engine} 服务端耗时=${one.serverMs}ms 文本="${one.text.slice(0, 40)}"`,
+      });
+      return {
+        ok: true, text: one.text, engine: one.engine,
+        ms: one.serverMs, attempts: attempt, totalMs: Date.now() - t0,
+      };
+    }
+    last = one;
+    if (one.kind !== 'transient') break;
+    if (attempt < CLOUD_ASR.maxAttempts) {
+      diag.note('asr', 'retry', {
+        detail: `瞬态失败，${CLOUD_ASR.backoffMs * attempt}ms 后重试：${one.code} ${(one.detail || '').slice(0, 80)}`,
+      });
+      await sleep(CLOUD_ASR.backoffMs * attempt);
+    }
+  }
+
+  diag.end(dseq, {
+    ok: false, code: last.code, ms: Date.now() - t0,
+    detail: `识别失败（共 ${usedAttempts} 次）http=${last.http || '-'} code=${last.code} ${(last.detail || '').slice(0, 120)}`,
+    raw: (last.raw || '').slice(0, 300),
+  });
+  return {
+    ok: false,
+    code: last.code,
+    hint: last.hint || describeError(last.code),
+    attempts: usedAttempts,
+    totalMs: Date.now() - t0,
+  };
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * 单次识别请求。把「发一次」和「要不要再发一次」分开，
+ * 重试策略才写得清楚、也才测得了（见 _selftest/probe-cloud-asr-retry.cjs）。
+ *
+ * @returns kind: 'ok' 成功 | 'transient' 瞬态失败（值得重试）| 'fail' 确定性失败（别重试）
+ */
+async function attemptRecognizeOnce(ep, b64, lang, headers, signal, attempt) {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), ASR.timeoutMs);
+  const timer = setTimeout(() => ctrl.abort(), CLOUD_ASR.timeoutMs);
   if (signal && signal.addEventListener) {
     try { signal.addEventListener('abort', () => ctrl.abort()); } catch (e) { /* ignore */ }
   }
-
-  const reqHeaders = { 'Content-Type': 'application/json' };
-  // v1.2.1 攻坚·战役一：把请求链路的关键信息先落日志（端点 / 请求头 / 音频体积），
-  // 真机上「识别没反应」到底是没发出去、发出去被拒、还是百度返回错误码，全靠这几行区分。
+  const t1 = Date.now();
   diag.note('asr', 'request', {
-    detail: `POST ${url(ASR.endpoint)} headers=${JSON.stringify(reqHeaders)} speech_base64_len=${b64.length} lang=${lang}`,
+    detail: `POST ${ep} 第 ${attempt}/${CLOUD_ASR.maxAttempts} 次 speech_base64_len=${b64.length} lang=${lang}`,
   });
-  console.log('[ASR] 发送识别请求', { endpoint: url(ASR.endpoint), speech_len: b64.length, lang });
 
   let res;
   try {
-    res = await fetch(url(ASR.endpoint), {
-      method: 'POST',
-      headers: reqHeaders,
-      body: JSON.stringify({ speech: b64, lang }),
-      signal: ctrl.signal,
-    });
+    res = await fetch(ep, { method: 'POST', headers, body: JSON.stringify({ speech: b64, lang }), signal: ctrl.signal });
   } catch (e) {
     clearTimeout(timer);
-    const code = e && e.name === 'AbortError' ? 'timeout' : 'network';
-    console.error('[ASR] 请求未返回（网络层）', { endpoint: url(ASR.endpoint), err: String((e && e.message) || e) });
-    diag.end(dseq, { ok: false, code, ms: Date.now() - t0, detail: `请求未返回：${String(e && e.message || e).slice(0, 80)}` });
+    const aborted = !!(e && e.name === 'AbortError');
     return {
-      ok: false,
-      code,
-      hint: e && e.name === 'AbortError' ? '识别等太久了' : '网络好像不太顺',
-      uploadMs: Date.now() - t0,
+      kind: 'transient', code: aborted ? 'timeout' : 'network',
+      detail: String((e && e.message) || e).slice(0, 120), ms: Date.now() - t1,
     };
   }
   clearTimeout(timer);
 
+  // 先取文本再解析：Pages 对未匹配路径会回落 index.html 并返回 200，
+  // 直接 res.json() 会把 HTML 吞成一个解析异常，看不出到底是哪个环节坏了。
+  const raw = await res.text().catch(() => '');
   let j = null;
-  try { j = await res.json(); } catch (e) { j = null; }
+  try { j = JSON.parse(raw); } catch (e) { j = null; }
+
   if (j && j.ok && String(j.text || '').trim()) {
-    const text = String(j.text).trim();
-    diag.end(dseq, {
-      ok: true, ms: Date.now() - t0,
-      detail: `识别成功 engine=${j.engine || 'cloud'} 服务端耗时=${j.ms || 0}ms 文本="${text.slice(0, 40)}"`,
-    });
-    return { ok: true, text, engine: j.engine || 'cloud', ms: j.ms || 0, totalMs: Date.now() - t0 };
+    return {
+      kind: 'ok', text: String(j.text).trim(), engine: j.engine || 'cf-whisper',
+      serverMs: j.ms || 0, ms: Date.now() - t1,
+    };
   }
-  // 取百度原始错误码（3301=音频质量/格式，3302=音频无法识别），连同 HTTP 状态与原始 JSON 一并打到控制台与诊断面板。
-  const errNo = j && j.err_no;
-  const code = errNo ? String(errNo) : ((j && j.error) || ('http_' + res.status));
-  console.error('[ASR] 识别失败', {
-    http: res.status,
-    err_no: errNo || null,
-    raw: j ? JSON.stringify(j).slice(0, 300) : String(res.status),
-  });
-  diag.end(dseq, {
-    ok: false, code, ms: Date.now() - t0,
-    detail: `识别失败 http=${res.status} err_no=${errNo || '-'} ${(j && j.hint) || ''}`,
-    raw: j ? JSON.stringify(j).slice(0, 300) : String(res.status),
-  });
+
+  const code = (j && j.error) ? String(j.error) : ('http_' + res.status);
+  const detail = (j && j.detail) ? String(j.detail) : (j ? '' : `非 JSON 响应：${raw.slice(0, 60)}`);
+  const transient = isTransient(res.status, code, detail, raw);
   return {
-    ok: false,
-    code,
-    errNo,
-    hint: (j && j.hint) || describeError(code),
-    totalMs: Date.now() - t0,
+    kind: transient ? 'transient' : 'fail',
+    code, detail, http: res.status, raw: raw.slice(0, 300),
+    hint: transient ? '' : describeError(code), ms: Date.now() - t1,
   };
+}
+
+/**
+ * 判定「值不值得重试」。这是本次接入里最容易做错的一处：
+ * - 403 / 5xx / 3030 / 网络层 / 超时 ⇒ **瞬态**，重试有意义（实测都能靠重试救回来）
+ * - 400 空音频、413 太长、200 但没识别到语音 ⇒ **确定性**失败，
+ *   重试只会让用户多等两轮，把「本来能马上改的行为」拖成「一直转圈」。
+ */
+export function isTransient(status, code, detail, raw) {
+  if (code === 'timeout' || code === 'network') return true;
+  if (status === 403) return true;          // Cloudflare 风控 error code: 1010
+  if (status >= 500) return true;
+  if (/\b3030\b/.test(detail || '')) return true;  // Failed to decode audio file（实测瞬态）
+  if (/error code:\s*1010/.test(raw || '')) return true;
+  return false;
 }
 
 /** 错误码 → 人话。手机端只显示这一句，不显示技术细节。 */
@@ -299,6 +371,11 @@ export function describeError(code) {
     case 'rate_limited': return '识别次数有点多，歇一会儿再试';
     case 'audio_too_long': return '这段说得有点久，我们分开说两段好吗';
     case 'asr_failed': return '没能听清这段录音';
+    // v1.4.1 云端后端（Cloudflare Whisper）的错误码
+    case 'asr_empty': return '没听到说话声，靠近一点再说一次';
+    case 'empty_audio': return '没有录到声音，再试一次好吗';
+    case 'bad_body': return '录音数据没能正确上传';
+    case 'use_post': return '识别请求格式不对';
     case 'encode_failed': return '这段录音没能处理成功';
     case 'network': return '网络好像不太顺';
     case 'timeout': return '识别等太久了';

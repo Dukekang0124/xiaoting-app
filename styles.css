@@ -808,6 +808,11 @@ body.swiping #view{touch-action:none}
   width:100%;max-width:340px;background:var(--bg);border-radius:var(--radius);
   padding:24px 22px 20px;text-align:center;box-shadow:0 18px 50px rgba(90,70,130,.30),0 0 0 1px rgba(184,169,232,.18);
   animation:update-pop .5s cubic-bezier(.22,1.2,.36,1) both;
+  /* v1.4.1：更新说明会随版本累积变长，卡片必须自身可滚动。
+     否则在小屏（360x640 这类）上「立即更新 / 稍后再说」会被挤到视口外 ——
+     强制更新时那就等于**用户关不掉弹窗**，是比"更新失败"严重得多的问题。
+     dvh 而非 vh：移动端浏览器地址栏收缩时 vh 会算大，dvh 才跟实际可视区一致。 */
+  max-height:calc(100dvh - 48px);overflow-y:auto;-webkit-overflow-scrolling:touch;
 }
 .update-ip{position:relative;display:inline-block;margin-bottom:6px}
 .update-ip .mascot{display:block;margin:0 auto}

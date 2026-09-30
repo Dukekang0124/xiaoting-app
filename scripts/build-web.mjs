@@ -17,6 +17,11 @@ const FILES = ['index.html', 'styles.css', 'sw.js', 'manifest.webmanifest'];
 const EXCLUDE = new Set([
   '.git', '.github', '.gitignore', '.wrangler', '.dev.vars', '.env',
   'node_modules', 'android', 'www', 'scripts', '_selftest', 'data', '.workbuddy',
+  // cloudflare/：云端 ASR 的 Pages Functions 工程（部署在 xiaoting-asr.pages.dev），
+  //   它是**服务端**代码，不是 App 静态资产 ⇒ 进包只会白白增大体积，且有误用风险。
+  'cloudflare',
+  // _probe/：临时排障脚本（CF 探测等），用完即弃，不进包也不入库。
+  '_probe',
   'server', 'server.cjs', 'package.json', 'package-lock.json',
   'capacitor.config.json', 'README.md', '.assetsignore', 'apk-icons',
   'android-assets', 'assets', 'keystore', 'apk-dist',

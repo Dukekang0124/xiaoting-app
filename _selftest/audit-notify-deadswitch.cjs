@@ -84,31 +84,52 @@ function note(name, detail) { warn++; findings.push({ name, detail }); console.l
 
   const before = { cls: await page.evaluate(() => document.body.className), html: await page.evaluate(() => document.body.innerHTML.length) };
 
-  const probeSwitch = async (id, label, expectClass) => {
+  /**
+   * 🔴 判据必须落在**这个开关真正影响的那条链路**上，不能拿一个通用信号套所有开关。
+   *   第一版统一用 body.className 当判据 ⇒ ipTouch / ipBubble / setSound 三条**假红**：
+   *   · ipTouch / ipBubble 压根不改 body class，它们改的是**点击 IP 时的行为**（有动画/有气泡）
+   *   · setSound 的下游是 window.ipAudio.setEnabled()（app.js:1817），isEnabled() 才是它的真信号
+   *   ⇒ 假红比不测更糟：会误导人去改一处根本没坏的代码。
+   *   行为级判据（点 IP 看气泡/动画）放在 audit-settings-effective.cjs，这里只查「拨了有没有落库」。
+   */
+  const readStore = (k) => page.evaluate(async (k) => {
+    const st = await import('/js/store.js');
+    return st.getState().user.settings[k];
+  }, k);
+
+  const probeSwitch = async (id, label, opts) => {
+    const o = opts || {};
+    // setIpMotion → ipMotion（🔴 必须把首字母降为小写，否则读成 store.IpMotion 恒 undefined = 假红）
+    const raw = id.replace(/^set/, '');
+    const key = o.key || raw.charAt(0).toLowerCase() + raw.slice(1);
     const el = await page.$(`#${id}`);
     if (!el) { note(`设置项 ${id} 不存在`, 'UI 上没有这个开关'); return; }
-    const clsBefore = await page.evaluate(() => document.body.className);
+    const readSig = o.sig || (() => readStore(key));
+    const sigBefore = await readSig();
     const checkedBefore = await el.isChecked();
     await el.click();
     await page.waitForTimeout(700);
-    const clsAfter = await page.evaluate(() => document.body.className);
+    const sigAfter = await readSig();
     const checkedAfter = await el.isChecked();
-    const storeVal = await page.evaluate(async (k) => {
-      const st = await import('/js/store.js');
-      return st.getState().user.settings[k];
-    }, id.replace(/^set/, (m) => m).replace(/^set/, ''));
-    const changed = clsBefore !== clsAfter;
-    check(`设置项 ${label}（${id}）拨动有副作用`,
-      changed || !!expectClass && clsAfter.includes(expectClass),
-      `body.class ${changed ? '变了' : '没变'}; checked ${checkedBefore}→${checkedAfter}; store=${JSON.stringify(storeVal)}`);
+    const storeVal = await readStore(key);
+    const changed = JSON.stringify(sigBefore) !== JSON.stringify(sigAfter);
+    check(`设置项 ${label}（${id}）拨动在自己链路上有副作用`,
+      changed && storeVal !== undefined,
+      `${o.sigName || 'store'} ${JSON.stringify(sigBefore)} → ${JSON.stringify(sigAfter)}${changed ? '' : '（没变！）'}; checked ${checkedBefore}→${checkedAfter}; store.${key}=${JSON.stringify(storeVal)}`);
     await el.click();
     await page.waitForTimeout(400);
   };
 
-  await probeSwitch('setIpMotion', 'IP 情绪动效', 'ip-motion-off');
+  await probeSwitch('setIpMotion', 'IP 情绪动效', {
+    sig: () => page.evaluate(() => document.body.className), sigName: 'body.class',
+  });
   await probeSwitch('setIpTouch', 'IP 触碰互动');
   await probeSwitch('setIpBubble', '气泡文字');
-  await probeSwitch('setSound', '轻音效');
+  await probeSwitch('setSound', '轻音效', {
+    key: 'soundOn',
+    sig: () => page.evaluate(() => (window.ipAudio ? window.ipAudio.isEnabled() : null)),
+    sigName: 'ipAudio.isEnabled',
+  });
 
   // 动画强度分段控件
   const segBtn = await page.$('#setIpIntensity button[data-v="gentle"]');
@@ -127,33 +148,67 @@ function note(name, detail) { warn++; findings.push({ name, detail }); console.l
   const nt = await page.$('#meNotify');
   check('「我」页存在「允许轻提醒」开关', !!nt, nt ? '' : '未找到 #meNotify');
   if (nt) {
-    const reqBefore = reqs.length;
-    const lsBefore = await page.evaluate(() => JSON.stringify(Object.keys(localStorage).sort()));
-    const txtBefore = await page.evaluate(() => document.body.textContent.length);
-    await nt.click();
-    await page.waitForTimeout(3000); // 给"定时提醒"留出可能出现的时间窗
-    const after = await page.evaluate(async () => {
-      const st = await import('/js/store.js');
+    // v1.4.1：这个开关已从死开关修为真实功能（js/notify.js + @capacitor/local-notifications）。
+    //
+    // 旧判据（"拨动后必须有副作用"）在 Web 端已经**不适用**：Web 根本发不出本地通知，
+    // 硬要求副作用等于逼着前端装作成功 —— 那恰恰会把死开关换成更坏的假开关。
+    // 新契约的核心是**绝不留假象**：
+    //   · 原生端：真的安排每日提醒，开关保持开启
+    //   · 不支持的环境：开关禁用 + 明确说明；万一被拨动，必须有回话并回退为关
+    const supported = await page.evaluate(async () => {
+      const n = await import('/js/notify.js');
+      return await n.isSupported();
+    });
+    const st0 = await page.evaluate(() => {
+      const el = document.getElementById('meNotify');
+      const block = el && el.closest('.mblock');
       return {
-        checked: document.getElementById('meNotify').checked,
-        storeVal: st.getState().user.settings.notify_on,
-        ls: JSON.stringify(Object.keys(localStorage).sort()),
-        txt: document.body.textContent.length,
-        timers: typeof window.__notifyTimers,
+        disabled: el ? el.disabled : null,
+        desc: block ? ((block.querySelector('.mblock__n') || {}).textContent || '') : '',
       };
     });
-    const newReq = reqs.slice(reqBefore).filter((u) => !/\.png|\.css|\.js|\.svg|\.json$/.test(u));
-    const sideEffect = after.ls !== lsBefore || after.txt !== txtBefore || newReq.length > 0;
-    console.log(`\n  「允许轻提醒」拨动后：store.notify_on=${after.storeVal} checked=${after.checked}`);
-    console.log(`    localStorage ${after.ls === lsBefore ? '无变化' : '有变化'}；页面文本长度 ${txtBefore}→${after.txt}；新增非静态请求 ${newReq.length} 个`);
-    check('「允许轻提醒」开关拨动后应有可观测副作用（无则=死开关）', sideEffect,
-      sideEffect ? '' : '拨动 3 秒内：store 只被写入、页面无变化、无网络请求、无定时器 ⇒ 用户拨了等于没拨');
-    if (!sideEffect) {
-      note('死开关：「我」页「允许轻提醒」= 无效控件',
-        '文案承诺「墨小溟会在你习惯的时段，轻轻问候你」，但全仓无 Notification/LocalNotifications 调用、notify_on 零消费');
+    console.log(`\n  notify.isSupported()=${supported}；开关 disabled=${st0.disabled}`);
+    console.log(`    说明文案="${st0.desc}"`);
+
+    // 顺带验「你习惯的时段」不是空话：纯函数，有历史时取众数、无历史给默认 21
+    const hourFn = await page.evaluate(async () => {
+      const n = await import('/js/notify.js');
+      return {
+        empty: n.preferredHour([]),
+        night: n.preferredHour([{ createdAt: new Date(2026, 8, 30, 23, 10).getTime() }, { createdAt: new Date(2026, 8, 29, 23, 40).getTime() }]),
+        mixed: n.preferredHour([
+          { createdAt: new Date(2026, 8, 30, 8, 0).getTime() },
+          { createdAt: new Date(2026, 8, 29, 8, 30).getTime() },
+          { createdAt: new Date(2026, 8, 28, 22, 0).getTime() },
+        ]),
+      };
+    });
+    check('「习惯的时段」取自历史记录（不是写死一个点）', hourFn.mixed === 8 && hourFn.night === 23, JSON.stringify(hourFn));
+    check('无历史时给温和默认值 21 点', hourFn.empty === 21, String(hourFn.empty));
+
+    if (supported) {
+      await nt.click();
+      await page.waitForTimeout(1500);
+      const a = await page.evaluate(async () => {
+        const s = await import('/js/store.js');
+        return { checked: document.getElementById('meNotify').checked, val: s.getState().user.settings.notify_on };
+      });
+      check('原生端：开启后开关保持开启（提醒真的安排上了）', a.checked === true && a.val === true, JSON.stringify(a));
+      await nt.click();
+      await page.waitForTimeout(600);
+    } else {
+      check('不支持的环境：开关被禁用，不让人白拨一次', st0.disabled === true, String(st0.disabled));
+      check('不支持的环境：有明确文字说明，而不是默默什么都不做', /不支持/.test(st0.desc), st0.desc);
+      // 强行启用后拨动：必须回话并回退，绝不留"已开启"的假象
+      await page.evaluate(() => { const el = document.getElementById('meNotify'); if (el) el.disabled = false; });
+      await nt.click();
+      await page.waitForTimeout(1200);
+      const a = await page.evaluate(async () => {
+        const s = await import('/js/store.js');
+        return { checked: document.getElementById('meNotify').checked, val: s.getState().user.settings.notify_on };
+      });
+      check('强行拨动后不留"已开启"假象（回退为关 + 有回话）', a.checked === false && a.val === false, JSON.stringify(a));
     }
-    await nt.click(); // 复位
-    await page.waitForTimeout(300);
   }
 
   // ---------- D. 全局：无未捕获异常 ----------

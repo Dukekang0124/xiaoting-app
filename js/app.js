@@ -19,6 +19,7 @@ import { parseHash, go, onChange } from './router.js';
 import { COPY, greetByHour, findForbidden, pickRiskScript, pickEmotionResponse, pickSilence, pickBy } from './prompts.js';
 import { AI, ASR, isNativeApp } from './config.js';
 import * as memory from './memory.js';
+import * as notify from './notify.js'; // v1.4.1 轻提醒（修复「允许轻提醒」死开关）
 
 const $view = () => document.getElementById('view');
 const $tabbar = () => document.getElementById('tabbar');
@@ -1649,8 +1650,33 @@ function pageMe() {
 function bindMe() {
   const mem = document.getElementById('meMemory');
   if (mem) mem.addEventListener('change', () => store.setSetting('memory_on', mem.checked));
+  // v1.4.1：这个开关以前只 store.setSetting 一下就完了 —— 存了值，但全仓没人读它，
+  // 拨动它什么都不会发生。现在真的同步到系统通知；环境不支持时也要给用户明确回话，
+  // 并把开关拨回去，绝不留一个"开了但没生效"的假象。
   const nt = document.getElementById('meNotify');
-  if (nt) nt.addEventListener('change', () => store.setSetting('notify_on', nt.checked));
+  if (nt) {
+    nt.addEventListener('change', async () => {
+      const on = nt.checked;
+      store.setSetting('notify_on', on);
+      const r = await notify.sync(on);
+      if (r.ok) {
+        store.toast(r.action === 'scheduled' ? `好，每晚 ${r.hour} 点左右轻轻问候你` : '已关闭轻提醒');
+      } else {
+        // 失败就把开关拨回原状：不让 UI 显示"已开启"而实际没有
+        nt.checked = !on;
+        store.setSetting('notify_on', !on);
+        store.toast(r.reason === 'permission_denied' ? '需要允许通知权限才能提醒你' : '当前设备暂时不支持轻提醒');
+      }
+    });
+    // 渲染完再确认一次环境：不支持就地禁用并说明，别让人白拨一次。
+    notify.isSupported().then((ok) => {
+      if (ok || !nt.isConnected) return;
+      nt.disabled = true;
+      const desc = document.querySelector('#meNotify') && nt.closest('.mblock')
+        ? nt.closest('.mblock').querySelector('.mblock__n') : null;
+      if (desc) desc.textContent = '当前环境不支持轻提醒（需安装 App 后使用）。';
+    }).catch(() => {});
+  }
   const cm = document.getElementById('meClearMemory');
   if (cm) cm.addEventListener('click', async () => {
     if (!window.confirm(cw.ME_COPY.memory.clearAll)) return;
@@ -1764,7 +1790,7 @@ function pageSettings() {
       <div class="set-title">重要声明</div>
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.4.0')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.4.1')}</p>
   </section>`;
 }
 
@@ -1919,7 +1945,7 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.4.0')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.4.1')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -1928,7 +1954,7 @@ function pageChangelog() {
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.4.0')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.4.1')}</p>
   </section>`;
 }
 
