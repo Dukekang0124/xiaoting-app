@@ -27,7 +27,10 @@ const { createHash } = require('crypto');
 const { chromium } = require('playwright');
 
 const ORIGIN = process.env.LIVE_ORIGIN || 'https://xiaoting.app.workbuddy.host';
-const OLD_VERSION = process.env.OLD_VERSION || '1.1.4'; // 模拟"手机里装着的那一版"
+// 模拟"手机里装着的那一版"：默认取线上清单里【上一个】发布版本（history[1]），
+// 不再写死 1.1.4（那个版本从未出过包，站内 /apk/ 里没有它的安装包，会让旧包复现断言失败）。
+// 仍可用 OLD_VERSION 环境变量覆盖（例如本地没有上一版包时手动指定一个站内存在的版本）。
+let OLD_VERSION = process.env.OLD_VERSION || '';
 
 let pass = 0;
 let fail = 0;
@@ -50,6 +53,8 @@ const ok = (name, cond, detail) => {
     process.exit(1);
   }
   const latest = live.latest_version;
+  if (!OLD_VERSION && (live.history || [])[1]) OLD_VERSION = (live.history)[1].version;
+  if (!OLD_VERSION) OLD_VERSION = '1.1.9'; // 兜底（首次发布或 history 不足时）
   ok('线上清单 latest_version > 模拟旧包，弹窗前提成立',
     String(latest).localeCompare(OLD_VERSION, undefined, { numeric: true }) > 0,
     `线上 ${latest} vs 壳内 ${OLD_VERSION}`);
@@ -99,6 +104,10 @@ const ok = (name, cond, detail) => {
     const ctx = await browser.newContext({
       viewport: { width: 390, height: 844 }, locale: 'zh-CN', isMobile: true, hasTouch: true,
     });
+    // 阻断 Service Worker：线上 SW 会重新导航/回源，和 Playwright 的文档改写抢时序，
+    // 让弹窗在轮询瞬间被「重载」抹掉 → 假阴性。SW 不参与「版本比较」判定（只缓存资产 +
+    // 旁路 /version.json），阻断它不影响要验证的「旧包→弹窗」逻辑，只让测试变确定。
+    await ctx.route('**/sw.js', (r) => r.abort());
     await ctx.addInitScript(() => {
       // 让页面以为自己在安卓壳里（走 APK 分支 + apiBase() 出绝对基址）
       window.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'android', platform: 'android' };
@@ -166,6 +175,7 @@ const ok = (name, cond, detail) => {
   console.log('\n  —— 站内安装包入口（网页版）——');
   {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: 'zh-CN' });
+    await ctx.route('**/sw.js', (r) => r.abort());
     const page = await ctx.newPage();
     await page.goto(`${ORIGIN}/#/changelog`, { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('#clList', { timeout: 9000 }).catch(() => {});
@@ -194,6 +204,7 @@ const ok = (name, cond, detail) => {
 
     // 壳里必须不显示这个入口（已经装着 App 了，再让下载安装包很奇怪）
     const ctxNat = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: 'zh-CN' });
+    await ctxNat.route('**/sw.js', (r) => r.abort());
     await ctxNat.addInitScript(() => {
       window.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'android', platform: 'android' };
     });
