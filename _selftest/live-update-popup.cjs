@@ -75,7 +75,7 @@ const ok = (name, cond, detail) => {
   const dlUrl = live.download_url || (live.apk && live.apk.url) || '';
   ok('线上清单 download_url 指向站内 /apk/', /\/apk\/.+\.apk$/.test(dlUrl), dlUrl);
   if (dlUrl) {
-    const r = await fetch(dlUrl);
+    const r = await fetch(dlUrl + (dlUrl.includes('?') ? '&' : '?') + 'cb=' + Date.now());
     ok('download_url 可下载（HTTP 200）', r.status === 200, 'HTTP ' + r.status);
     const ct = r.headers.get('content-type') || '';
     const buf = Buffer.from(await r.arrayBuffer());
@@ -100,10 +100,26 @@ const ok = (name, cond, detail) => {
   const browser = await chromium.launch({ channel: 'chrome' });
   const host = new URL(ORIGIN).host;
 
+  // ★ v1.2.0 教训：EdgeOne 对静态资产无 Cache-Control，发版后有小时级窗口，多边缘节点/分桶
+  //   摇摆着吐上一版旧缓存（curl 桶新、页面脚本桶旧；同一 URL 两次请求可能一新一旧）。
+  //   这不影响 APK 用户（资源在壳内），但会让 L3 的「新文案/新行为/别名 md5」断言随机假红。
+  //   解法：所有 js/css 请求统一加唯一 cache-buster query 强制回源 —— 仍是线上真实资源，
+  //   只是绕过 CDN 旧条目。route 规则「后注册优先」：通用 buster 先注册，sw.js 阻断后注册。
+  const CB = `cb${Date.now()}${Math.floor(Math.random() * 1e6)}`;
+  const busterRoute = (route) => {
+    const u = new URL(route.request().url());
+    if (/\.(js|css)$/.test(u.pathname) && !u.searchParams.has('cb')) {
+      u.searchParams.set('cb', CB);
+      return route.continue({ url: u.toString() });
+    }
+    return route.continue();
+  };
+
   async function arm({ rewriteTo, label }) {
     const ctx = await browser.newContext({
       viewport: { width: 390, height: 844 }, locale: 'zh-CN', isMobile: true, hasTouch: true,
     });
+    await ctx.route('**/*', busterRoute);
     // 阻断 Service Worker：线上 SW 会重新导航/回源，和 Playwright 的文档改写抢时序，
     // 让弹窗在轮询瞬间被「重载」抹掉 → 假阴性。SW 不参与「版本比较」判定（只缓存资产 +
     // 旁路 /version.json），阻断它不影响要验证的「旧包→弹窗」逻辑，只让测试变确定。
@@ -162,7 +178,41 @@ const ok = (name, cond, detail) => {
   const B = await arm({ rewriteTo: OLD_VERSION, label: 'old-apk' });
   ok('B·旧包启动即自动弹出更新弹窗', B.shown === true, `shown=${B.shown}`);
   ok('B·弹窗标题版本号 == 线上清单 latest_version', B.info.title.includes(latest), B.info.title);
-  ok('B·走的是 APK 分支文案', B.info.sub.includes('下载并安装'), B.info.sub);
+  ok('B·走的是 APK 分支文案（v1.2 应用内安装指引）', B.info.sub.includes('安装指引'), B.info.sub);
+  // v1.2 行为：APK 点「立即更新」弹应用内安装指引（不甩浏览器）。
+  // 注意：必须和 B 臂一样把壳内版本改写成旧版，否则 1.2.0==latest 不弹窗，指引无从触发。
+  {
+    const ctxG = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: 'zh-CN', isMobile: true, hasTouch: true });
+    await ctxG.route('**/*', busterRoute);
+    await ctxG.route('**/sw.js', (r) => r.abort());
+    await ctxG.route(
+      (url) => url.hostname === host && (url.pathname === '/' || url.pathname === '/index.html'),
+      async (route) => {
+        const res = await route.fetch();
+        let body = await res.text();
+        body = body.replace(/APP_VERSION\s*=\s*'[^']+'/, `APP_VERSION = '${OLD_VERSION}'`);
+        await route.fulfill({ response: res, body });
+      },
+    );
+    await ctxG.addInitScript(() => {
+      window.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'android', platform: 'android' };
+      try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1'); } catch (e) {}
+    });
+    const pageG = await ctxG.newPage();
+    await pageG.goto(`${ORIGIN}/#/say`, { waitUntil: 'domcontentloaded' });
+    await pageG.waitForSelector('.update-overlay', { timeout: 9000 });
+    await pageG.click('#updateNow');
+    let guideShown = true;
+    try { await pageG.waitForSelector('.install-overlay', { timeout: 6000 }); } catch (e) { guideShown = false; }
+    const g = await pageG.evaluate(() => ({
+      title: (document.querySelector('.install-overlay .update-sign') || {}).textContent || '',
+      steps: document.querySelectorAll('.install-steps li').length,
+      start: (document.getElementById('installStart') || {}).textContent || '',
+    }));
+    ok('B·点立即更新 → 应用内安装指引弹窗（v1.2 新行为）', guideShown && g.title.includes('安装指引') && g.steps === 3 && g.start.includes('开始下载'), JSON.stringify(g));
+    await pageG.screenshot({ path: path.join(__dirname, 'shots', 'live-install-guide.png') }).catch(() => {});
+    await ctxG.close();
+  }
   ok('B·弹窗带 release_notes 逐条展示', B.info.notes >= 1, `${B.info.notes} 条`);
   ok('B·有「立即更新」与「稍后再说」', B.info.hasNow && B.info.hasLater, `${B.info.hasNow}/${B.info.hasLater}`);
   ok('B·清单请求走绝对地址（APK 里不打 WebView 本地资产）',
@@ -190,7 +240,7 @@ const ok = (name, cond, detail) => {
       const aliasHit = /\/apk\/xiaoting-latest\.apk$/.test(target);
       ok('入口指向稳定别名（不会随版本号过期）', aliasHit, target);
       if (aliasHit) {
-        const r = await fetch(target);
+        const r = await fetch(target + (target.includes('?') ? '&' : '?') + 'cb=' + Date.now());
         const buf = Buffer.from(await r.arrayBuffer());
         ok('稳定别名可下载且是 APK',
           r.status === 200 && buf.length > 4 && buf.readUInt32LE(0) === 0x04034b50,
