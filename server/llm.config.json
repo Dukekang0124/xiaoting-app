@@ -1,0 +1,138 @@
+{
+  "_readme": [
+    "墨小溟 · 内部模型配置与调度（后端核心机制，不对用户展示）",
+    "本文件只放『结构性配置』：模型名、优先级、超时、重试、降级触发条件。",
+    "任何 API Key 都不在这里 —— 密钥只走 密钥文件 / 环境变量（见 providers.*.keysFile / keysEnv）。",
+    "环境变量覆盖（部署时不改代码）：LLM_CONFIG_FILE / ZHIPU_KEYS_JSON / LLM_ENABLE_PROVIDERS /",
+    "  LLM_DISABLE_PROVIDERS / LLM_TIER_<MODULE>（如 LLM_TIER_analysis=zhipu:glm-4-flash,workbuddy:glm-5.0）"
+  ],
+  "version": 1,
+
+  "defaults": {
+    "timeoutMs": 12000,
+    "attempts": 2,
+    "backoffMs": 250,
+    "temperature": 0.3,
+    "maxInputChars": 4000
+  },
+
+  "providers": {
+    "zhipu": {
+      "label": "智谱直连",
+      "kind": "openai-compatible",
+      "endpoint": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+      "authHeader": "Authorization",
+      "authPrefix": "Bearer ",
+      "keysFile": "server/model.keys.json",
+      "keysEnv": "ZHIPU_KEYS_JSON",
+      "timeoutMs": 12000,
+      "models": {
+        "glm-5.2": {
+          "keyRef": "glm-5.2",
+          "enabled": false,
+          "timeoutMs": 15000,
+          "note": "用户点名档位 1。实测：模型存在，但当前账号返回 429/1113『余额不足或无可用资源包』，且其配套 key 已 401 失效 ⇒ 默认封禁。充值并在 keysFile 填好可用 key 后把 enabled 改 true 即生效，无需改代码。"
+        },
+        "glm-4.7-flash": {
+          "keyRef": "glm-4.7-flash",
+          "enabled": true,
+          "timeoutMs": 4000,
+          "note": "用户点名档位 2。模型真实存在。实测：1305『访问量过大』限流频发，偶尔放行但单次耗时 20.8s ⇒ 给 4s 短超时，超时即降级，避免把主力延迟拖垮。"
+        },
+        "glm-4-flash": {
+          "keyRef": "glm-4-flash",
+          "enabled": true,
+          "timeoutMs": 10000,
+          "note": "用户点名兜底模型。实测：稳定 0.6-0.9s，json_object 与 stream 均支持 ⇒ 智谱侧真正能扛流量的就是它。"
+        }
+      }
+    },
+    "workbuddy": {
+      "label": "WorkBuddy 云服务免密钥网关",
+      "kind": "workbuddy-gateway",
+      "endpoint": "https://xiaoting.app.workbuddy.host",
+      "path": "/.cloud/llm/chat/completions",
+      "publishableKey": "wbpk_UIbhopeTjkEWVQhMQ0Q0Ia_qOJRuVD4iBCKnctk4ks1e7G1YT9H3NWS",
+      "authHeader": "x-wb-webapp-access-key",
+      "authPrefix": "",
+      "timeoutMs": 15000,
+      "streamOnly": true,
+      "models": {
+        "glm-5.0": { "enabled": true, "note": "实测 5.5-6.1s，追问质量最好；主分析第一顺位靠它。" },
+        "deepseek-v4.1-flash": { "enabled": true, "note": "实测 1.8-3.1s，最快；安全识别第一顺位。" },
+        "hunyuan-chat": { "enabled": true, "note": "实测 1.7-3.0s，第三个可用项。" }
+      }
+    }
+  },
+
+  "tiers": {
+    "default": ["workbuddy:deepseek-v4.1-flash", "workbuddy:glm-5.0", "zhipu:glm-4-flash"]
+  },
+
+  "modules": {
+    "safety": {
+      "tier": ["zhipu:glm-4-flash", "workbuddy:deepseek-v4.1-flash", "workbuddy:glm-5.0"],
+      "timeoutMs": 8000,
+      "temperature": 0,
+      "attempts": 1,
+      "note": "安全识别要的是「快 + 高召回」，且失败必须保守兜底。放最稳的免费档打头，避免把一次风险判断耗在限流重试上。"
+    },
+    "analysis": {
+      "tier": ["zhipu:glm-4.7-flash", "zhipu:glm-4-flash", "workbuddy:glm-5.0", "workbuddy:deepseek-v4.1-flash"],
+      "temperature": 0.3,
+      "note": "主分析：先试用户点名的 4.7-flash（4s 短超时，限流就立刻降），再走免费档，最后回实测最稳的网关。"
+    },
+    "followup": {
+      "tier": ["zhipu:glm-4.7-flash", "zhipu:glm-4-flash", "workbuddy:glm-5.0"],
+      "temperature": 0.5,
+      "note": "追问质量是产品命门，保持与主分析同源优先序。"
+    },
+    "card": {
+      "tier": ["zhipu:glm-4.7-flash", "zhipu:glm-4-flash", "workbuddy:glm-5.0"],
+      "temperature": 0.4
+    },
+    "timeline": {
+      "tier": ["zhipu:glm-4.7-flash", "zhipu:glm-4-flash", "workbuddy:glm-5.0"],
+      "temperature": 0.4,
+      "timeoutMs": 15000
+    },
+    "weekly": {
+      "tier": ["zhipu:glm-4-flash", "workbuddy:glm-5.0"],
+      "temperature": 0.4,
+      "timeoutMs": 20000
+    },
+    "asr_cleanup": {
+      "tier": ["zhipu:glm-4-flash"],
+      "enabled": false,
+      "temperature": 0,
+      "timeoutMs": 4000,
+      "note": "可选：识别结果的口语顺句/错别字纠正。默认关闭 —— 对情绪产品，用户原话本身就是证据，改写它有风险，且每次输入要多花约 0.6s。"
+    }
+  },
+
+  "degradeOn": {
+    "codes": [
+      "http_400", "http_401", "http_403", "http_404", "http_408", "http_409",
+      "http_429", "http_5xx", "network", "timeout", "abort",
+      "model_not_found", "no_key", "quota_exhausted", "rate_limited",
+      "empty_response", "json_parse_failed", "reasoning_only", "output_truncated",
+      "unsupported_parameter"
+    ],
+    "note": "命中即换下一档。http_400 也在列：实测网关上 glm-4.7 对合法请求直接返回 request_invalid_parameter —— 那是模型侧不认参数，换模型就能解决，属于可降级。"
+  },
+
+  "retry": {
+    "perModel": 2,
+    "onlyCodes": ["http_429", "http_5xx", "network", "timeout", "abort", "rate_limited"],
+    "backoffMs": 250,
+    "note": "只对『瞬时故障』在同一模型上重试；参数类错误（400/模型不存在/无 key）重试没有意义，直接换档。"
+  },
+
+  "logging": {
+    "dir": "server/logs",
+    "filePrefix": "llm-",
+    "keepDays": 14,
+    "logRawText": false,
+    "note": "日志含模型名/耗时/降级标记/失败原因/模块名，但不含用户正文 —— 主打敢说真话的产品，自己的日志不能成为泄露源。"
+  }
+}

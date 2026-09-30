@@ -33,12 +33,16 @@ const path = require('node:path');
 const ROOT = __dirname;
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
-const VERSION = '1.1.3';
+const VERSION = '1.1.4';
 
 /* ==================== 静态资源白名单 ==================== */
 
 const PUBLIC_FILES = new Set([
   '/index.html', '/styles.css', '/sw.js', '/manifest.webmanifest', '/favicon.ico',
+  // '/version.json'（v1.1.4）：静态版本清单。必须与后端 /api/version/latest 同源可达，
+  // 理由见 js/update.js 顶部——APK 里读不到后端时就靠它。本地放行它，是为了让
+  // "走静态清单"这条分支在自测里能真跑（否则本地行为与线上不一致，等于没测）。
+  '/version.json',
 ]);
 // '/vendor/'（v1.1.3）：云服务 SDK 的随包副本。之前只有 /js/ /icons/ /assets/，
 // 加了 vendor/ 却忘了开白名单 ⇒ 本地副本 404 ⇒ SDK 静默回退 CDN ⇒ 一旦外网不可达整条 AI 链路降级。
@@ -69,6 +73,10 @@ function resolvePublic(pathname) {
   if (pathname === '/' || p === '/') p = '/index.html';
   if (!p.startsWith('/') || p.includes('\0') || p.includes('..')) return null;
   if (!PUBLIC_FILES.has(p) && !PUBLIC_PREFIXES.some((d) => p.startsWith(d))) return null;
+  // '/version.json'（v1.1.4）：线上是构建产物 www/version.json，本地没有这个根级文件。
+  // 这里直接映到单一真相源 server/version.json —— 不复制副本，本地与线上行为因此完全一致，
+  // 「走静态清单」这条分支才可能在自测里被真跑（否则本地 404、线上 200，等于没测）。
+  if (p === '/version.json') return path.join(ROOT, 'server', 'version.json');
   const abs = path.join(ROOT, p);
   // 双保险：解析后仍必须在项目目录内（防符号链接/拼接绕过）
   if (abs !== ROOT && !abs.startsWith(ROOT + path.sep)) return null;
@@ -238,8 +246,11 @@ function loadKeys() {
 
 /* ==================== 百度 ASR ==================== */
 
-const BAIDU_TOKEN_URL = 'https://aip.baidubce.com/oauth/2.0/token';
-const BAIDU_ASR_URL = 'https://vop.baidu.com/server_api';
+// 两个地址留了环境变量出口：默认值就是生产值，不改行为；但有了它，
+// /api/asr 这条链路才能被端到端真跑（把两个 URL 指向本地桩，验证「识别成功 → 可选顺句 → 返回」
+// 这条接线真的通，而不是只能靠读代码推断）。没有这个出口，缺少百度密钥的机器上这段就永远测不到。
+const BAIDU_TOKEN_URL = process.env.ASR_TOKEN_URL || 'https://aip.baidubce.com/oauth/2.0/token';
+const BAIDU_ASR_URL = process.env.ASR_API_URL || 'https://vop.baidu.com/server_api';
 const DEV_PID = { zh: 1537, en: 1737 };
 const MAX_B64_LEN = 3_000_000; // 16kHz/16bit 单声道 ≈ 32KB/秒，base64 后 55 秒 ≈ 2.4MB
 
@@ -335,12 +346,25 @@ async function handleAsr(req, res) {
     }
     j = await r.json().catch(() => null);
     if (j && j.err_no === 0) {
-      return sendJson(res, 200, {
+      const rawText = (j.result || []).join(' ').trim();
+      // 可选的一步：顺句。asr_cleanup 默认关闭 ⇒ isModuleEnabled 直接短路，零成本、响应结构也不变。
+      // 开启后若模型失败/被护栏拒绝，一律保留原文 —— 一个可选步骤不该把「识别成功」拖成失败。
+      const c = await asrCleanup(rawText);
+      const out = {
         ok: true,
-        text: (j.result || []).join(' ').trim(),
+        text: c.applied ? c.text : rawText,
         engine: 'baidu',
         ms: Date.now() - t0,
-      });
+      };
+      if (c.applied) {
+        // 顺句生效时把原文一并给出：对情绪产品，用户原话是证据，不能因为顺过一次句就丢掉。
+        out.text_raw = rawText;
+        out.cleanup = { applied: true, model: c.model || '', ms: c.ms || 0, ratio: c.ratio, degraded: !!c.degraded };
+      } else if (c.reason && c.reason !== 'module_disabled' && c.reason !== 'empty') {
+        // 开着但没采纳（模型失败或被护栏拦下）也要留痕，否则"为什么没顺句"无从追问。
+        out.cleanup = { applied: false, reason: c.reason, model: c.model || '', ms: c.ms || 0 };
+      }
+      return sendJson(res, 200, out);
     }
     if (!j || !RETRIABLE.has(j.err_no)) break;
     await sleep(300 * 2 ** attempt); // 300ms, 600ms
@@ -553,6 +577,111 @@ function handleVersionHistory(req, res) {
   });
 }
 
+/* ==================== 内部模型调度（v1.1.4：后端核心机制） ====================
+ *
+ * 为什么这一段的每个端点都带前缀 /api/llm/ 却「不对用户展示」：
+ *   · /api/llm       —— 前端唯一入口，但它只传模块名，不传模型名 ⇒ 换模型不用改前端、不用重发版；
+ *   · /api/llm/config—— 配置脱敏快照，给运维/审计看「现在跑的是哪套规则」，一个字符的 key 都不带出去；
+ *   · /api/llm/stats —— 调用日志聚合（哪个模型、多少毫秒、降级率）。
+ * 密钥只在路由层内存里，永远不经过 sendJson 出去。
+ */
+
+const llmRouter = require('./server/llm-router.cjs');
+// ASR 文本顺句（可选模块 asr_cleanup，默认关闭）。做成依赖注入是为了可被桩替换 —— 没有百度
+// 密钥的机器上 /api/asr 只会返回 503，若把逻辑内联在这里，那段分支就永远得不到验证。
+const { createAsrCleanup } = require('./server/asr-cleanup.cjs');
+const asrCleanup = createAsrCleanup(llmRouter);
+
+const LLM_MAX_BODY = 256 * 1024; // 单次请求体上限：Prompt 再长也不该超过这个数
+
+function readBody(req, limit = LLM_MAX_BODY) {
+  return new Promise((resolve, reject) => {
+    let n = 0;
+    const chunks = [];
+    req.on('data', (c) => {
+      n += c.length;
+      if (n > limit) { reject(new Error('body_too_large')); req.destroy(); return; }
+      chunks.push(c);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
+}
+
+// 模块名白名单：不允许前端凭空指定一个模块名去打模型（那也是种越权）
+const LLM_MODULES = ['default', 'safety', 'analysis', 'followup', 'card', 'timeline', 'weekly', 'asr_cleanup'];
+
+async function handleLlm(req, res) {
+  if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'use_post' });
+  // 🔴 同源门禁（与 /api/asr、/api/events 一致）。
+  // 为什么必须加：这个端点会**真花钱**调模型。没有门禁时，任何网页/脚本都能拿它当免费额度池，
+  // 实测过：`Origin: https://evil.example` 打进来返回 200 且真调用了模型。
+  // 代价是原生容器（页面在 https://localhost、请求打绝对基址）会被判为异源 —— 但那是**全局性**问题
+  // （/api/asr 同样如此，真机才改用设备识别），该整体解决，不该靠给单个端点开洞来绕过。
+  if (!sameOrigin(req)) return sendJson(res, 403, { ok: false, error: 'origin_not_allowed' });
+
+  let payload;
+  try {
+    const raw = await readBody(req);
+    payload = JSON.parse(raw || '{}');
+  } catch (e) {
+    return sendJson(res, 400, { ok: false, error: 'bad_json' });
+  }
+
+  const module = LLM_MODULES.includes(payload.module) ? payload.module : 'default';
+  const system = typeof payload.system === 'string' ? payload.system : '';
+  const user = typeof payload.user === 'string' ? payload.user : '';
+  if (!user.trim()) return sendJson(res, 400, { ok: false, error: 'empty_user' });
+
+  const maxChars = (llmRouter.loadConfig().defaults || {}).maxInputChars || 4000;
+  const r = await llmRouter.route({
+    module,
+    system,
+    user: user.slice(0, maxChars),
+    json: !!payload.json,
+    temperature: typeof payload.temperature === 'number' ? payload.temperature : undefined,
+    maxTokens: typeof payload.maxTokens === 'number' ? payload.maxTokens : undefined,
+    timeoutMs: typeof payload.timeoutMs === 'number' ? payload.timeoutMs : undefined,
+  });
+
+  // 回给前端的结构里**没有** provider 的 endpoint 与 key，只有「用了谁、降了几档」这类可观测信息
+  return sendJson(res, 200, {
+    ok: !!r.ok,
+    text: r.text || '',
+    model: r.model || '',
+    channel: r.provider || '',
+    degraded: !!r.degraded,
+    attempts: r.attempts || 0,
+    ms: r.ms || 0,
+    code: r.code || '',
+    // tried[] 带上 provider：失败轨迹要能回答「是智谱挂了还是网关挂了」。
+    // provider id / endpoint 本就在无需鉴权的 /api/llm/config 里可见，这里补回不新增任何暴露面。
+    tried: (r.tried || []).map((t) => ({ provider: t.provider, model: t.model, ok: t.ok, code: t.code, ms: t.ms, attempt: t.attempt })),
+  });
+}
+
+function handleLlmConfig(req, res) {
+  return sendJson(res, 200, { ok: true, ...llmRouter.inspectConfig() });
+}
+
+function handleLlmStats(req, res, url) {
+  const n = Math.min(60, Math.max(1, Number(url.searchParams.get('recent') || 20)));
+  return sendJson(res, 200, { ok: true, stats: llmRouter.stats(), recent: llmRouter.recent(n) });
+}
+
+async function handleLlmPing(req, res, url) {
+  // 探活会真打模型（花额度、也制造线上噪声），属于运维动作：
+  // 不放在公开路径上无条件可跑，与 /api/stats 同一把钥匙。未配置 STATS_KEY 时一律不可用。
+  const key = (url && url.searchParams.get('key')) || '';
+  const STATS_KEY = process.env.STATS_KEY || '';
+  if (!STATS_KEY || key !== STATS_KEY) return sendJson(res, 404, { ok: false, error: 'not_found' });
+  let payload = {};
+  try { payload = JSON.parse((await readBody(req, 4096)) || '{}'); } catch (e) { /* 允许空 body */ }
+  const module = LLM_MODULES.includes(payload.module) ? payload.module : 'safety';
+  const results = await llmRouter.ping(module);
+  return sendJson(res, 200, { ok: true, module, results });
+}
+
 /* ==================== 入口 ==================== */
 
 const server = http.createServer(async (req, res) => {
@@ -575,6 +704,14 @@ const server = http.createServer(async (req, res) => {
         return await handleEvents(req, res);
       }
       if (p === '/api/stats') return await handleStats(req, res, url);
+      // 内部模型调度（后端核心机制，不对用户展示）
+      if (p === '/api/llm') return await handleLlm(req, res);
+      if (p === '/api/llm/config') return handleLlmConfig(req, res);
+      if (p === '/api/llm/stats') return handleLlmStats(req, res, url);
+      if (p === '/api/llm/ping') {
+        if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'use_post' });
+        return await handleLlmPing(req, res, url);
+      }
       return sendJson(res, 404, { ok: false, error: 'no_such_api' });
     }
     if (req.method !== 'GET' && req.method !== 'HEAD') return sendText(res, 405, 'method not allowed');

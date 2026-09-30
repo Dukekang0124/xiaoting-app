@@ -6,6 +6,8 @@ cap_add.log
 keystore.jks
 *.jks
 server/asr.keys.json
+server/model.keys.json
+server/logs/
 *.keystore
 .wrangler/
 .DS_Store

@@ -1560,6 +1560,24 @@ const MOCK_SDK = `(function(){
   });
   let directHits = 0;
   await ctx2.route('https://xiaoting.app.workbuddy.host/**', (route) => { directHits++; route.abort(); });
+  // v1.1.4：前端多了一条「自建模型调度通道」，且它**优先于**免密钥网关被调用（见 js/llm.js callSelf）。
+  // 如果这里不接住 /api/llm，请求会打到真服务并成功 ⇒ MOCK_SDK 永远不会加载 ⇒
+  // window.__llmCalls 是 undefined ⇒ G 段第一条断言就崩成「Cannot read properties of undefined」，
+  // 而且崩得让人看不出原因（跟 v1.1.3 SDK 只接 CDN 那次是同一类坑）。
+  //
+  // 为什么回「200 + 结构不符」而不是 404：
+  //   · 语义上两者等价 —— callSelf 里 404/405/501 与「结构不符」都让通道置为 down，
+  //     于是 providerName() 回到 'cloud'，正是第 1654 行那条断言要的状态；
+  //   · 但 Chrome 对任何 4xx 响应都会往 console 记一条 "Failed to load resource"，
+  //     而本上下文有「无页面 JS 错误」护栏 —— 用 404 会让一条无关噪音把护栏判红。
+  // 顺带这也覆盖了「后端在、但回的格式不认」这条分支（自通道的两个失败面各自被真跑覆盖：
+  //   404 未部署 → _selftest/llm-front-self-channel.cjs 的 B 段；结构不符 → 本段与 C 段）。
+  // （其他上下文用 xiaoting:ai='mock'，会在 forcedMock() 处提前返回，走不到这里，无需重复接。）
+  let selfChannelHits = 0;
+  await ctx2.route('**/api/llm', (route) => {
+    selfChannelHits++;
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ hello: 'not the llm contract' }) });
+  });
   // 自建 ASR 端点走替身：主自测必须在断网环境下也能确定性地跑完闭环，
   // 不能因为"这个环境连不上识别服务"就把最小闭环测红。真实识别在 _selftest/asr-e2e.cjs 里真跑。
   let asrCalls = 0;
@@ -1618,6 +1636,9 @@ const MOCK_SDK = `(function(){
   console.log('  [diag] catalog=' + G1.catalogSize + ' ranking=' + JSON.stringify(G1.ranking) + ' readyHint=' + readyHint + ' lastError=' + JSON.stringify(G1.debug.lastError));
 
   check('AI·SDK 优先从随包本地副本加载（不依赖外网 CDN）', sdkServedFrom === 'local', sdkServedFrom || '未加载');
+  // 护栏：自建通道必须被替身桩接住。若这条红了，说明它抢在替身之前打到了真服务 ——
+  // 那么下面所有"真实管线契约"断言其实都在测别人，结论全部作废。宁可在这里明确红一条，也不要崩成 undefined。
+  check('AI·自建调度通道被替身桩接住（未抢走替身请求）', selfChannelHits >= 1 && Array.isArray(G1.calls), `selfChannelHits=${selfChannelHits} calls=${Array.isArray(G1.calls) ? G1.calls.length : 'N/A'}`);
   check('AI·SDK 用 publicConfig 的 endpoint 初始化', !!G1.config && G1.config.endpoint === 'https://xiaoting.app.workbuddy.host', G1.config ? G1.config.endpoint : 'no config');
   check('AI·publishableKey 取自 publicConfig', !!(G1.config && /^wbpk_/.test(G1.config.publishableKey)), G1.config ? G1.config.publishableKey.slice(0, 9) + '…' : '');
   const MISSING = ['safety', 'main', 'followup', 'card', 'weekly'].filter((s) => !stages.includes(s));

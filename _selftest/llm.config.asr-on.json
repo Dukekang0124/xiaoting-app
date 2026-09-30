@@ -1,0 +1,37 @@
+{
+  "_readme": "ASR 顺句接线验证专用配置：把 asr_cleanup 打开，并把它指向本地桩 provider（确定性，不依赖真模型输出）。不进生产。",
+  "version": 0,
+
+  "defaults": { "timeoutMs": 5000, "attempts": 1, "backoffMs": 30, "temperature": 0, "maxInputChars": 2000 },
+
+  "providers": {
+    "aistub": {
+      "label": "顺句模型桩（本地）",
+      "kind": "openai-compatible",
+      "endpoint": "http://127.0.0.1:4210/v1/chat/completions",
+      "authHeader": "Authorization",
+      "authPrefix": "Bearer ",
+      "keysFile": "server/model.keys.json",
+      "timeoutMs": 3000,
+      "models": {
+        "cleaner": { "keyRef": "__default", "enabled": true, "attempts": 1, "timeoutMs": 3000 }
+      }
+    }
+  },
+
+  "tiers": { "default": ["aistub:cleaner"] },
+
+  "modules": {
+    "asr_cleanup": {
+      "tier": ["aistub:cleaner"],
+      "enabled": true,
+      "temperature": 0,
+      "timeoutMs": 3000
+    }
+  },
+
+  "degradeOn": { "codes": ["http_400","http_401","http_429","http_5xx","network","timeout","abort","empty_response","json_parse_failed","output_truncated"] },
+  "retry": { "perModel": 1, "onlyCodes": ["network","timeout"], "backoffMs": 30 },
+
+  "logging": { "dir": "server/logs/_selftest", "filePrefix": "llm-asrwire-", "logRawText": false }
+}

@@ -1,0 +1,37 @@
+{
+  "_readme": "ASR 顺句接线验证 · 坏路径专用配置：asr_cleanup 开启，但它指向一个无人监听的端口 —— 用来证明「顺句失败不会连累识别结果」。不进生产。",
+  "version": 0,
+
+  "defaults": { "timeoutMs": 2000, "attempts": 1, "backoffMs": 30, "temperature": 0, "maxInputChars": 2000 },
+
+  "providers": {
+    "deadai": {
+      "label": "顺句模型·必然连不上（自测桩）",
+      "kind": "openai-compatible",
+      "endpoint": "http://127.0.0.1:4199/definitely-not-listening",
+      "authHeader": "Authorization",
+      "authPrefix": "Bearer ",
+      "keysFile": "server/model.keys.json",
+      "timeoutMs": 1500,
+      "models": {
+        "cleaner": { "keyRef": "__default", "enabled": true, "attempts": 1, "timeoutMs": 1500 }
+      }
+    }
+  },
+
+  "tiers": { "default": ["deadai:cleaner"] },
+
+  "modules": {
+    "asr_cleanup": {
+      "tier": ["deadai:cleaner"],
+      "enabled": true,
+      "temperature": 0,
+      "timeoutMs": 1500
+    }
+  },
+
+  "degradeOn": { "codes": ["http_400","http_401","http_429","http_5xx","network","timeout","abort","empty_response","json_parse_failed","output_truncated"] },
+  "retry": { "perModel": 1, "onlyCodes": ["network","timeout"], "backoffMs": 30 },
+
+  "logging": { "dir": "server/logs/_selftest", "filePrefix": "llm-asrbad-", "logRawText": false }
+}

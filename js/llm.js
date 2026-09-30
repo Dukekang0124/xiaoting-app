@@ -10,7 +10,7 @@
 //   3. 全程记 trace，供自测与线上排查拿到「哪一步、什么错误码、原文长什么样」。
 //   4. 模型目录里绝大多数是「只思考」模型（onlyReasoning），对短结构化任务是纯延迟 —— 必须选型。
 
-import { CLOUD, SDK_URL, SDK_URL_FALLBACK, AI, AI_OVERRIDE_KEY } from './config.js';
+import { CLOUD, SDK_URL, SDK_URL_FALLBACK, AI, AI_OVERRIDE_KEY, apiBase } from './config.js';
 import * as diag from './diag.js';
 
 const trace = [];
@@ -35,17 +35,87 @@ function forcedMock() {
 export function providerName() {
   if (!AI.enabled) return 'mock';
   if (forcedMock()) return 'mock';
-  return client ? 'cloud' : 'cloud-pending';
+  if (selfChannel.state === 'up') return 'self';        // 自建调度服务在跑
+  if (client) return 'cloud';                            // 免密钥网关
+  return selfChannel.state === 'down' ? 'cloud-pending' : 'pending';
 }
 
-/** 是否已具备真实模型调用能力 */
+/** 是否已具备真实模型调用能力（自建调度服务也算） */
 export function isReal() {
-  return AI.enabled && !forcedMock() && !!client;
+  return AI.enabled && !forcedMock() && (!!client || selfChannel.state === 'up');
+}
+
+/* ==================== 自建模型调度通道（v1.1.4） ====================
+ *
+ * 与下面「云服务免密钥网关」是并列的两条模型通道，本通道优先。
+ *
+ * 为什么要它：
+ *   网关是免密钥的，代价是「用哪个模型、失败怎么办」全写死在前端代码里 —— 想换一个优先级
+ *   就要改代码 + 重新发版 + 重新出 APK。这一通道把那些决策搬到服务端配置（server/llm.config.json），
+ *   前端只说「我要做哪个模块的事」，密钥也永远不进浏览器。
+ *
+ * 最小侵入：对外仍然只是 call()，返回值结构不变，只多一个 channel 字段。
+ *   ⇒ js/api.js 的业务管线一行都不用改；网关通道原样保留，作为本通道不可用时的兜底。
+ *
+ * 不可用时（后端未部署 / 404 / 网络错）会记住状态并跳过，不为此每轮多付一次往返。
+ */
+const MODULE_MAP = { main: 'analysis' };   // 前端 stage 名 → 服务端模块名
+const selfChannel = { state: 'unknown', checkedAt: 0, lastError: null, model: '', degraded: false };
+
+export function selfChannelState() { return { ...selfChannel }; }
+export function resetSelfChannel() { selfChannel.state = 'unknown'; selfChannel.checkedAt = 0; selfChannel.lastError = null; return true; }
+
+async function callSelf({ stage, system, user, temperature, maxTokens, json }) {
+  if (selfChannel.state === 'down' && Date.now() - selfChannel.checkedAt < 60000) return null;
+  const module = MODULE_MAP[stage] || stage || 'default';
+  const t0 = Date.now();
+  try {
+    const res = await fetch(apiBase() + '/api/llm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ module, system, user, json: !!json, temperature, maxTokens }),
+    });
+    // 后端没部署时这里是 404 / 501（静态托管），不是"模型挂了"—— 与模型错误分开处理
+    if (res.status === 404 || res.status === 405 || res.status === 501) {
+      selfChannel.state = 'down'; selfChannel.checkedAt = Date.now();
+      selfChannel.lastError = { code: 'self_channel_absent', message: '自建模型调度服务未部署' };
+      diag.note('llm', 'self', { ok: false, code: 'self_channel_absent', detail: `后端未提供 /api/llm（http=${res.status}）→ 本通道停用，回落免密钥网关` });
+      return null;
+    }
+    const j = await res.json().catch(() => null);
+    if (!j || typeof j.ok !== 'boolean') {
+      selfChannel.state = 'down'; selfChannel.checkedAt = Date.now();
+      // 与「未部署」区分开：后端在、但回的东西不认。排障时这两件事的处理方式完全不同。
+      selfChannel.lastError = { code: 'self_channel_bad_response', message: '自建服务返回结构不符合契约' };
+      diag.note('llm', 'self', { ok: false, code: 'self_channel_bad_response', detail: '自建服务返回结构不符合契约 → 本通道停用' });
+      return null;
+    }
+    selfChannel.state = 'up';
+    selfChannel.model = j.model || '';
+    selfChannel.degraded = !!j.degraded;
+    selfChannel.lastError = j.ok ? null : { code: j.code || 'unknown' };
+    diag.note('llm', 'self', {
+      ok: !!j.ok,
+      code: j.ok ? '' : (j.code || 'unknown'),
+      model: j.model || '',
+      ms: Date.now() - t0,
+      detail: `module=${module} 通道=自建调度 降级=${j.degraded ? '是' : '否'} 尝试${j.attempts || 1}次` +
+        (j.tried && j.tried.length > 1 ? ` 链路=${j.tried.map((x) => x.model + (x.ok ? '✓' : '✗' + (x.code || ''))).join(' → ')}` : ''),
+      raw: j.text || '',
+    });
+    return { ok: !!j.ok, text: j.text || '', model: j.model || '', code: j.code || '', channel: 'self', degraded: !!j.degraded, tried: j.tried || [] };
+  } catch (e) {
+    // 网络层失败：也可能只是这台机器连不上后端，不写入长期状态太绝对，但仍降一档冷却
+    selfChannel.state = 'down'; selfChannel.checkedAt = Date.now();
+    selfChannel.lastError = { code: 'self_channel_unreachable', message: String((e && e.message) || e).slice(0, 120) };
+    diag.note('llm', 'self', { ok: false, code: 'self_channel_unreachable', detail: `连不上自建调度服务（${selfChannel.lastError.message}）→ 本通道停用，回落免密钥网关` });
+    return null;
+  }
 }
 
 /** 自测 / 排查用：不做业务副作用，可安全反复调用 */
 export function debug() {
-  return { provider: providerName(), real: isReal(), model: lastUsedModel, lastError, trace: trace.slice(-30) };
+  return { provider: providerName(), real: isReal(), model: lastUsedModel, lastError, selfChannel: { ...selfChannel }, trace: trace.slice(-30) };
 }
 
 export function stats() {
@@ -368,6 +438,21 @@ export async function call({ stage = 'llm', system, user, temperature = 0.3, max
   };
 
   if (!AI.enabled || forcedMock()) { record(false, 'provider_mock', 0, ''); return { ok: false, code: 'provider_mock' }; }
+
+  // ① 自建模型调度服务优先：模型名/优先级/超时/重试全在服务端配置里，密钥不进浏览器。
+  //    返回 null = 这条通道不可用（未部署/连不上），静默回落到下面的免密钥网关 —— 用户无感。
+  const self = await callSelf({ stage, system, user, temperature, maxTokens, json });
+  if (self && self.ok) {
+    readyState = true;
+    lastUsedModel = self.model;
+    record(true, 'ok', (self.text || '').length, self.model);
+    return { ok: true, text: self.text, model: self.model, channel: 'self', degraded: self.degraded, tried: self.tried };
+  }
+  if (self && !self.ok) {
+    // 自建服务明确回了失败（已按配置把整条链试完）→ 留一笔，继续走网关兜底。
+    // 网关也失败时，最终错误码以网关为准（api.js 的三层兜底只认最后一跳）。
+    record(false, 'self_' + (self.code || 'failed'), (self.text || '').length, self.model || '');
+  }
 
   const ranking = await modelRanking(tier);
   if (!ranking.length) {

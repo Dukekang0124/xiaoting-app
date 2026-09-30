@@ -1,0 +1,15 @@
+{
+  "_readme": "示例文件 —— 真正的密钥文件是 server/model.keys.json（已被 .gitignore 忽略，永不进 git）。",
+  "_usage": "复制成 server/model.keys.json 后填入真实 key；或用环境变量 ZHIPU_KEYS_JSON 传入同样结构的 JSON（部署环境优先用后者）。",
+  "_structure": {
+    "defaultKey": "该厂商的兜底 key：模型没单独配 keyRef 时用它",
+    "keys": "按模型的 keyRef 索引。注意智谱的 key 是【账号级】的，一把 key 可调该账号下所有模型，所以通常三行填同一把即可。"
+  },
+
+  "defaultKey": "填入你的智谱 API Key",
+  "keys": {
+    "glm-5.2": "填入你的智谱 API Key",
+    "glm-4.7-flash": "填入你的智谱 API Key",
+    "glm-4-flash": "填入你的智谱 API Key"
+  }
+}

@@ -1,24 +1,37 @@
 {
-  "latest_version": "1.1.3",
+  "latest_version": "1.1.4",
   "force_update": false,
-  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.3-release.apk",
+  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.4-release.apk",
   "web_url": "https://xiaoting.app.workbuddy.host/#/say",
   "apk": {
-    "versionCode": 10103,
-    "version": "1.1.3",
-    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.3-release.apk",
-    "md5": "976fa4829489b51441ca13c896de0821",
-    "size": 3359280,
+    "versionCode": 10104,
+    "version": "1.1.4",
+    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.1.4-release.apk",
+    "md5": "",
+    "size": 0,
     "force": false
   },
   "release_notes": [
-    "新增「链路诊断」页：每一步都带时间戳记下来——麦克风录到多少字节、识别用了多久什么错误码、安全识别放行还是拦截、主分析用哪个模型多久返回了什么 JSON",
-    "诊断页内置「跑一次真实链路」按钮，当场把语音→识别→安全→主分析→追问→卡片整条链路真跑一遍给你看",
-    "AI 链路不再依赖外网 CDN：云服务 SDK 随 App 一起打包，离线也能建客户端",
-    "修复卡片日期会被模型编造的问题（模型曾返回 2025-07-09，现一律以本机日期为准）",
-    "设置页新增诊断入口，日志可一键复制或导出，只存本机不上传"
+    "修好了「应用内更新」：以前装上 App 之后永远等不到新版提示，现在每次打开都会自动检查",
+    "更新包下载地址改为真实可达，点「立即更新」就能装上新版",
+    "版本信息不再依赖后端接口，静态托管和离线也能读到",
+    "修掉了更新检查被本地缓存挡住的问题（缓存住就永远显示「已是最新」）",
+    "内部模型调度与语音顺句机制随版本一并发布（可在设置页的链路诊断里看到全过程）"
   ],
   "history": [
+    {
+      "version": "1.1.4",
+      "date": "2026-09-30",
+      "title": "应用内更新真正可用 + 分发链路自洽",
+      "notes": [
+        "修复：应用内更新在 APK 里从来不可能生效——取数用了相对路径，安卓壳页面跑在 https://localhost，请求打到 WebView 本地资产必然 404，且失败被静默忽略（与 v1.1.2 修过的语音识别是同一类缺陷）",
+        "新增静态版本清单 version.json：公开站是静态托管、没有后端接口，旧路径 /api/version/latest 恒 404；清单改为随站点一起发布，离线壳也能读到",
+        "修复：Service Worker 会把版本清单一起缓存，导致永远读到「当前即最新」、更新弹窗永不出现（已显式排除，并同时排除安装包本身）",
+        "修复：更新包下载地址指向不可达路径，与真实发布目标不一致（三处地址互相矛盾）",
+        "统一版本号七处（index.html / sw.js CACHE / manifest / app.js 兜底 / package.json / server.cjs / server/version.json）",
+        "更新检查失败不再静默：每个候选地址各自的失败原因都会记进链路诊断日志"
+      ]
+    },
     {
       "version": "1.1.3",
       "date": "2026-09-30",

@@ -15,52 +15,15 @@
 //   ?app=android         → 模拟 APK 分支（正常安卓壳靠 UA 标记识别）
 
 import { mascot } from './ip.js';
-import { apiBase } from './config.js';
-import * as diag from './diag.js';
 
 /* ---------------- 常量 ---------------- */
 
 const SNOOZE_KEY = 'xiaoting:update_snooze_day'; // 当天"稍后再说"过的日期
 const SNOOZE_DAY_KEY = 'xiaoting:update_snooze_day';
 
-/**
- * 版本清单的两个候选路径，按顺序试（v1.1.4 修）。
- *
- * 🔴 为什么必须走 apiBase()：
- *   APK 里网页跑在 WebView 的 `https://localhost` 上（Capacitor androidScheme=https）。
- *   相对路径 `/api/version/latest` 打的是 **WebView 本地资产服务**，永远 404
- *   ⇒ 更新检测一次都不会成功、且失败被静默吞掉 ⇒ **用户永远收不到新版提示**。
- *   这与 v1.1.2 修过的 ASR 是同一类缺陷（`js/asr.js` 早就用了 apiBase），当年漏了本文件。
- *
- * 🔴 为什么要有静态清单这条兜底：
- *   公开站是**静态托管**（CloudStudio Gateway），没有 Node 后端 ⇒ `/api/version/*` 恒 404。
- *   所以 `version.json` 会被一并发布成静态文件，它不依赖任何服务端，是 APK 唯一可靠路径。
- *   顺序是有意的：有后端时优先用后端（以后端为准），没后端就落到静态清单。
- */
-const LATEST_PATHS = ['/api/version/latest', '/version.json'];
-
-/** 最近一次取数失败的原因（给诊断页 / 自测断言用，不再静默） */
-let lastError = '';
-
-export function lastFetchError() { return lastError; }
-
 /* ---------------- 小工具 ---------------- */
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-
-/**
- * 把可能是相对路径的地址补成绝对地址。
- * APK 里页面在 `https://localhost`，任何相对路径都指向 WebView 本地资产 ⇒ 必须补到服务端基址。
- * 已经是 http(s):// 的原样返回（静态清单里的地址本来就是绝对的）。
- */
-function absUrl(u) {
-  const s = String(u == null ? '' : u).trim();
-  if (!s) return '';
-  if (/^https?:\/\//i.test(s)) return s;
-  const base = apiBase();
-  if (!base) return s; // Web 同源：相对路径本来就是对的
-  return base + (s.startsWith('/') ? s : '/' + s);
-}
 
 export function todayStr() {
   const d = new Date();
@@ -104,35 +67,9 @@ async function fetchJson(url) {
   return res.json();
 }
 
-/**
- * 依次试候选路径，返回第一个能解析成"版本清单"的结果。
- * 每个候选都带 apiBase() 前缀（原生容器里是绝对基址，Web 上是同源）。
- * 全部失败时把**每个候选的失败原因**都带上 —— 排障时最怕的就是只看到一句 fetch_failed。
- */
-async function fetchManifest(paths) {
-  const tried = [];
-  for (const p of paths) {
-    const url = apiBase() + p;
-    try {
-      const data = await fetchJson(url);
-      if (data && typeof data === 'object' && (data.latest_version || data.history)) {
-        lastError = '';
-        diag.note('update', 'manifest_ok', { path: p, latest: data.latest_version || '' });
-        return data;
-      }
-      tried.push(p + ':bad_shape');
-    } catch (e) {
-      tried.push(p + ':' + ((e && e.message) || 'err'));
-    }
-  }
-  lastError = tried.join(' | ');
-  diag.note('update', 'manifest_fail', { tried: lastError, base: apiBase() || '(same-origin)' });
-  throw new Error('fetch_failed: ' + lastError);
-}
-
 /** 取线上最新版本信息（带测试 query 覆盖） */
 export async function fetchLatest() {
-  const data = await fetchManifest(LATEST_PATHS);
+  const data = await fetchJson('/api/version/latest');
   const q = new URLSearchParams(location.search);
   const fake = q.get('fake_version');
   const forced = q.get('force_update');
@@ -141,13 +78,9 @@ export async function fetchLatest() {
   return data;
 }
 
-/** 取更新历史（给「关于墨小溟」页）。后端与静态清单字段名不同，这里统一形状。 */
+/** 取更新历史（给「关于墨小溟」页） */
 export async function fetchHistory() {
-  const data = await fetchManifest(['/api/version/history', '/version.json']);
-  return {
-    latest_version: data.latest_version || '',
-    versions: data.versions || data.history || [],
-  };
+  return fetchJson('/api/version/history');
 }
 
 /* ---------------- 弹窗渲染 ---------------- */
@@ -288,8 +221,7 @@ export function doUpdate(p, data) {
   }
   if (p.isApk) {
     // APK：打开下载地址（安卓壳会触发下载 + 未知来源安装引导）
-    // 🔴 必须绝对地址：APK 页面在 https://localhost，相对路径会去 WebView 里找一个不存在的包。
-    window.location.href = absUrl(data.download_url) || absUrl(data.web_url) || location.href;
+    window.location.href = data.download_url || data.web_url || location.href;
     return;
   }
   // Web / iOS：清空缓存后刷新
@@ -310,9 +242,7 @@ export async function checkUpdate(opts = {}) {
   try {
     data = await fetchLatest();
   } catch (e) {
-    // 🔴 不再静默：失败原因带回去（含每个候选路径各自的错），并已由 fetchManifest 记进诊断日志。
-    // 之前这里只返回 'fetch_failed'，导致"更新弹窗一次都没弹过"这件事在开发期完全看不见。
-    return { shown: false, reason: 'fetch_failed', detail: lastError };
+    return { shown: false, reason: 'fetch_failed' };
   }
 
   const current = window.APP_VERSION || '0.0.0';

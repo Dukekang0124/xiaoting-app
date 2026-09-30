@@ -1,0 +1,52 @@
+{
+  "_readme": "自测专用配置：故意把第一档指向一个必然失败的 provider，用来证明「降级链真的会往下走」。不进生产。",
+  "version": 0,
+  "defaults": { "timeoutMs": 6000, "attempts": 2, "backoffMs": 50, "temperature": 0.3, "maxInputChars": 2000 },
+  "providers": {
+    "broken": {
+      "label": "必然失败（自测桩）",
+      "kind": "openai-compatible",
+      "endpoint": "http://127.0.0.1:1/definitely-not-listening",
+      "authHeader": "Authorization",
+      "authPrefix": "Bearer ",
+      "keysFile": "server/model.keys.json",
+      "timeoutMs": 2000,
+      "models": {
+        "always-down": { "keyRef": "__default", "enabled": true, "attempts": 1 },
+        "model-missing": { "keyRef": "__default", "enabled": true, "attempts": 1 }
+      }
+    },
+    "zhipu": {
+      "label": "智谱直连",
+      "kind": "openai-compatible",
+      "endpoint": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+      "authHeader": "Authorization",
+      "authPrefix": "Bearer ",
+      "keysFile": "server/model.keys.json",
+      "timeoutMs": 10000,
+      "models": {
+        "glm-5.2": { "keyRef": "glm-5.2", "enabled": true, "timeoutMs": 6000 },
+        "glm-4.7-flash": { "keyRef": "glm-4.7-flash", "enabled": true, "timeoutMs": 4000 },
+        "glm-4-flash": { "keyRef": "glm-4-flash", "enabled": true, "timeoutMs": 10000 }
+      }
+    },
+    "nokey": {
+      "label": "没配密钥（自测桩）",
+      "kind": "openai-compatible",
+      "endpoint": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+      "authHeader": "Authorization",
+      "authPrefix": "Bearer ",
+      "keysFile": "server/__nonexistent__.json",
+      "models": { "ghost-model": { "keyRef": "never-configured", "enabled": true } }
+    }
+  },
+  "tiers": {
+    "default": ["zhipu:glm-4-flash"]
+  },
+  "modules": {
+    "safety": { "tier": ["zhipu:glm-4-flash"], "temperature": 0 }
+  },
+  "degradeOn": { "codes": ["http_400","http_401","http_403","http_404","http_408","http_429","http_5xx","network","timeout","abort","model_not_found","no_key","quota_exhausted","rate_limited","empty_response","json_parse_failed","reasoning_only","output_truncated","unsupported_parameter"] },
+  "retry": { "perModel": 2, "onlyCodes": ["http_429","http_5xx","network","timeout","abort","rate_limited"], "backoffMs": 50 },
+  "logging": { "dir": "server/logs/_selftest", "filePrefix": "llm-test-", "logRawText": false }
+}

@@ -196,7 +196,8 @@ export function restore() {
     if (!j || !Array.isArray(j.buf)) return false;
     buf = j.buf;
     seq = j.seq || buf.length;
-    t0 = j.t0 || Date.now();
+    // 🔴 t0（本次会话起点）**故意不恢复**：沿用旧会话的起点会让新日志的 dt 变成"跨了多少小时"。
+    //   每条日志自带绝对时间戳 t，历史时间并没有丢。恢复 buf，但计时重新开始。
     env = j.env || {};
     return buf.length > 0;
   } catch (e) {

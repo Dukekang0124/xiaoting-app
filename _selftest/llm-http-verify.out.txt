@@ -1,0 +1,92 @@
+==============================================
+ 内部模型调度 · HTTP 集成验证
+ BASE = http://127.0.0.1:4173
+ 时间 = 2026-09-30T02:27:23.368Z
+==============================================
+
+① GET /api/llm/config —— 配置快照与脱敏
+  ✅ HTTP 200
+  ✅ ok:true
+  ✅ 返回 providers
+  ✅ 返回 modules
+  ✅ 响应体中不含任何密钥片段
+  ✅ config 不抛出 publishableKey 字段
+     · provider zhipu  label=智谱直连  enabled=true
+         - glm-5.2  enabled=false
+         - glm-4.7-flash  enabled=true
+         - glm-4-flash  enabled=true
+     · provider workbuddy  label=WorkBuddy 云服务免密钥网关  enabled=true
+         - glm-5.0  enabled=true
+         - deepseek-v4.1-flash  enabled=true
+         - hunyuan-chat  enabled=true
+     · module safety  tier=["zhipu:glm-4-flash","workbuddy:deepseek-v4.1-flash","workbuddy:glm-5.0"]
+     · module analysis  tier=["zhipu:glm-4.7-flash","zhipu:glm-4-flash","workbuddy:glm-5.0","workbuddy:deepseek-v4.1-flash"]
+     · module followup  tier=["zhipu:glm-4.7-flash","zhipu:glm-4-flash","workbuddy:glm-5.0"]
+     · module card  tier=["zhipu:glm-4.7-flash","zhipu:glm-4-flash","workbuddy:glm-5.0"]
+     · module timeline  tier=["zhipu:glm-4.7-flash","zhipu:glm-4-flash","workbuddy:glm-5.0"]
+     · module weekly  tier=["zhipu:glm-4-flash","workbuddy:glm-5.0"]
+     · module asr_cleanup  tier=["zhipu:glm-4-flash"]
+
+② 路由边界 —— 方法/入参/越权
+  ✅ GET /api/llm → 405 use_post
+  ✅ 空 body → 400 empty_user
+  ✅ 空白 user → 400 empty_user
+  ✅ 非法 module 名不报错（回退 default 档）
+  ✅ 未带 key 的 ping → 404（运维动作不裸奔）
+  ✅ 错误 key 的 ping → 404
+  ✅ 异源调用 /api/llm → 403（不为陌生来源花模型额度）
+  ✅ 拒绝原因是 origin_not_allowed（说得清）
+
+③ POST /api/llm —— 前端只传模块名，后端自己选模型
+  ✅ safety 返回 200
+  ✅ 响应带 model 字段（用了谁）
+  ✅ 响应带 channel 字段（走哪条链路）
+  ✅ 响应带 degraded 布尔（降没降档）
+  ✅ 响应带 ms（耗时）
+  ✅ 响应带 tried[]（每一档的尝试轨迹）
+     本次：model=glm-4-flash channel=zhipu degraded=false ms=825 端到端=829ms
+     尝试轨迹：
+       - glm-4-flash  ok=true  code=-  825ms  attempt#1
+  ✅ 响应体不含上游 endpoint
+  ✅ 响应体不含任何密钥片段
+  ✅ ok 字段是布尔（无论成败都有明确结果）
+
+④ POST /api/llm（不传 module）—— default 档
+  ✅ default 返回 200
+     default：model=deepseek-v4.1-flash ms=1526 ok=true
+
+⑤ GET /api/llm/stats —— 独立进程内的日志聚合
+  ✅ stats 返回 200
+  ✅ stats ok:true
+     stats：total=3 ok=3 fail=0 degraded=0
+     byModel：{"workbuddy:deepseek-v4.1-flash":{"calls":2,"ok":2,"fail":0,"ms":3006},"zhipu:glm-4-flash":{"calls":1,"ok":1,"fail":0,"ms":825}}
+     byModule：{"default":{"calls":2,"ok":2,"fail":0,"degraded":0,"ms":3006},"safety":{"calls":1,"ok":1,"fail":0,"degraded":0,"ms":825}}
+  ✅ stats.total 是数字
+  ✅ stats.total=3 ≥ 2（本次至少打了 2 次）
+     recent 条数=3
+     最近一条：ts=2026-09-30T02:27:27.228Z module=default ok=true provider=workbuddy model=deepseek-v4.1-flash ms=1526 degraded=false attempts=1
+     字段集：ts, module, ok, provider, model, ms, degraded, attempts, failReasons
+  ✅ recent 不含用户正文/Prompt（只留可观测字段）
+  ✅ recent 含 model 与 module
+  ✅ recent 含 degraded(是否降级) 与 ms(耗时) —— 第 4 条要求
+
+⑤b server/logs/*.jsonl —— 落盘日志字段与脱敏
+     日志文件：server/logs/llm-20260930.jsonl（40 行）
+     末行字段：ts, module, ok, provider, model, ms, degraded, attempts, failReasons
+  ✅ 日志含 model（用了哪个模型）
+  ✅ 日志含 ms（耗时）
+  ✅ 日志含 degraded（是否降级）
+  ✅ 日志含 failReasons/code（失败原因）
+  ✅ 日志全文不含任何密钥片段
+  ✅ 日志不含用户原文（可验证的脱敏）
+
+⑥ POST /api/llm/ping?key=*** —— 真探活
+  ✅ 带正确 key 的 ping → 200
+  ✅ ping 回 results[]
+       - glm-4-flash  ok=true  467ms  
+       - deepseek-v4.1-flash  ok=true  1141ms  
+       - glm-5.0  ok=true  3044ms  
+
+==============================================
+ HTTP 集成验证：39 通过 / 0 失败
+==============================================

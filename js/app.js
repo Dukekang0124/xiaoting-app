@@ -1413,7 +1413,7 @@ function pageSettings() {
       <div class="set-title">重要声明</div>
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.1.3')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.1.4')}</p>
   </section>`;
 }
 
@@ -1441,14 +1441,14 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.1.3')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.1.4')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
     <div class="disclaimer-box">${esc(COPY.about.disclaimer)}</div>
     <div class="changelog__list" id="clList"><p class="set-sub">正在加载更新历史…</p></div>
     <button class="primary" id="clCheck" type="button">检查更新</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.1.3')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.1.4')}</p>
   </section>`;
 }
 
@@ -1825,6 +1825,10 @@ function showWelcome() {
 
 export function boot() {
   store.initStore();
+  // v1.1.4：先把上一次会话的诊断日志接回来，再打本次环境快照。
+  // 之前 persist() 每步都在写，但 restore() 全仓没有任何调用点 ⇒ 日志写着却永远读不回来，
+  // 刷新一次就断——「复现完了再看」这个用法等于没实现。
+  diag.restore();
   // 环境快照要打在第一条链路日志之前：没有「我是谁、什么环境、什么通道」这一行，
   // 后面的耗时与错误码在离开这台机器之后就没有上下文了。
   diag.snapshot({ platform: isNativeApp() ? 'Android(APK)' : 'Web', provider: api.aiStatus().provider });

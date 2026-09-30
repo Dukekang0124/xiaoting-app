@@ -1,8 +1,10 @@
 name: Build 小听 APK
 
 # 触发方式（与 Sinoky 同思路：APK 不在本地造，交给 CI 用 Android SDK 构建）：
-# 1. push tag v*（发版：bump 版本 -> git tag v0.8.0 -> git push --tags -> 出 release APK：
-#     挂 GitHub Release + 推 Cloudflare Pages /apk/ 供应用内更新）
+# 1. push tag v*（发版：bump 版本 -> git tag v1.1.4 -> git push --tags -> 出 release APK：
+#    挂 GitHub Release + 推 dist 分支 + 回写 server/version.json 的 apk 元数据）
+#    ⚠️ 本工作流**不负责把站点发上线**：站点由 WorkBuddy 发布通道从 www/ 发布。
+#       要下到 APK，需把它放到 www/apk/ 再走该通道（否则 /apk/... 会 404）。
 # 2. workflow_dispatch 手动（默认 release；debug 仅调试用——debug 签名随机，不可覆盖安装）
 on:
   push:
@@ -156,28 +158,27 @@ jobs:
           path: dist/*.apk
           if-no-files-found: error
 
-      # ── 发布到 Cloudflare Pages /apk/ + 把 md5/size 回写 server/version.json ──
-      # ⚠️ 硬前置：小听后端（server.cjs 的 /api/*）必须先部署到可达地址
-      #    （CF Pages Functions 端口 或 Node 主机 + CORS）。本步只部署前端 www/ 到 Pages；
-      #    若后端尚未同在 Pages，APK 内 /api/asr、/api/version/* 会失败。
-      #    首次发版前务必确认后端已上线（详见《APK 发布 SOP（参考 Sinoky）》）。
-      - name: Publish APK to Cloudflare Pages /apk/ + inject apk metadata into server/version.json
+      # ── 把 md5/size/url 回写 server/version.json ──
+      # v1.1.4 修正（三处，都是审计查出来的真实缺陷）：
+      #   ① 删掉 `wrangler pages deploy www`：它推的是 **Cloudflare Pages**，而公开域名
+      #      `xiaoting.app.workbuddy.host` 由 **CloudStudio Gateway** 托管（响应头实测），
+      #      两条路从来不是同一个平台 ⇒ 推了 8 个版本，线上一直停在 v0.6.0。
+      #      站点改由 WorkBuddy 发布通道从 `www/` 上线（含 /apk/ 与 /version.json）。
+      #   ② 去掉 `continue-on-error: true`：它让"发布失败"在 CI 里也是绿的，
+      #      是上面那个缺陷能潜伏这么久的**流程根因**。现在这一步入错就必须红。
+      #   ③ 更新"硬前置"说明：更新检测已改为读**静态** /version.json，不再依赖 /api/version/*，
+      #      所以 APK 内更新不再以"后端必须先部署"为前提（后端仍缺失，影响的是云端语音识别）。
+      - name: Inject apk metadata into server/version.json
         if: env.BUILD_TYPE == 'release'
-        continue-on-error: true
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           V=${{ steps.ver.outputs.version }}
           CODE=${{ steps.ver.outputs.code }}
-          mkdir -p www/apk
-          cp dist/Xiaoting-v${V}-release.apk www/apk/Xiaoting-v${V}-release.apk
-          MD5=$(md5sum "www/apk/Xiaoting-v${V}-release.apk" | cut -d' ' -f1)
-          SIZE=$(stat -c%s "www/apk/Xiaoting-v${V}-release.apk")
+          MD5=$(md5sum "dist/Xiaoting-v${V}-release.apk" | cut -d' ' -f1)
+          SIZE=$(stat -c%s "dist/Xiaoting-v${V}-release.apk")
           APK_URL="https://xiaoting.app.workbuddy.host/apk/Xiaoting-v${V}-release.apk"
           node -e "const fs=require('fs');const p='server/version.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.apk={versionCode:Number(process.argv[1]),version:process.argv[2],url:process.argv[3],md5:process.argv[4],size:Number(process.argv[5]),force:false};j.download_url=process.argv[3];fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n');console.log('injected apk into',p,JSON.stringify(j.apk))" "$CODE" "$V" "$APK_URL" "$MD5" "$SIZE"
-          npx --yes wrangler@4 pages deploy www --project-name=xiaoting --branch=main
-          echo "published $APK_URL (md5=${MD5:0:8}... size=$SIZE)"
+          echo "apk metadata ok: $APK_URL (md5=${MD5:0:8}... size=$SIZE)"
+          echo "→ 站点由 WorkBuddy 发布通道从 www/ 上线；APK 需放到 www/apk/ 一起发布才能下到。"
 
       - name: Sync apk metadata to main (server/version.json)
         if: env.BUILD_TYPE == 'release'

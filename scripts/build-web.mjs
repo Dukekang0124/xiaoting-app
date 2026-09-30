@@ -1,7 +1,7 @@
 // 把"真正属于 App 的前端静态资产"拷贝到 www/，供 Capacitor 打包。
 // 目的：webDir 不能指向仓库根（会把 node_modules / server / _selftest 一起塞进 APK）。
 // 注：墨小溟后端（server.cjs 的 /api/*）不在包内 —— APK 走网络调用已部署的后端（见 APK 发布 SOP）。
-import { cp, mkdir, rm, readdir } from 'node:fs/promises';
+import { cp, mkdir, rm, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -43,6 +43,25 @@ for (const d of DIRS) {
 for (const f of FILES) {
   try { await cp(path.join(src, f), path.join(out, f)); }
   catch (e) { console.warn('skip missing file:', f); }
+}
+
+/* 版本清单：单一真相源是 server/version.json，这里生成一份静态副本进 www/。
+ *
+ * 🔴 为什么必须随静态站发布：公开站是**静态托管**（CloudStudio Gateway），没有 Node 后端
+ *   ⇒ `/api/version/*` 恒 404。APK 想知道"有没有新版"就只能读这个静态清单。
+ *   不生成它 = 更新弹窗永远不会出现，且不会报错——静默失效最难查。
+ *
+ * 失败一律抛错，不吞：清单缺失属于"发出去也是坏的"，应当在构建期就红。 */
+try {
+  const raw = await readFile(path.join(src, 'server', 'version.json'), 'utf8');
+  const manifest = JSON.parse(raw);
+  if (!manifest.latest_version) throw new Error('latest_version 缺失');
+  await writeFile(path.join(out, 'version.json'), JSON.stringify(manifest, null, 2) + '\n');
+  console.log(`[build:web] ✓ www/version.json（latest_version=${manifest.latest_version}）`);
+} catch (e) {
+  console.error('[build:web] ✗ 无法生成 www/version.json：' + (e && e.message));
+  console.error('   → 更新检测会静默失效（用户永远看不到「有新版本」）。先修 server/version.json。');
+  throw e;
 }
 
 console.log('[build:web] ✓ www/ 已生成（前端静态资产，不含后端 /api/*）');

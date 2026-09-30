@@ -1,0 +1,21 @@
+=== 1. 打开线上站点 ===
+  window.APP_VERSION = 0.6.0
+=== 2. index.html 引用资源逐个探活（找线上缺失文件）===
+  200  ./manifest.webmanifest
+  200  ./icons/icon.svg
+  200  ./icons/icon.svg
+  200  ./styles.css
+=== 3. 真浏览器调 SDK（AI 对话真路径）===
+  {"endpoint":"https://xiaoting.app.workbuddy.host","keyPrefix":"wbpk_UIbhope","hasSDKGlobal":false,"hasSDKGlobalAfterLoad":false}
+  {"exports":["CLOUD","SDK_URL","call","callJson","debug","extractJson","isReal","isStructural","modelCatalog","modelRanking","providerName","readyHint","resetTrace","stats"],"isReal":false,"provider":"cloud-pending","hint":null,"ms":2251,"got":"{\"ok\":false,\"code\":\"json_parse_failed\",\"text\":\"好\"}"}
+  （got/throw 有内容 = 真链路跑通了；got=null 且 isReal=false = 云端不可用走了兜底）
+=== 4. 找实际发往云端的请求 ===
+  第二次调用 → {"got":"{\"ok\":false,\"code\":\"json_parse_failed\",\"text\":\"好\"}"}
+  捕获到的 .cloud/* 请求：POST https://xiaoting.app.workbuddy.host/.cloud/llm/chat/completions
+=== 5. 同源 API 探活 ===
+  POST /api/health            → 200
+  POST /api/version/latest    → 404
+  POST /api/llm/ping          → 404
+=== 6. 页面错误汇总 ===
+  pageerror/console.error: 无
+  >=400 网络响应: 无

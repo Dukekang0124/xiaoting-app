@@ -1,0 +1,72 @@
+{
+  "_readme": "HTTP 层降级实证专用配置：故意把每个模块的第一（或前两）档换成必然失败的桩，用来证明「过了真 HTTP 之后，降级链照样会自己往下走」。不进生产。",
+  "version": 0,
+
+  "defaults": { "timeoutMs": 6000, "attempts": 1, "backoffMs": 30, "temperature": 0, "maxInputChars": 2000 },
+
+  "providers": {
+    "broken": {
+      "label": "必然失败 · 端口无人监听（自测桩）",
+      "kind": "openai-compatible",
+      "endpoint": "http://127.0.0.1:1/definitely-not-listening",
+      "authHeader": "Authorization",
+      "authPrefix": "Bearer ",
+      "keysFile": "server/model.keys.json",
+      "timeoutMs": 1500,
+      "models": {
+        "always-down": { "keyRef": "__default", "enabled": true, "attempts": 1 },
+        "also-down": { "keyRef": "__default", "enabled": true, "attempts": 1 }
+      }
+    },
+    "nokey": {
+      "label": "没配密钥（自测桩）· 应在解析期就被剔除",
+      "kind": "openai-compatible",
+      "endpoint": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+      "authHeader": "Authorization",
+      "authPrefix": "Bearer ",
+      "keysFile": "server/__nonexistent__.json",
+      "models": { "ghost-model": { "keyRef": "never-configured", "enabled": true } }
+    },
+    "zhipu": {
+      "label": "智谱直连（真）",
+      "kind": "openai-compatible",
+      "endpoint": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+      "authHeader": "Authorization",
+      "authPrefix": "Bearer ",
+      "keysFile": "server/model.keys.json",
+      "timeoutMs": 10000,
+      "models": {
+        "glm-4-flash": { "keyRef": "glm-4-flash", "enabled": true, "timeoutMs": 10000 }
+      }
+    }
+  },
+
+  "tiers": {
+    "default": ["broken:always-down", "zhipu:glm-4-flash"]
+  },
+
+  "modules": {
+    "safety": {
+      "tier": ["broken:always-down", "zhipu:glm-4-flash"],
+      "temperature": 0,
+      "attempts": 1
+    },
+    "analysis": {
+      "tier": ["nokey:ghost-model", "broken:always-down", "broken:also-down", "zhipu:glm-4-flash"],
+      "temperature": 0,
+      "attempts": 1
+    },
+    "card": {
+      "tier": ["broken:always-down", "broken:also-down"],
+      "temperature": 0,
+      "attempts": 1
+    }
+  },
+
+  "degradeOn": {
+    "codes": ["http_400","http_401","http_403","http_404","http_408","http_429","http_5xx","network","timeout","abort","model_not_found","no_key","quota_exhausted","rate_limited","empty_response","json_parse_failed","reasoning_only","output_truncated","unsupported_parameter"]
+  },
+  "retry": { "perModel": 1, "onlyCodes": ["network"], "backoffMs": 30 },
+
+  "logging": { "dir": "server/logs/_selftest", "filePrefix": "llm-httpdegrade-", "logRawText": false }
+}
