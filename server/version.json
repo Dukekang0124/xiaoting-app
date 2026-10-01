@@ -1,12 +1,12 @@
 {
-  "latest_version": "1.6.2",
+  "latest_version": "1.6.3",
   "force_update": false,
-  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.2-release.apk",
+  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.3-release.apk",
   "web_url": "https://xiaoting.app.workbuddy.host/#/say",
   "apk": {
-    "versionCode": 10602,
-    "version": "1.6.2",
-    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.2-release.apk",
+    "versionCode": 10603,
+    "version": "1.6.3",
+    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.3-release.apk",
     "md5": "60a6cd5c556bcacc08743197af147573",
     "size": 3622827,
     "force": false
@@ -47,6 +47,18 @@
     "新增设置开关：IP 动效总开关 / IP 触碰互动 / 气泡文字 / 动画强度（柔和·标准）/ 水墨气泡轻音效（默认关，纯 Web Audio 合成、零素材）"
   ],
   "history": [
+    {
+      "version": "1.6.3",
+      "date": "2026-10-01",
+      "title": "全场景动效/音效落地：8 条垂须分四组摆动 + 待机参数外置成真配置，并修掉\"动效全死\"的静默失效",
+      "notes": [
+        "待机不再是一整块飘：垂须由 3 条改到 8 条、分四组驱动（1/2 摆动、3/4 滞后 0.5s、5/6 小幅、7/8 基本静锚），浮动/呼吸/微光统一到一个 6s 周期——改之前四套周期是 5.6/4.4/6.4/4.8s 不齐的，看着就发飘。",
+        "所有动效参数搬进 moxiaoming_motion_sound_config.json 一个真相源（前端运行时 fetch），改参数不用改代码；网络拿不到配置时退回 CSS 默认值继续跑，不会因为配置丢了把 IP 冻住。",
+        "音效补了噪声源（棕噪 + 低通 + 包络），提示音由 4 个扩到 18 个，开始倾诉时自动静音、结束后恢复。",
+        "🔴 修掉一个静默失效：动效编排模块之前只是被 import，从没挂到全局，导致启动初始化/设置页联动/点击反馈三条链路全部空转——配置压根没读，等于动效音效全是死的。之前那版\"看起来已上线\"其实是假绿（探针测的是模块导出对不对，没测这条链路通不通）。",
+        "如实申报：还顺手给离线缓存加了\"错误响应不进缓存\"这道防线，但它没能实证复现具体故障场景，属于预防性加固，没有写成修复。"
+      ]
+    },
     {
       "version": "1.6.2",
       "date": "2026-10-01",
