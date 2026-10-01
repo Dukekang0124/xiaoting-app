@@ -48,7 +48,7 @@ async function ensureManifestJs(abs) {
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
-const VERSION = '1.6.4';
+const VERSION = '1.6.5';
 
 /* ==================== 静态资源白名单 ==================== */
 

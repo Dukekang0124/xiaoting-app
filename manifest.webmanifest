@@ -9,7 +9,7 @@
   "background_color": "#FFF8F0",
   "theme_color": "#FFF8F0",
   "lang": "zh-CN",
-  "version": "1.6.4",
+  "version": "1.6.5",
   "icons": [
     {
       "src": "./icons/icon.svg",
