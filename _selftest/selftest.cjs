@@ -2104,7 +2104,7 @@ const MOCK_SDK = `(function(){
   check('update·线上清单比本地旧时（站点漏发）硬编码兜底顶上，不会永远"已是最新"',
     FB.latest === UV.latest && FB.source === 'hardcoded', JSON.stringify(FB));
   check('update·兜底地址指向本版安装包，不会拿旧包去"升级"用户',
-    /Xiaoting-v1\.4\.3-release\.apk$/.test(String(FB.url || '')), String(FB.url));
+    /Xiaoting-v1\.4\.4-release\.apk$/.test(String(FB.url || '')), String(FB.url));
 
   // H2c. 左边缘手势探针：真机"左滑没反应"必须能自证是被系统吃了还是我们自己没认
   const EP = await page.evaluate(async () => {

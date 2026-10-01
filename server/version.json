@@ -1,17 +1,19 @@
 {
-  "latest_version": "1.4.3",
+  "latest_version": "1.4.4",
   "force_update": false,
-  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.4.3-release.apk",
+  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.4.4-release.apk",
   "web_url": "https://xiaoting.app.workbuddy.host/#/say",
   "apk": {
-    "versionCode": 10403,
-    "version": "1.4.3",
-    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.4.3-release.apk",
-    "md5": "0f0a1cd224f2d454ebc462c04c43db30",
-    "size": 3577621,
+    "versionCode": 10404,
+    "version": "1.4.4",
+    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.4.4-release.apk",
+    "md5": "",
+    "size": 0,
     "force": false
   },
   "release_notes": [
+    "部分手机上「按住说一直听不清」修好了（v1.4.4）：有些手机的系统识别服务检查时说「可用」、实际却吐不出字——以前这种情况会直接放弃并提示「水里有点吵」，而且因为没录音频，连云端识别都没法救场，这类手机上语音就永远用不了。现在按下说话时会同时录一份音频，系统识别吐不出字时自动改走云端识别，说完约 2~3 秒出字。",
+    "识别不动了会自己换路走（v1.4.4）：设备识别失败不再是死路——自动回落云端识别；万一云端也不通，会明确告诉你原因并送你去打字，不再让你对着一个没反应的按钮反复按。",
     "更新弹窗不再反复打扰（v1.4.3）：以前点「稍后再说」只是今天不弹，第二天又会弹一次。现在按版本记住你的选择——这个版本暂时不装就不再自动提醒；想装的时候随时可以在「关于墨小溟」里手动检查。",
     "安装包下载加了真伪校验（v1.4.3）：有些托管平台对不存在的文件会返回一个网页而不是报错，以前这种情况会把网页当成安装包唤起系统安装器，然后报「解析包时出现问题」。现在下载后会先校验安装包指纹，假包直接拦下并明确告诉你「安装包暂时拿不到」，不再让你对着系统报错猜原因。",
     "「检查更新」的回话补全了最后一种情况（v1.4.3）：v1.4.0 承诺检查更新永远有回话，但「手动检查 + 确实有新版本」这个场景会同时弹出更新窗和一句「检查失败：未知原因」。本版修正——弹窗出现时，按钮下方的回话会如实说「发现新版本，已为你弹出更新提示」。",
@@ -37,6 +39,20 @@
     "新增设置开关：IP 动效总开关 / IP 触碰互动 / 气泡文字 / 动画强度（柔和·标准）/ 水墨气泡轻音效（默认关，纯 Web Audio 合成、零素材）"
   ],
   "history": [
+    {
+      "version": "1.4.4",
+      "date": "2026-10-01",
+      "title": "语音识别真机修复：设备识别失败自动回落云端",
+      "notes": [
+        "根因（真机截图实证，弹「水里有点吵，我没听清」）：设备识别（Android SpeechRecognizer）的可用性检查会说谎——不少国产 ROM 返回 available=true，实际识别服务残缺：说完话 partialResults 一直空，松手结算 {ok:false, code:'empty'}。旧代码此处直接判死；且 native 模式不启动 MediaRecorder（blob=null），云端分支条件 `blob && blob.size>0` 不成立 ⇒ 想回落也没有原料 ⇒ 这类设备上语音识别永久不可用、无法自愈。asr.js 注释写的「三级降级 ① 云端首选」与实现完全相反——实现是 native 独占、零降级。",
+        "修法（两处，均在 js/app.js）：① beginCapture 原生模式并行录一份 Web 音频（best-effort，失败静默不影响 native 主链路）——给云端回落备好原料；② 松手收尾的分支链重构：native 成功用 native，失败/为空则自动走云端回落（engine 记为 cloud_fallback），云端也不通才提示并送打字。",
+        "后端排查结论（都健康，排除嫌疑）：xiaoting-asr.pages.dev/api/health → 200 / 1.07s / ai_binding:true；CORS 齐全（Access-Control-Allow-Origin:*，OPTIONS 预检放行 POST）；probe-cloud-asr-retry.cjs 真实音频端到端 22/22（2.5s）。",
+        "A/B 鉴别力（_selftest/native-cloud-fallback.cjs，假 Capacitor 桥模拟「检查说可用、实际吐不出字」的设备）：新码 5/5（native empty → 云端被调 asrCalls=1 → 转写进草稿 → 离开说话页）；旧码 4/4（缺陷精确复现：asrCalls=0、停在 #/say）。诊断报告新增 parallel_record / cloud_fallback 痕迹，真机一眼看出走了哪条路。",
+        "边界（诚实声明）：并行录音在部分厂商 WebView 上可能拿不到或解不出（native-asr.js 当初的成立理由）——此时行为与旧版一致（提示 + 送打字），不会更糟；真机验收仍需康哥侧确认。",
+        "测试基建教训：A/B 换码后的恢复绝不能用 `git checkout -- <file>`——它恢复的是暂存区，未暂存的新改动会被静默抹掉（本次 app.js 的回落改动被抹掉一次，靠 diff --numstat 行数核对当场抓住）。必须先 cp 备份、测完复制回来。",
+        "主回归 433/433；云端 ASR 重试探针 22/22；原生回落探针 新码 5/5 + 旧码 4/4。"
+      ]
+    },
     {
       "version": "1.4.3",
       "date": "2026-10-01",

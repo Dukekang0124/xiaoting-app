@@ -240,6 +240,24 @@ async function beginCapture() {
       micErr = e;
       diag.note('mic', 'open', { ok: false, code: String((e && e.name) || 'unknown'), detail: `拿不到麦克风：${String((e && e.message) || e).slice(0, 80)}` });
     }
+  } else {
+    // v1.4.4 · 云端回落原料：原生模式并行录一份 Web 音频。
+    // 🔴 为什么必须有这一份：设备识别（SpeechRecognizer）的"可用性检查"会说谎——
+    //   不少国产 ROM 返回 available=true，实际识别服务残缺（说完话 partialResults 一直空）。
+    //   旧逻辑此时直接判死：「水里有点吵」且**永不自愈**，因为 native 模式没录音频，
+    //   就算想回落云端也没有原料（blob=null）。并行录一份（best-effort，失败静默不影响
+    //   native 主链路），native 吐不出字时用它走云端回落 —— 这才是「三级降级」本来的样子。
+    try {
+      rec.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      rec.mime = asr.pickMime();
+      rec.media = rec.mime ? new MediaRecorder(rec.stream, { mimeType: rec.mime }) : new MediaRecorder(rec.stream);
+      rec.media.ondataavailable = (e) => { if (e.data && e.data.size) rec.chunks.push(e.data); };
+      rec.media.start();
+      diag.note('mic', 'parallel_record', { ok: true, detail: `原生模式并行录音就绪（云端回落原料），容器=${rec.mime || '默认'}` });
+    } catch (e) {
+      rec.media = null; rec.stream = null;
+      diag.note('mic', 'parallel_record', { ok: false, detail: `并行录音不可用（回落链将无原料）：${String((e && e.message) || e).slice(0, 80)}` });
+    }
   }
 
   // 录音都没建起来（没设备 / 拒绝授权）→ 立刻说清楚并送去打字。
@@ -350,6 +368,7 @@ async function endCapture() {
 
   let text = srText;
   let fail = null;
+  let nativeFailCode = '';
   const label = document.getElementById('talkLabel');
   // 隐私设置真的生效：关掉「允许把录音发给云端转写」后，这段音频一个字都不上传。
   const cloudAllowed = store.getState().user.settings.cloudAsr !== false;
@@ -358,23 +377,33 @@ async function endCapture() {
     text = nativeRes.text;   // 设备识别结果优先：它不需要网络往返，也最贴近设备麦克风的实际采样
     diag.note('asr', 'native', { ok: true, ms: Date.now() - (rec.t0 || Date.now()), detail: `设备识别完成，${text.length} 字` });
     asr.logEvent('asr_ok', { engine: 'native', ms: 0, totalMs: Date.now() - (rec.t0 || Date.now()), chars: text.length });
-  } else if (nativeRes && !nativeRes.ok) {
-    fail = { code: nativeRes.code || 'native_failed' };
-    diag.note('asr', 'native', { ok: false, code: fail.code, ms: Date.now() - (rec.t0 || Date.now()), detail: `设备识别未给出文本（${fail.code}）` });
-    asr.logEvent('asr_fail', { engine: 'native', code: fail.code, totalMs: Date.now() - (rec.t0 || Date.now()) });
-  } else if (blob && blob.size > 0 && cloudAllowed && (await asr.probeCloud()) !== 'unavailable') {
-    if (label) label.textContent = '识别中…';
-    setLiveText(COPY.analyzing[0]);
-    const r = await asr.recognize(blob);
-    if (r.ok) {
-      text = r.text; // 云端结果优先：内置转写只是兜底，不该覆盖更准的那个
-      asr.logEvent('asr_ok', { engine: 'cloud', ms: r.ms || 0, totalMs: r.totalMs || 0, chars: text.length });
-    } else {
-      fail = r;
-      asr.logEvent('asr_fail', { engine: 'cloud', code: r.code || '', errNo: r.errNo || 0, totalMs: r.totalMs || 0 });
+  } else {
+    // v1.4.4 · 原生识别失败/为空 ⇒ **不再判死，自动回落云端**。
+    // 🔴 根因（真机截图实证）：设备识别的可用性检查会说谎（国产 ROM 返回 available=true 但识别服务
+    //   残缺，说完话 partialResults 一直空 ⇒ code:'empty'）。旧逻辑走到这里直接 softSay「水里有点吵」，
+    //   而且因为 native 模式不录音（blob=null），云端分支的条件 `blob && blob.size>0` 也不成立 ⇒
+    //   **这类设备上语音识别永久不可用**。现在：native 失败后用并行录的音频走云端——
+    //   这才是 asr.js 注释里「三级降级 ① 云端 ② 内置 ③ 打字」本来的样子。
+    if (nativeRes && !nativeRes.ok) {
+      nativeFailCode = nativeRes.code || 'native_failed';
+      diag.note('asr', 'native', { ok: false, code: nativeFailCode, ms: Date.now() - (rec.t0 || Date.now()), detail: `设备识别未给出文本（${nativeFailCode}）⇒ 自动回落云端` });
+      asr.logEvent('asr_fail', { engine: 'native', code: nativeFailCode, totalMs: Date.now() - (rec.t0 || Date.now()) });
     }
-  } else if (blob && blob.size > 0 && !cloudAllowed) {
-    asr.logEvent('asr_skipped', { reason: 'cloud_disabled_by_user' });
+    if (blob && blob.size > 0 && cloudAllowed && (await asr.probeCloud()) !== 'unavailable') {
+      if (label) label.textContent = '识别中…';
+      setLiveText(COPY.analyzing[0]);
+      const r = await asr.recognize(blob);
+      if (r.ok) {
+        text = r.text; // 云端结果优先：内置转写只是兜底，不该覆盖更准的那个
+        asr.logEvent('asr_ok', { engine: 'cloud_fallback', ms: r.ms || 0, totalMs: r.totalMs || 0, chars: text.length });
+        diag.note('asr', 'cloud_fallback', { ok: true, ms: r.ms || 0, detail: `原生失败（${nativeFailCode || '无'}）后云端识别成功，${text.length} 字` });
+      } else {
+        fail = r;
+        asr.logEvent('asr_fail', { engine: 'cloud', code: r.code || '', errNo: r.errNo || 0, totalMs: r.totalMs || 0 });
+      }
+    } else if (blob && blob.size > 0 && !cloudAllowed) {
+      asr.logEvent('asr_skipped', { reason: 'cloud_disabled_by_user' });
+    }
   }
 
   if (label) label.textContent = '按住说';
@@ -1790,7 +1819,7 @@ function pageSettings() {
       <div class="set-title">重要声明</div>
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.4.3')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.4.4')}</p>
   </section>`;
 }
 
@@ -1945,7 +1974,7 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.4.3')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.4.4')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -1954,7 +1983,7 @@ function pageChangelog() {
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.4.3')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.4.4')}</p>
   </section>`;
 }
 
