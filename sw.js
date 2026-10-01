@@ -74,8 +74,17 @@ self.addEventListener('fetch', (e) => {
       if (cached) return cached;
       return fetch(e.request)
         .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
+          // 只回写「成功」的响应（Cache API 的既有最佳实践）。
+          // 动机：404/5xx 也写进 cache，等于把资源永久钉死在错误状态 ——
+          //   网关多节点本来就不一致（同一 URL 可能一次 404 一次 200），坏的那次一旦进 cache，
+          //   后面节点恢复了用户也只能拿到 404，而且不报任何错。
+          // ⚠️ 诚实标注：这条**没能实证复现**（_probe/_sw-cache-404.cjs 的 A/B 跑了三轮，
+          //   旧版 cache 里始终没出现 404，判断是测试环境里 SW 的 handler 没真正走到 put）。
+          //   所以它是**预防性加固**，不是已验证的缺陷修复；成本为零，且语义更对，故保留。
+          if (res && res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
+          }
           return res;
         })
         .catch(() => caches.match('./index.html'));
