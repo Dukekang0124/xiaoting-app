@@ -30,11 +30,33 @@ async function waitServer() {
 }
 
 (async () => {
+  // 🔴 防呆（v1.6.3）：端口上若已有**上一轮残留**的 server.cjs，spawn 的新实例会以 EADDRINUSE 静默退出
+  //    （本脚本 stdio:'ignore'，错误压根看不见），而 waitServer 会跟那个**旧进程**握手成功 ⇒
+  //    整轮自测跑在旧代码上。v1.6.3 就栽在这：新 server.cjs 的 PUBLIC_FILES 已放行
+  //    /moxiaoming_motion_sound_config.json，但因为跑在 v1.6.2 的旧服务上，该路径 404 ⇒ 假红，
+  //    看着像产品回归，其实只是测的环境是旧的。「服务没了」的假红人尽皆知，
+  //    「跑在旧服务上」的假红同样坑——必须先确认端口是空的再 spawn。
+  try {
+    const occupied = await fetch(BASE + '/api/health', { signal: AbortSignal.timeout(900) });
+    if (occupied.ok) {
+      console.error(`\n端口 ${PORT} 上已经有一个 server.cjs 在跑（多半是上一轮的残留进程）。`);
+      console.error('请先清掉它再重跑：netstat -ano | findstr :' + PORT);
+      console.error('否则本轮测的是旧代码，断言结果不作数。\n');
+      process.exit(2);
+    }
+  } catch (e) { /* 连不上 = 端口空着，正常路径 */ }
+
   const srv = spawn(NODE, ['server.cjs'], {
     cwd: ROOT,
     env: { ...process.env, PORT: String(PORT), STATS_KEY: 'selftest' },
     stdio: 'ignore',
+    detached: true, // 独立进程组：进程树里不止 node 自己时也能整组带走
   });
+  let srvKilled = false;
+  const killSrv = () => {
+    if (srvKilled) return; srvKilled = true;
+    try { process.kill(-srv.pid, 'SIGKILL'); } catch (e) { try { srv.kill('SIGKILL'); } catch (e2) { /* ignore */ } }
+  };
   let browser;
   try {
     await waitServer();
@@ -51,6 +73,9 @@ async function waitServer() {
     const errors = [];
     page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
     page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
+    // 🔴 补一条带 URL 的 404 记录：console 那条「Failed to load resource: ... 404」**文本里不含路径**，
+    //    光看它分不清是 /api/*（静态托管本来就没后端，已知 404）还是真缺了某个静态资源。
+    page.on('response', (r) => { if (r.status() === 404) errors.push(`404: ${r.url()} | fromSW=${r.fromServiceWorker()} | type=${r.request().resourceType()} | method=${r.request().method()}`); });
     const goto = (h) => page.goto(BASE + h, { waitUntil: 'domcontentloaded' });
     const settle = async () => { await page.waitForFunction(() => !document.querySelector('.toast.toast--on'), null, { timeout: 3000 }).catch(() => {}); await page.waitForTimeout(350); };
 
@@ -134,6 +159,9 @@ async function waitServer() {
     process.exitCode = 1;
   } finally {
     if (browser) await browser.close();
-    try { srv.kill('SIGTERM'); } catch (e) { /* ignore */ }
+    killSrv();
+    // 必须显式退出：detached 子进程 + Playwright 句柄会让事件循环拎不清，
+    // 用例早跑完了进程还挂着 —— 下一次跑就撞上端口占用（上面的防呆会直接拦下）。
+    process.exit(process.exitCode || 1);
   }
 })();
