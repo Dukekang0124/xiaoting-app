@@ -371,12 +371,20 @@ const MOCK_SDK = `(function(){
       const v = ai.pickActionVariant([e], '');
       if (!v || !(v.match || []).includes(e)) bad.push(`${e}→${v && v.title}`);
     }
+    // 兜底是一个池（v1.6.0 加了文档点名的 7 条通用身体动作），所以一次抽样不能断言具体某条 ——
+    // 判「抽到的**不是**逐条情绪专属那批」，即池里任何一条都不是情绪组的标题。
     const f = ai.pickActionVariant([], '');
-    return { total: EMO.length, bad, fb: f && f.title };
+    const inEmoGroup = (v) => !!v && (v.match || []).length > 0;
+    for (let i = 0; i < 8; i += 1) {
+      const g = ai.pickActionVariant([], '');
+      if (inEmoGroup(g)) bad.push(`无情绪抽到情绪组：${g && g.title}`);
+    }
+    const worst = ai.pickActionVariant(['悲伤'], '我很难过');
+    return { total: EMO.length, bad, fb: f && f.title, neutral: !!(f && !inEmoGroup(f)), worst: worst && worst.title };
   });
   check('微小行动库·17 情绪各自命中专属组（无串组 / 无漏网）', AL.bad.length === 0 && AL.total >= 17,
     AL.bad.length ? AL.bad.join('，') : `${AL.total} 情绪全中`);
-  check('微小行动库·无情绪输入 → 中性兜底（不再推「最沉重的一句话」）', AL.fb === '就待一会儿', AL.fb);
+  check('微小行动库·无情绪输入 → 中性兜底（不再推「最沉重的一句话」）', AL.neutral === true && AL.fb !== AL.worst, AL.fb);
   check('情绪安放卡·标题逐字 = SSOT', SC.holdTitle === SC.libHold && SC.holdTitle === '把情绪暂时留在深海', SC.holdTitle);
   check('情绪安放卡·正文逐字 = SSOT', SC.holdBody === SC.libHoldBody, SC.holdBody.slice(0, 16));
   check('四类卡片·buildScenarioCard 全程逐字回填 SSOT（type 与标题一致）', SC.seeType === 'see' && SC.actionType === 'action' && SC.holdType === 'hold', `${SC.seeType}/${SC.actionType}/${SC.holdType}`);

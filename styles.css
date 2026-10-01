@@ -898,6 +898,16 @@ body.swiping #view{touch-action:none}
 .welcome-lines{text-align:left;font-size:14.5px;color:var(--ink);line-height:1.85;margin:8px 4px 16px}
 .welcome-lines p{margin:5px 0}
 .welcome-foot{font-size:12.5px;color:var(--ink-2);line-height:1.6;margin:12px 2px 0}
+/* v1.6.0 文档 §二：4 屏新手引导的分页点 / 标题 / 双按钮
+   （第 3 屏是边界声明，卡片比单屏默认宽一点，字号也收一档，读得完才叫「告知」） */
+.welcome-progress{display:flex;gap:6px;justify-content:center;margin-bottom:2px}
+.wdot{width:6px;height:6px;border-radius:999px;background:rgba(184,169,232,.42);display:block;transition:width .2s ease}
+.wdot--on{width:20px;background:var(--primary)}
+.welcome-title{font-size:17px;font-weight:700;color:var(--ink);line-height:1.6;margin:10px 0 6px;letter-spacing:.01em}
+.welcome-overlay--steps .welcome-lines{font-size:13.8px;line-height:1.8;margin:6px 2px 14px}
+.welcome-overlay--steps .welcome-card .primary{margin-top:6px}
+.welcome-btns{display:flex;gap:14px;justify-content:center;align-items:center;margin-top:12px}
+.welcome-btns .linkbtn{font-size:13px;color:var(--ink-2);padding:6px 4px;min-height:34px}
 .welcome-card .primary{width:100%;padding:13px 18px;border-radius:999px;font-size:15.5px;font-weight:600;margin-top:4px}
 
 /* ---------- v0.7.0 关于墨小溟 / 更新历史 ---------- */
@@ -906,6 +916,11 @@ body.swiping #view{touch-action:none}
 .changelog__desc{text-align:center;font-size:13.5px;color:var(--ink-2);line-height:1.7;max-width:300px;margin:10px auto 20px}
 .about-persona{text-align:center;font-size:14.5px;color:var(--ink);line-height:1.85;max-width:320px;margin:10px auto;padding:0 4px}
 .disclaimer-box{text-align:left;font-size:13px;color:var(--ink-2);line-height:1.75;background:var(--card);border-radius:var(--radius);padding:14px 16px;margin:14px 0;box-shadow:0 0 0 1px var(--card-line)}
+/* v1.6.0 文档 §三.2：设置页隐私说明四段（能长读、能翻回去） */
+.privacy-box{text-align:left;background:var(--card);border-radius:var(--radius);padding:16px 16px 12px;margin:14px 0;box-shadow:0 0 0 1px var(--card-line)}
+.privacy__title{font-size:14.5px;font-weight:700;color:var(--ink);margin-bottom:10px;letter-spacing:.02em}
+.privacy__line{font-size:13px;color:var(--ink-2);line-height:1.8;margin:0 0 10px;padding-left:12px;border-left:2px solid rgba(184,169,232,.55)}
+.privacy__line:last-child{margin-bottom:0}
 .cf-emotion{text-align:center;font-size:15px;color:var(--primary-deep);line-height:1.8;margin:4px 0 14px;font-weight:500}
 .changelog__list{margin-bottom:4px}
 /* 关于页的安卓安装包入口（v1.1.7）：只在网页版显示，壳里不显示（已经装着 App 了） */
@@ -973,6 +988,31 @@ body.swiping #view{touch-action:none}
   box-shadow:0 10px 28px rgba(150,130,200,.16),inset 0 1px 6px rgba(255,255,255,.5);
 }
 .tl-card--empty{text-align:center;padding:22px 18px}
+/* v1.6.0 文档 §一.1：四档卡片主题（紫/浅蓝/暖黄/灰）
+   旧的紫是唯一配色，所以 --primary 相关的 .tl-node 保持原样（.tl-node 即默认紫档）。
+   下面四档里，紫档显式重写一遍，是为了「主题 CSS 的顺序依赖」不再成为暗坑——
+   谁写在后面谁赢，显式声明比靠顺序猜要可靠。
+   🔴 灰档只降饱和与明度，不改成刺眼的红：遇到高危时卡片不该再制造刺激。 */
+.tl-card--purple{border-color:rgba(184,169,232,.5)}
+.tl-node--purple{background:var(--primary-soft)}
+.tl-card--blue{border-color:rgba(120,168,208,.45);box-shadow:0 10px 28px rgba(90,130,175,.14),inset 0 1px 6px rgba(255,255,255,.5)}
+.tl-card--blue .tl-node{background:#EAF2FA}
+.tl-card--blue .tl-node__no{color:#2F6E9B}
+.tl-card--blue .tl-node__emo--dual{background:linear-gradient(135deg,#EAF2FA,#E9F4FB);color:#2F6E9B;box-shadow:0 1px 4px rgba(47,110,155,.18)}
+.tl-card--blue .tl-hint{background:linear-gradient(135deg,rgba(120,168,208,.14),rgba(158,196,226,.2));border-color:rgba(120,168,208,.45)}
+.tl-card--warm{border-color:rgba(226,178,106,.5);box-shadow:0 10px 28px rgba(196,150,80,.16),inset 0 1px 6px rgba(255,255,255,.5)}
+.tl-card--warm .tl-node{background:#FDF3E2}
+.tl-card--warm .tl-node__no{color:#96681A}
+.tl-card--warm .tl-node__emo--dual{background:linear-gradient(135deg,#FDF3E2,#FCEBD8);color:#96681A;box-shadow:0 1px 4px rgba(150,104,26,.18)}
+.tl-card--warm .tl-hint{background:linear-gradient(135deg,rgba(226,178,106,.14),rgba(240,205,150,.2));border-color:rgba(226,178,106,.45)}
+.tl-card--ash{border-color:rgba(150,150,158,.4);box-shadow:0 8px 22px rgba(120,120,130,.12),inset 0 1px 6px rgba(255,255,255,.5)}
+.tl-card--ash .tl-node{background:#F2F2F4}
+.tl-card--ash .tl-node__no{color:#6E6E78}
+.tl-card--ash .tl-node__emo--dual{background:linear-gradient(135deg,#F2F2F4,#EAEAEE);color:#5E5E68;box-shadow:none}
+.tl-card--ash .tl-hint{background:linear-gradient(135deg,rgba(150,150,158,.1),rgba(180,180,188,.14));border-color:rgba(150,150,158,.35)}
+/* 高危：整卡加一圈内描边（不换成红色警告色，避免二次惊吓） */
+.tl-card--risk{outline:1.5px solid rgba(150,150,158,.45);outline-offset:2px}
+.tl-node--risk .tl-node__emo{color:#5E5E68}
 .tl-corner{position:absolute;top:10px;right:10px;opacity:.4}
 .tl-curve{width:100%;height:auto;display:block;margin:2px 0 8px}
 .tl-curve path{fill:none;stroke:var(--primary);stroke-width:3;stroke-linecap:round;stroke-linejoin:round;opacity:.85}

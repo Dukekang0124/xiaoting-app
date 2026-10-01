@@ -112,12 +112,29 @@ const check = (name, ok, detail) => {
     return a.title === b.title && a.step === b.step;
   });
   check('④ 同一 (情绪, 文本) 结果可复现（同一个人重复点不会乱跳）', rep, '幂等');
-  check('④ 同一种情绪多套并存（≥18 条行动 + 1 条中性兜底）', live.length >= 18 && neutral.length === 1,
+  // 🔴 中性兜底是一个**池**不是一条：文档 §三.1 点名的 7 条通用身体动作也是
+  //    neutral:true（与 41 条情绪专属并存，谁都不替谁）。所以判「有兜底」要判
+  //    池里有 ≥7 条，而不是死盯某一条 title —— 死盯会让探针变成测随机数。
+  check('④ 同一种情绪多套并存（≥18 条行动 + ≥7 条中性兜底）', live.length >= 18 && neutral.length >= 7,
     `live=${live.length} neutral=${neutral.length}`);
 
-  const fb = pickActionVariant([], '');
-  check('④ 无情绪输入 → 中性兜底（不再是「把最沉重的一句话写下来」）',
-    fb && fb.title === '就待一会儿' && !HEAVY.some((w) => (fb.step + fb.note).includes(w)), (fb && fb.title) || 'null');
+  // 无情绪 → 只从中性兜底池抽（绝不抽到情绪组），且兜底里「就待一会儿」仍在。
+  // 判 12 次的集合 ⊆ 中性池，而不是断言某一次恰好抽中哪条（那是测随机数）。
+  const neutralTitles = new Set(neutral.map((v) => v.title));
+  const fbSet = new Set();
+  let leaked = 0;
+  for (let i = 0; i < 12; i += 1) {
+    const fb = pickActionVariant([], '');
+    if (!fb || !fb.neutral || !neutralTitles.has(fb.title)) { leaked += 1; continue; } // 抽到情绪组？那是漏
+    fbSet.add(fb.title);
+    // 兜底只卡红线（不主动推重大人生决策）；HEAVY「不推沉重措辞」只留给正向情绪那条判据——
+    // 中性池里「写一句最重」是文档 §三.1 **逐字点名**的宣泄出口，含「最沉重」是刻意的，不是缺陷。
+    if (BIG_DECISION.some((w) => (fb.step + fb.note).includes(w))) leaked += 1;
+  }
+  check('④ 无情绪输入 → 只抽中性兜底（不再是「把最沉重的一句话写下来」）',
+    leaked === 0 && fbSet.size > 1, `抽到 ${[...fbSet].join('/')}`);
+  check('④ 兜底池里「就待一会儿」仍在（最保守那条不会被挤掉）',
+    neutralTitles.has('就待一会儿'), `${neutral.length} 条中性兜底`);
   check('④ 正向情绪（喜悦/惊讶）不出现沉重措辞', (() => {
     const bad = [];
     for (const e of ['喜悦', '惊讶']) {

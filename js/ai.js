@@ -1,7 +1,10 @@
 // 墨小溟 · AI 引擎（mock 规则实现，严格对齐《AI Prompt 模板与文案库 v1.0》的 5 段输出契约）
 // 换真实 LLM 时：用 prompts.js 的 builder 出 Prompt → 解析 JSON → 过 validateShape 兜底 → 返回同结构。
 
-import { scrubForbidden, CARD_LIB, CARD_LAYER, TIMELINE_EMOTION_KEYWORDS, TIMELINE_EMOTIONS } from './prompts.js';
+import {
+  scrubForbidden, CARD_LIB, CARD_LAYER, TIMELINE_EMOTION_KEYWORDS, TIMELINE_EMOTIONS,
+  emotionScoreFor, cardThemeFor,
+} from './prompts.js';
 
 /* ==================== 词典 ==================== */
 
@@ -493,6 +496,9 @@ function actionHash(str) {
  * @param {string} transcript 该节点/场景原文（用于关键词兜底）
  * @param {{seed?:number}} [opts] 传数字 seed 可强制候选下标，供 A/B 与自测使用
  */
+/** 仅兜底池轮换用的内部计数（命中情绪组时不推进，见下方注释） */
+let neutralTick = 0;
+
 export function pickActionVariant(emotion = [], transcript = '', { seed = null } = {}) {
   const emo = Array.isArray(emotion) ? emotion : [];
   const t = String(transcript || '');
@@ -505,7 +511,15 @@ export function pickActionVariant(emotion = [], transcript = '', { seed = null }
   const pool = hit.length ? hit : variants.filter((v) => v.neutral);
   const list = pool.length ? pool : [ACTION_FALLBACK];
   if (list.length === 1) return list[0];
-  const h = Number.isFinite(seed) ? seed >>> 0 : actionHash(emo.join('|') + '|' + t.slice(0, 96));
+  // 🔴 v1.6.0 缺陷修复：兜底池以前是**恒定同一条**——无情绪时 hash 的输入是
+  //    (空情绪 + 固定原文)，每次算出来都是同一个数 ⇒ 用户每次无情绪倾诉都被推
+  //    同一句「就待一会儿」。文档 §三.1 要求「从库里随机抽取」。
+  //    修法：只有**真的走了兜底**（hit 为空，没有情绪锚点）才让内部计数参与；
+  //    命中情绪组时计数不推进，哈希输入与旧行为逐字一致 ⇒ 幂等断言不受影响。
+  if (!hit.length) neutralTick += 1;
+  const h = Number.isFinite(seed)
+    ? seed >>> 0
+    : actionHash(emo.join('|') + '|' + t.slice(0, 96) + '|' + neutralTick);
   return list[h % list.length];
 }
 
@@ -606,11 +620,19 @@ export function descForNode(n) {
 
 /** 由 legacy nodes 生成 UI 标准化 timeline_list（node_index / emotion_text / desc_text） */
 function buildTimelineList(nodes) {
-  return (nodes || []).map((n, i) => ({
-    node_index: i + 1,
-    emotion_text: (n.emotions && n.emotions.length) ? n.emotions.join(' + ') : '（无明确情绪）',
-    desc_text: descForNode(n),
-  }));
+  return (nodes || []).map((n, i) => {
+    const score = n.emotion_score != null ? n.emotion_score : emotionScoreFor(n.emotions);
+    const risk = !!n.is_high_risk || isHighRiskText(n.text);
+    return {
+      node_index: i + 1,
+      emotion_text: (n.emotions && n.emotions.length) ? n.emotions.join(' + ') : '（无明确情绪）',
+      desc_text: descForNode(n),
+      // v1.6.0 文档 §一.1：逐节点带上 UI 字段，前端不用再回头翻 nodes
+      emotion_score: score,
+      is_high_risk: risk,
+      card_theme: cardThemeFor(score, risk),
+    };
+  });
 }
 
 /** 给时间线数据补齐 UI 标准化字段（向后兼容：保留 legacy nodes / summary / actionHint） */
@@ -624,13 +646,22 @@ export function withTimelineMeta(tl) {
   };
   if (!tl || tl.type === 'no-emotion') {
     const summary = (tl && tl.summary) || TL_NO_EMOTION_SUMMARY;
+    // 🔴 v1.6.0 缺陷修复：这一支以前把三个字段**硬编码**成 purple/false/0，
+    //    调用方（buildTimeline 已按 cardRisk 算好的值）传进来被静默丢弃 ⇒
+    //    「我不想活了，活着没意思」这种**不带情绪短词的高危句**走这条路时，
+    //    危机弹窗已经弹了，卡片却渲染成紫色无事发生。
+    //    契约：三个字段一律以调用方为准，缺省才回落基线（缺省本身就是合法语义）。
     return {
+      ...tl,
       type: 'no-emotion',
       summary,
       ...base,
       timeline_list: [],
       summary_text: summary,
       action_tip: '',
+      emotion_score: Number.isFinite(tl && tl.emotion_score) ? tl.emotion_score : 0,
+      card_theme: (tl && tl.card_theme) || 'purple',
+      is_high_risk: !!(tl && tl.is_high_risk),
     };
   }
   const summary = tl.summary || '';
@@ -642,6 +673,28 @@ export function withTimelineMeta(tl) {
     summary_text: summary,
     action_tip: (actionHint.step) || TL_ACTION_DEFAULT,
   };
+}
+
+/* ==================== 5a-2. 时间线卡 UI 字段（产品文档 §一）====================
+ *
+ * 三个新增字段，前端渲染必须适配：
+ *   emotionScore：情绪倾向值，-100~100（正 = 正向/轻松，负 = 负向/沉重，0 = 无明显倾向）
+ *   cardTheme：紫 / 浅蓝 / 暖黄 / 灰 四档主题色，由 score 与是否高危共同决定
+ *   isHighRisk：本次会话任一轮命中高危（**与危机弹窗同源**，复用 safetyCheck，
+ *               不准另起一套词表 —— 两套词表必然漂移，会出现「弹窗弹了、卡片说是安全的」）
+ *
+ * 为什么必须可导出：_selftest 要用真实业务代码断言这些字段，不能另写一份平行实现。
+ * 为什么极性表写死不交给模型：模型会编数值（本项目已栽过卡片日期），
+ *   这里只把「命中了哪些标准情绪短词」这套既有结论翻译成数值，源头是本地词表。
+ */
+/** 某一段倾诉是否高危：复用安全识别（与危机弹窗同一套词表，见上） */
+export function isHighRiskText(text) {
+  try {
+    const r = safetyCheck(text || '');
+    return r.risk_level === 'high' || r.risk_level === 'critical';
+  } catch (e) {
+    return false;
+  }
 }
 
 /**
@@ -677,10 +730,14 @@ export function buildTimeline(conversation = []) {
   const nodes = nodesSrc.map((m) => {
     const emotions = detectTimelineEmotions(m.text);
     const snippet = (m.text || '').trim().slice(0, 40);
+    const nodeHighRisk = isHighRiskText(m.text);
     return {
       at: m.at || Date.now(),
       text: snippet,
       emotions,
+      // v1.6.0 文档 §一.1：UI 字段（渲染见 timelineBody，旧数据缺字段时前端兜底成紫）
+      emotion_score: emotionScoreFor(emotions),
+      is_high_risk: nodeHighRisk,
       merged: !!m._merged,
       count: m._count || 1,
       // v2 预留：触发事件关键词（当前不填，只占位，避免以后改数据结构）
@@ -690,10 +747,21 @@ export function buildTimeline(conversation = []) {
     };
   });
 
-  // 全程无情绪 → 简化卡（蓝图 §三.5 边界）
+  /* 高危判定**必须**先于「全程无情绪 → 简化卡」：
+     用户说「我不想活了」这类话时，句里往往一个情绪短词都没有（不命中 EMOTION_LEX），
+     于是走 no-emotion 分支 ⇒ 卡片被写成 theme=purple / is_high_risk=false，
+     而同一句话**危机弹窗已经弹了** ⇒ 弹窗说有事、卡片说没事，自相矛盾。
+     高危走的是「有没有说高危的话」，跟有没有情绪词是两回事，两件事都要算。 */
+  const cardRisk = nodes.some((n) => (n.is_high_risk != null ? n.is_high_risk : isHighRiskText(n.text)));
   const anyEmotion = nodes.some((n) => n.emotions.length);
   if (!anyEmotion) {
-    return withTimelineMeta({ type: 'no-emotion', summary: TL_NO_EMOTION_SUMMARY });
+    return withTimelineMeta({
+      type: 'no-emotion',
+      summary: TL_NO_EMOTION_SUMMARY,
+      emotion_score: 0,
+      card_theme: cardThemeFor(0, cardRisk),
+      is_high_risk: cardRisk,
+    });
   }
 
   const summary = buildTimelineSummary(nodes);
@@ -707,7 +775,22 @@ export function buildTimeline(conversation = []) {
     note: (hint && hint.note) || '写下来，不一定要立刻解决它。',
   };
 
-  return withTimelineMeta({ type: 'timeline', nodes, summary, actionHint });
+  // 整卡三个 UI 字段：倾向值取「最后一个有情绪的节点」（倾诉总以最后那句的情绪定调），
+  // 高危取「任一节点高危」（漏判高危的代价远大于误标）
+  const scored = nodes.filter((n) => (n.emotions || []).length);
+  const cardScore = scored.length ? emotionScoreFor(scored[scored.length - 1].emotions) : 0;
+  // 整卡高危上游已算好（cardRisk，见上），这里不再重复算一遍，避免两处口径漂移
+  void cardRisk;
+
+  return withTimelineMeta({
+    type: 'timeline',
+    nodes,
+    summary,
+    actionHint,
+    emotion_score: cardScore,
+    card_theme: cardThemeFor(cardScore, cardRisk),
+    is_high_risk: cardRisk,
+  });
 }
 
 /* ==================== 5b. 周报生成 ==================== */

@@ -16,7 +16,10 @@ import * as cw from './copywriting.js'; // v1.3.1~1.3.4 文案库
 import { createIpInteraction, tapAnimClass } from './interaction.js'; // v1.3.1 IP 点击轻互动
 import * as diag from './diag.js';
 import { parseHash, go, onChange } from './router.js';
-import { COPY, greetByHour, findForbidden, pickRiskScript, pickEmotionResponse, pickSilence, pickBy } from './prompts.js';
+import {
+  COPY, greetByHour, findForbidden, pickRiskScript, pickEmotionResponse, pickSilence, pickBy,
+  emotionScoreFor, cardThemeFor, // v1.6.0 文档 §一.1：时间线卡 UI 字段（源在 prompts.js，不另存一份）
+} from './prompts.js';
 import { AI, ASR, isNativeApp } from './config.js';
 import * as memory from './memory.js';
 import * as notify from './notify.js'; // v1.4.1 轻提醒（修复「允许轻提醒」死开关）
@@ -1411,7 +1414,11 @@ function timelineBody(tl) {
     const desc = (it.desc_text != null && it.desc_text !== '') ? it.desc_text : (it.text || '');
     const tail = (it.merged && it.count > 1) ? `　（后面 ${it.count} 轮合在这里）` : '';
     const dual = / \+ /.test(emo); // 双情绪并列节点（如「喜悦 + 委屈」）
-    return `<div class="tl-node">
+    // v1.6.0 文档 §一.1：逐节点主题 + 高危标记（旧数据缺字段时兜底成紫，不炸）
+    const nScore = it.emotion_score != null ? it.emotion_score : emotionScoreFor(it.emotions);
+    const nRisk = !!it.is_high_risk;
+    const nTheme = it.card_theme || cardThemeFor(nScore, nRisk);
+    return `<div class="tl-node tl-node--${nTheme}${nRisk ? ' tl-node--risk' : ''}">
       <div class="tl-node__no">第 ${no} 段</div>
       <div class="tl-node__emo${dual ? ' tl-node__emo--dual' : ''}">${esc(emo)}</div>
       <div class="tl-node__cap">${esc(desc)}${tail}</div>
@@ -1420,8 +1427,11 @@ function timelineBody(tl) {
   const hint = tl.actionHint || {};
   const summaryTxt = tl.summary_text || tl.summary || '';
   const footer = tl.footer_note || TIMELINE_DISCLAIMER;
+  // 整卡主题（v1.6.0）：紫/蓝/暖/灰；旧数据缺字段一律兜底成紫
+  const theme = tl.card_theme || cardThemeFor(tl.emotion_score, tl.is_high_risk);
+  const risk = !!tl.is_high_risk;
   return `
-    <div class="tl-card">
+    <div class="tl-card tl-card--${theme}${risk ? ' tl-card--risk' : ''}" data-theme="${esc(theme)}" data-risk="${risk ? '1' : '0'}">
       <div class="tl-corner">${miniFace('empathy', 26)}</div>
       ${timelineCurve(nodes)}
       <div class="tl-nodes">${rows}</div>
@@ -2015,7 +2025,14 @@ function pageSettings() {
       <div class="set-title">重要声明</div>
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.5.0')}</p>
+    <div class="privacy-box">
+      <div class="privacy__title">${esc((COPY.privacyFull || {}).title || '隐私说明')}</div>
+      ${['data_store', 'audio', 'memory', 'crisis'].map((k) => {
+        const t = (COPY.privacyFull || {})[k];
+        return t ? `<p class="privacy__line" data-privacy="${k}">${esc(t)}</p>` : '';
+      }).join('')}
+    </div>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.6.0')}</p>
   </section>`;
 }
 
@@ -2170,7 +2187,7 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.5.0')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.6.0')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -2179,7 +2196,7 @@ function pageChangelog() {
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.5.0')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.6.0')}</p>
   </section>`;
 }
 
@@ -2304,6 +2321,9 @@ function handleBlocking(safety) {
   const evidence = (store.getState().draft && store.getState().draft.transcript) || '';
   // 对话区同步输出对应版本安抚与引导文字（§3.3 第 3 条）
   appendConvo('ai', script.line);
+  // v1.6.0 文档 §一.3：弹窗触发后，对话区必须**同步**附带这一句。
+  // （只放弹窗里 = 用户点掉「我已了解」话就没了；这是文档点名要求的约束，不是可选项）
+  appendConvo('ai', (COPY.risk && COPY.risk.carer_line) || '我很担心你，请一定好好照顾自己。');
   // 记录风险态（供兜底 / 埋点）
   store.setRisk({
     level: action === 'harm_others' ? 'high' : (action === 'redirect_professional' ? 'medium' : 'critical'),
@@ -3344,29 +3364,73 @@ function updateOfflineBar() {
 
 const WELCOME_KEY = 'moxiaoming:welcomed_v1';
 
+/* v1.6.0 文档 §二：4 屏新手引导（首次打开触发，可跳过）
+ * 原来只有 1 屏欢迎，文档要求 4 屏且**每屏可跳过**、走完弹问候气泡。
+ * 关键点：
+ *   1. 走完（或跳过）都要写 WELCOME_KEY —— 否则用户第二次打开被再问一遍，比不问更烦；
+ *   2. 结束时要往**对话区**塞一句问候气泡（appendConvo），不是 toast ——
+ *      toast 三秒就没，而文档要的是「引导结束后自动弹出首条问候气泡」，
+ *      它得留在对话里，成为这段关系的第一句话；
+ *   3. 第 3 屏的边界声明与热线必须真的能看到（tappable），不能只写在文案里当装饰。 */
 function showWelcome() {
   let shown = false;
   try { shown = localStorage.getItem(WELCOME_KEY) === '1'; } catch (e) {}
   if (shown) return;
+  const OB = COPY.onboarding || {};
+  const screens = [OB.screen1, OB.screen2, OB.screen3, OB.screen4].filter(Boolean);
+  if (screens.length < 4) return; // 文案不齐就别弹（半截引导比不引导更糟）
+  let i = 0;
+
   const overlay = document.createElement('div');
-  overlay.className = 'welcome-overlay';
+  overlay.className = 'welcome-overlay welcome-overlay--steps';
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
-  overlay.innerHTML = `
-    <div class="welcome-card">
-      <div class="welcome-ip">${mascot('idle', 120)}</div>
-      <div class="welcome-badge">${esc(COPY.welcome.badge)}</div>
-      <div class="welcome-lines">${COPY.welcome.lines.map((l) => `<p>${esc(l)}</p>`).join('')}</div>
-      <button class="primary" id="welcomeStart" type="button">${esc(COPY.welcome.button)}</button>
-      <p class="welcome-foot">墨小溟不会诊断，也不是心理医生。它只是陪你把心事说出来。</p>
-    </div>`;
   document.body.appendChild(overlay);
-  const start = document.getElementById('welcomeStart');
-  if (start) start.addEventListener('click', () => {
+
+  const dots = () => screens.map((_, k) => `<i class="wdot${k === i ? ' wdot--on' : ''}"></i>`).join('');
+  const face = () => (i === 2 ? mascot('danger', 120) : mascot('idle', 120));
+
+  // 🔴 这函数以前叫 render()，把**模块级的页面 render 遮蔽**了 —— finish() 里写的
+  //    render() 其实调的是这个画浮层的局部函数 ⇒ 页面一动不动（问候进了 state，屏幕没字）。
+  //    现在改叫 paint()（只画浮层），finish() 里才能调到真正的页面 render()。
+  function paint() {
+    const s = screens[i];
+    const last = i === screens.length - 1;
+    overlay.innerHTML = `
+      <div class="welcome-card">
+        <div class="welcome-progress">${dots()}</div>
+        <div class="welcome-ip">${face()}</div>
+        <div class="welcome-badge">${esc(OB.done ? (i === 2 ? '重要提醒' : (last ? OB.done : COPY.welcome.badge)) : COPY.welcome.badge)}</div>
+        <div class="welcome-title">${esc(s.title)}</div>
+        <div class="welcome-lines">${esc(s.body)}</div>
+        <button class="primary" id="wNext" type="button">${esc(last || !OB.next ? OB.done : OB.next)}</button>
+        <div class="welcome-btns">
+          ${i > 0 ? `<button class="linkbtn" id="wBack" type="button">${esc(OB.back)}</button>` : ''}
+          <button class="linkbtn" id="wSkip" type="button">${esc(OB.skip)}</button>
+        </div>
+      </div>`;
+    const next = document.getElementById('wNext');
+    const back = document.getElementById('wBack');
+    const skip = document.getElementById('wSkip');
+    if (next) next.addEventListener('click', () => { if (last) finish(); else { i += 1; paint(); } });
+    if (back) back.addEventListener('click', () => { if (i > 0) { i -= 1; paint(); } });
+    if (skip) skip.addEventListener('click', finish);
+  }
+
+  function finish() {
     try { localStorage.setItem(WELCOME_KEY, '1'); } catch (e) {}
     if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
-    store.toast(COPY.opening); // IP 开场白
-  });
+    // 文档点名：结束弹的是**问候气泡**（留在对话区），不是一闪而过的 toast
+    appendConvo('ai', (COPY.onboardingDone && COPY.onboardingDone) || COPY.opening);
+    // 🔴 v1.6.0 缺陷修复：store.subscribe 只挂了 renderToast，**state 变了不会自动重绘**。
+    //    少了这一行，问候语进的是 state.conversation、页面上却一个字都没有 ——
+    //    数据层断言全绿（doc-closure 验的就是数据层），肉眼却看不到任何气泡。
+    //    这类「状态对了、屏幕没动」的缺陷只有真跑浏览器才抓得到。
+    //    注意这里要调的是**模块级页面 render**（paint 只画浮层，shadow 过一轮才看清）。
+    render();
+  }
+
+  paint();
 }
 
 /* ---------------- 启动 ---------------- */

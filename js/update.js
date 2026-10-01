@@ -32,17 +32,17 @@ const SNOOZE_KEY = 'xiaoting:update_snooze_day'; // 当天"稍后再说"过的�
  *
  * 🔴 取值规则必须是「线上与硬编码**取较大者**」，不能用硬编码直接覆盖：
  *   直接覆盖 ⇒ 以后每发一版都得回来改这个常量，忘了改就等于把更新功能**反向锁死**
- *   （新版 1.5.0 上线了，硬编码还写 1.4.2 ⇒ 用户永远收不到 1.5.0 的提示）。
+ *   （新版 1.6.0 上线了，硬编码还写 1.4.2 ⇒ 用户永远收不到 1.6.0 的提示）。
  *   那等于用一个新坑换掉旧坑。取大者时，它只在「线上更旧/取不到」时才起作用。
  *
  * 🔴 与 APP_VERSION 必须同步：自测里有一条断言卡死这条（两者必须相等），
  *   否则「发版忘改常量」又会变成下一个静默故障。
  */
-export const LATEST_VERSION = '1.5.0';
+export const LATEST_VERSION = '1.6.0';
 
 /** 兜底安装包地址：必须是**版本化文件名**，不能用 xiaoting-latest.apk 别名
  *  （别名指向"站点上最新的那一版"，站点没发布时它反而是旧版 ⇒ 会让人装回旧包）。 */
-const FALLBACK_APK_URL = 'https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.5.0-release.apk';
+const FALLBACK_APK_URL = 'https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.0-release.apk';
 
 /**
  * 版本清单的两个候选路径，按顺序试（v1.1.4 修）。
@@ -150,7 +150,7 @@ export function setSnoozeDay() {
  * 「这个版本我暂时不装」≠「今天不装，明天我可能就装」。
  *
  * 自动检测才会被它短路；「关于墨小溟」页的手动检查**永远可用**（用户主动问就必须给答案）。
- * 拒绝过 1.4.3 之后，1.5.0 发布时仍然会正常提示（版本不同）。
+ * 拒绝过 1.4.3 之后，1.6.0 发布时仍然会正常提示（版本不同）。
  */
 const DISMISS_KEY = 'xiaoting:update_dismissed_ver';
 

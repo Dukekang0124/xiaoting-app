@@ -34,3 +34,6 @@ _probe/
 
 # 由未知流程生成的锁文件，仓库原本没有，不入库避免噪声
 package-lock.json
+
+# 引导/真跑探针截图（验收证据本地留存，不进源码仓库）
+_selftest/shots-onboarding/
