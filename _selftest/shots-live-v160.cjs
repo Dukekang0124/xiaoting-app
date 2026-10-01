@@ -30,6 +30,17 @@ const body = (p) => p.$eval('.welcome-lines', (el) => (el.textContent || '').tri
       'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36',
   });
   const page = await ctx.newPage();
+  // 🔴 为什么要给 /js/* 加破缓存参数：线上托管网关按 (路径, Accept-Encoding) 分桶缓存，
+  //    Chrome 走的 br 桶实测仍压着**上一版**的旧体（05:14:49 那次发布的内容），
+  //    而 identity / zstd 桶是新的 —— 同一时刻两个桶给出不同版本。
+  //    截图证据要取自**源站真身**，所以这里把 /js/* 请求改写为带 ?cb= 的同源地址，
+  //    该 URL 从未被缓存过 ⇒ 必然回源（回源结果已用 identity 桶单独复核过 = v1.6.1）。
+  const bust = Date.now().toString(36);
+  await page.route('**/js/*.js', (route) => {
+    const u = route.request().url();
+    if (u.includes('?')) return route.continue();
+    return route.continue({ url: u + '?cb=' + bust });
+  });
   const errs = [];
   page.on('pageerror', (e) => errs.push(String(e && e.message ? e.message : e)));
 
@@ -38,12 +49,19 @@ const body = (p) => p.$eval('.welcome-lines', (el) => (el.textContent || '').tri
   await page.waitForSelector('.welcome-overlay', { timeout: 15000 });
 
   const v = await page.evaluate(() => window.APP_VERSION || '');
-  console.log('线上 APP_VERSION = ' + v);
-  if (String(v) !== '1.6.0') throw new Error('线上不是 v1.6.0，是 ' + v + ' ⇒ 证据无效，先查发布');
+  // 🔴 判据不能写死版本号：写死了就变成「发新版本时这个探针自己红」，
+  //    排查时会被误导成"发布失败"，实际只是脚本没跟上。改从本地 SSOT（index.html）读。
+  const localV = (require('node:fs').readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8')
+    .match(/APP_VERSION\s*=\s*'([\d.]+(-RC)?)'/) || [])[1];
+  console.log('线上 APP_VERSION = ' + v + '　本地版本 = ' + localV);
+  if (String(v) !== localV) throw new Error('线上是 ' + v + '、本地是 ' + localV + ' ⇒ 证据无效，先查发布');
 
   const seen = [];
   for (let i = 1; i <= 4; i += 1) {
-    seen.push({ i, t: await title(page), b: await body(page) });
+    // 徽标 + 标题要**同屏**取：v1.6.0 第 3 屏是「徽标=重要提醒 / 标题=重要提醒」的重复，
+    // 只在结束之后回头查是查不到的（那时浮层已经拆了）。
+    const badge = await page.$eval('.welcome-badge', (el) => (el.textContent || '').trim()).catch(() => '');
+    seen.push({ i, badge, t: await title(page), b: await body(page) });
     await shot(page, `0${i}-live-welcome-${i}.png`);
     if (i < 4) {
       // 🔴 只能点 #wNext：.welcome-btns 里是「上一屏/先跳过」两个 .linkbtn，
@@ -77,13 +95,18 @@ const body = (p) => p.$eval('.welcome-lines', (el) => (el.textContent || '').tri
   const hasPrivacy = await page.$$eval('.privacy__line', (n) => n.length).catch(() => 0);
   await shot(page, '06-live-settings-privacy.png');
 
-  const ok = seen.length === 4 && seen.every((s) => s.t && s.b) && greetHit && hasPrivacy >= 4 && !errs.length;
+  const s3ok = seen[2] || {};
+  const ok = seen.length === 4 && seen.every((x) => x.t && x.b) && greetHit && hasPrivacy >= 4 &&
+    !!(s3ok.badge && s3ok.t && s3ok.badge !== s3ok.t) && !errs.length;
   console.log('\n--- 结果 ---');
-  seen.forEach((s) => console.log(`  第 ${s.i} 屏：${s.t} / ${(s.b || '').slice(0, 40)}…`));
+  seen.forEach((s) => console.log(`  第 ${s.i} 屏：${s.badge ? '[' + s.badge + '] ' : ''}${s.t} / ${(s.b || '').slice(0, 40)}…`));
+  const s3 = seen[2] || {};
+  console.log('  第 3 屏徽标与标题不同文：' +
+    ((s3.badge && s3.t && s3.badge !== s3.t) ? '是' : '否（' + s3.badge + ' / ' + s3.t + '）'));
   console.log('  问候气泡含「我是墨小溟」：' + (greetHit ? '是' : '否'));
   console.log('  设置页隐私段落数：' + hasPrivacy);
   console.log('  页面异常：' + (errs.length ? errs.join(' | ') : '无'));
-  console.log(ok ? '\n==== v1.6.0 线上证据截图：全部到位 ====' : '\n==== ✗ 证据不全，见上方 ====');
+  console.log(ok ? '\n==== 线上证据截图（' + localV + '）：全部到位 ====' : '\n==== ✗ 证据不全，见上方 ====');
 
   await browser.close();
   process.exit(ok ? 0 : 1);
