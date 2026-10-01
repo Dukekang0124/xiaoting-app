@@ -4,11 +4,11 @@
   "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.0-release.apk",
   "web_url": "https://xiaoting.app.workbuddy.host/#/say",
   "apk": {
-    "versionCode": 16000,
+    "versionCode": 10600,
     "version": "1.6.0",
     "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.0-release.apk",
-    "md5": "5589ca5d89f71f7377be1b093c48b573",
-    "size": 3589909,
+    "md5": "81542ea61170a537aa9b41fb61c3a334",
+    "size": 3602197,
     "force": false
   },
   "release_notes": [
