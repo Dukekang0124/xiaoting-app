@@ -45,6 +45,27 @@ function ok(name, cond, detail = '') {
   const data = await page.evaluate(async ({ base, cfg }) => {
     const out = {};
     out.cfg = cfg;
+    // 🔴 真链路（防假绿）：上面取的都是「自己 import 进来的模块实例」上的东西。
+    //    但 app.js 调的是 window.motion —— 如果 app.js 只 import 没挂全局，
+    //    这里每一条都会绿，产品里却是静默空转（v1.6.3 真实踩过：window.motion 从未被赋值）。
+    //    所以这一组必须问真页面：全局在不在、八个入口齐不齐、配置真读进来没、playTap 真加到 IP 没。
+    try {
+      const w = window.motion || null;
+      out.wire = {
+        hasGlobal: !!w && typeof w === 'object',
+        missing: w ? ['load','mount','setEnabled','setIntensity','playTap','setState','getConfig']
+                     .filter((k) => typeof w[k] !== 'function') : ['全局根本不存在'],
+        cfgByApp: !!(w && w.getConfig && w.getConfig()),
+      };
+      out.wire.tap = w && typeof w.playTap === 'function' ? (w.playTap(2) || null) : null;
+      // 判据选择器必须和 playTap 实现里用的是同一个（.say__mascot 才是它加 class 的目标，.mascot 只是外层壳）
+      const tapEl = document.querySelector('.say__mascot') || document.querySelector('.mascot');
+      out.wire.tapOnMascot = !!(tapEl && out.wire.tap && tapEl.classList.contains(out.wire.tap.cls));
+      w && typeof w.setEnabled === 'function' && w.setEnabled(false);
+      out.wire.offAfterClose = document.body.classList.contains('ip-motion-off');
+      w && typeof w.setEnabled === 'function' && w.setEnabled(true);
+      out.wire.onAfterOpen = document.body.classList.contains('ip-motion-off') === false;
+    } catch (e) { out.wire = { err: String(e.message) }; }
     try {
       const res = await fetch('/moxiaoming_motion_sound_config.json', { cache: 'no-cache' });
       out.configHttp = res.status;
@@ -162,6 +183,16 @@ function ok(name, cond, detail = '') {
   // ⑥ 总开关：复用既有 ip-motion-off，关了必须真关
   ok('动效总开关关掉后 body 带 ip-motion-off', data.offClass === true);
   ok('总开关打开后 body 不带 ip-motion-off', data.onClass === true);
+
+  // ⑦ 真链路：落 app.js 实际调用的那条（window.motion），前面全是假绿的话这里必须红
+  const w = data.wire || {};
+  ok('app.js 真把 motion 挂上了 window（只 import 不挂全局 = 静默空转）', w.hasGlobal === true);
+  ok('window.motion 的入口都是真函数', Array.isArray(w.missing) && w.missing.length === 0, (w.missing || []).join(','));
+  ok('页面启动真把配置读进来了（getConfig 非空）', w.cfgByApp === true);
+  ok('playTap(2) 真跑出结果', !!w.tap, JSON.stringify(w.tap));
+  ok('playTap 的 class 真加到了 IP 身上（不是只算出个名字）', w.tapOnMascot === true);
+  ok('setEnabled(false) 真让 body 带 ip-motion-off', w.offAfterClose === true);
+  ok('setEnabled(true) 后恢复', w.onAfterOpen === true);
 
   ok('页面无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '));
 

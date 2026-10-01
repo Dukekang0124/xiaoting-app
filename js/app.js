@@ -3629,6 +3629,10 @@ export function boot() {
   window.ipAudio = ipAudio;
   ipAudio.setEnabled(store.getState().user.settings.soundOn === true);
   // v1.6.3 动效编排：读配置 → 写 CSS 变量（配置丢了也不许冻住 IP，见 motion.js）
+  // 🔴 window.motion 必须先挂上：下面这三行、设置页两个联动、handleIpTap 全部走 window.motion 判定，
+  //    漏了这一句 == 整条动效链路静默空转（import 拿得到、window 上没有 = 没人接），
+  //    与 ipAudio 那句 window.ipAudio = ipAudio 是同一个必须显式挂全局的道理。
+  window.motion = motion;
   try {
     if (window.motion) {
       window.motion.load().catch(() => {});
