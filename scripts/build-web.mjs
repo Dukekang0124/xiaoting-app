@@ -54,8 +54,22 @@ if (unclassified.length) {
   throw new Error('unclassified root entries: ' + unclassified.join(', '));
 }
 
-await rm(out, { recursive: true, force: true });
-await mkdir(out, { recursive: true });
+/* 整目录重建 vs 增量覆盖
+ *
+ * 🔴 默认仍是「先 rm 再建」（CI 与本机发版都靠它保证 www/ 与源码严格一致）。
+ *    但「递归删掉 www/」这个动作在某些环境会被判定为危险批量删除而被拦下。
+ *    给一个显式开关 BUILD_WEB_KEEP=1：跳过清空、改为逐文件覆盖写 ——
+ *    产物内容一致，代价是 www/ 里**可能残留上一版才有的条目**（下方会清点并告警，
+ *    不静默：残留 = 站点上多出不该有的东西，必须让人看见）。
+ */
+const KEEP = process.env.BUILD_WEB_KEEP === '1';
+if (KEEP) {
+  console.warn('[build:web] · BUILD_WEB_KEEP=1：不清空 www/，改为增量覆盖（产物一致，旧条目可能残留）');
+  await mkdir(out, { recursive: true });
+} else {
+  await rm(out, { recursive: true, force: true });
+  await mkdir(out, { recursive: true });
+}
 
 for (const d of DIRS) {
   await cp(path.join(src, d), path.join(out, d), { recursive: true });
@@ -139,3 +153,19 @@ if (process.env.CI === 'true') {
 }
 
 console.log('[build:web] ✓ www/ 已生成（前端静态资产，不含后端 /api/*）');
+
+/* 残留清点（仅增量模式）：把「本次没被覆盖、但还留在 www/ 里」的条目摊开说清楚，
+   而不是让人以为「增量=完全一样」。 */
+if (KEEP) {
+  const expected = new Set([...DIRS, ...FILES, 'version.json', 'version-latest.js', 'apk']);
+  const stale = (await readdir(out)).filter((n) => !expected.has(n));
+  if (stale.length) {
+    console.warn('[build:web] ⚠ www/ 里保留了不在本次拷贝范围的条目（增量模式）：' + stale.join(', '));
+  } else {
+    console.log('[build:web] ✓ www/ 无残留条目（增量结果与整目录重建一致）');
+  }
+  try {
+    const apks = (await readdir(path.join(out, 'apk'))).filter((n) => n.endsWith('.apk'));
+    console.log(`[build:web] · www/apk/ 现有 ${apks.length} 个包：${apks.join(', ')}`);
+  } catch (e) { /* www/apk 不存在就没什么可报的 */ }
+}

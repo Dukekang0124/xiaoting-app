@@ -39,11 +39,11 @@ const SNOOZE_KEY = 'xiaoting:update_snooze_day'; // 当天"稍后再说"过的�
  * 🔴 与 APP_VERSION 必须同步：自测里有一条断言卡死这条（两者必须相等），
  *   否则「发版忘改常量」又会变成下一个静默故障。
  */
-export const LATEST_VERSION = '1.6.4';
+export const LATEST_VERSION = '1.6.5';
 
 /** 兜底安装包地址：必须是**版本化文件名**，不能用 xiaoting-latest.apk 别名
  *  （别名指向"站点上最新的那一版"，站点没发布时它反而是旧版 ⇒ 会让人装回旧包）。 */
-const FALLBACK_APK_URL = 'https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.4-release.apk';
+const FALLBACK_APK_URL = 'https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.5-release.apk';
 
 /**
  * 版本清单的两个候选路径，按顺序试（v1.1.4 修）。
@@ -698,24 +698,12 @@ function showInstallGuide(data, p) {
   overlay.className = 'install-overlay';
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
-  overlay.innerHTML = `
-    <div class="install-card">
-      <div class="update-ip">
-        ${mascot('happy', 96)}
-        <div class="update-sign">安装指引</div>
-      </div>
-      <h3 class="update-title">墨小溟 v${esc(data.latest_version)} 已就绪</h3>
-      <p class="update-sub">下面 3 步就能装上最新版，很快：</p>
-      <ol class="install-steps">
-        <li>点「开始下载」，安装包会在后台下载。</li>
-        <li>下载完成后，从屏幕<b>顶部下拉通知栏</b>，点一下「Xiaoting…apk」。</li>
-        <li>若弹出「允许安装未知应用」，打开该权限，再点安装即可。</li>
-      </ol>
-      <div class="install-actions">
-        <button class="update-btn update-btn--primary" id="installStart" type="button">开始下载</button>
-        <button class="update-btn update-btn--ghost" id="installLater" type="button">稍后再说</button>
-      </div>
-    </div>`;
+  // 🔴 骨架留空、首屏交给 setCard 渲染。以前这里是另写一段 innerHTML，与 setCard 各拼一套骨架，
+  //    结果 v1.6.4 把流程改成「App 内下载 + 自动唤起安装器」时，只改了后续三态，首屏那句
+  //    「下载完成后，从屏幕顶部下拉通知栏，点一下 Xiaoting…apk」原样留了下来 ——
+  //    新流程压根不往通知栏放包，用户照着做就是白找一遍。探针当时也没断言首屏，属于假绿。
+  //    一套骨架只留一处渲染入口，才不会再次漂移。
+  overlay.innerHTML = '<div class="install-card"></div>';
   document.body.appendChild(overlay);
 
   const card = overlay.querySelector('.install-card');
@@ -741,8 +729,8 @@ function showInstallGuide(data, p) {
       const el = document.getElementById(a.id);
       if (!el) return;
       el.addEventListener('click', () => {
-        if (a.id === 'installDone' || a.id === 'dlCancel') { close(); return; }
-        if (a.id === 'dlRetry') { void run(); return; }
+        if (a.id === 'installDone' || a.id === 'dlCancel' || a.id === 'installLater') { close(); return; }
+        if (a.id === 'installStart' || a.id === 'dlRetry') { void run(); return; }
         if (a.id === 'dlReopen') { void reopen(); return; }
         if (a.id === 'dlManual') { try { window.location.href = url; } catch (e) { /* ignore */ } close(); }
       });
@@ -832,11 +820,18 @@ function showInstallGuide(data, p) {
         .concat([{ id: 'installDone', text: '先放着', ghost: true }]) });
   };
 
-  const start = document.getElementById('installStart');
-  if (start) start.addEventListener('click', () => { void run(); });
-
-  const later = document.getElementById('installLater');
-  if (later) later.addEventListener('click', close);
+  /* 首屏：先把「这次跟以前不一样」讲清楚 —— 下载留在 App 里，不再把人赶去通知栏。
+     按钮只负责触发 run()，下载链路与状态卡全在下面那套 setCard 里。 */
+  setCard({
+    sign: 'happy', label: '安装指引',
+    title: `墨小溟 v${esc(data.latest_version)} 已经准备好了`,
+    body: '<ol class="install-steps">' +
+      '<li>点「开始下载」，包就在这个 App 里下载，进度看得见。</li>' +
+      '<li>下完会自动弹出安装界面 —— 不用切到浏览器，也不用去通知栏翻文件。</li>' +
+      '<li>若弹出「允许安装未知应用」，打开这个权限，再点「安装」就行。</li>' +
+      '</ol>',
+    actions: [{ id: 'installStart', text: '开始下载' }, { id: 'installLater', text: '稍后再说', ghost: true }],
+  });
 }
 
 /* ---------------- 装完之后的那句交代（v1.6.4） ---------------- */

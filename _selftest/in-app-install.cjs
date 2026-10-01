@@ -1,5 +1,5 @@
 /**
- * 墨小溟 v1.6.4 · 应用内下载安装（不跳出产品）真跑自测
+ * 墨小溟 · 应用内下载安装（不跳出产品）真跑自测
  *
  * 要回答的那一句话：**点「开始下载」之后，用户会不会被甩出 App 去通知栏找包？**
  *
@@ -23,11 +23,20 @@
 const { chromium } = require('playwright');
 const { spawn } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 
 const ROOT = path.resolve(__dirname, '..');
 const PORT = 4191; // 安全区端口
 const BASE = 'http://127.0.0.1:' + PORT;
 const NODE = 'C:\\Users\\Admin\\.workbuddy\\binaries\\node\\versions\\22.22.2-3\\node.exe';
+
+/* 🔴 版本号一律从 index.html 的 APP_VERSION 现读，绝不写死在断言/假数据里 ——
+*    写死的话，下一个版本这条探针必定假红（`_selftest/` 里已经栽过一次：
+*    www-artifact-smoke 写死 18 个模块、_probe/_sw-upgrade 写死 CACHE 名）。
+*    这里的 CUR 同时喂给假清单、假桥产物名、armed 凭据 key，保证探针跟着版本走。 */
+const CUR = (fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8').match(/APP_VERSION\s*=\s*'([\d.]+)/) || [])[1];
+if (!CUR) { console.error('✗ 读不到 APP_VERSION'); process.exit(1); }
+const CUR_CODE = CUR.split('.').map((n) => Number(n) || 0).reduce((a, b) => a * 100 + b, 0);
 
 const results = [];
 const check = (name, ok, detail = '') => {
@@ -35,6 +44,19 @@ const check = (name, ok, detail = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  — ' + detail : ''}`);
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * 这句话是不是在**指挥用户去通知栏操作**？
+ *
+ * 🔴 为什么不能直接 `!/通知栏/.test(txt)`（本探针第一版就是这么写，结果假红）：
+ *    新文案里有一句否定式说明「不用切到浏览器，也不用去通知栏翻文件」—— 它含「通知栏」三个字，
+ *    却是**正确**的（正是在告诉用户不必再去翻文件）。字面 grep 把这句话判成缺陷，
+ *    属于「判据太粗 ⇒ 拿假红去改一处根本没坏的代码」（本项目 v1.4.1 三条红全是这么来的）。
+ *    真正的缺陷长这样：「从屏幕顶部下拉通知栏，点一下 Xiaoting…apk」= 指令。
+ *    所以判据 = 「命中指令词」且「紧邻 6 字内没有否定词」。
+ */
+const trayDirective = (s) => (s.match(/.{0,6}(?:下拉通知栏|通知栏[点找翻])/g) || [])
+  .filter((h) => !/(?:不用|不必|无需|免)/.test(h));
 
 async function waitServer() {
   for (let i = 0; i < 80; i++) {
@@ -66,10 +88,10 @@ window.Capacitor = {
           }
         }
         if (window.__capFail) throw new Error(window.__capFail);
-        return { path: '/cache/xiaoting-v1.6.4.apk' };
+        return { path: '/cache/xiaoting-v${CUR}.apk' };
       },
       stat: async () => ({ size: ${statSize} }),
-      getUri: async () => ({ uri: 'content://com.android.app/cache/xiaoting-v1.6.4.apk' }),
+      getUri: async () => ({ uri: 'content://com.android.app/cache/xiaoting-v${CUR}.apk' }),
       deleteFile: async () => {},
     },
     FileOpener: { open: async (o) => { window.__cap.opens.push(o.url); } },
@@ -78,11 +100,11 @@ window.Capacitor = {
 `;
 
 const FAKE_MANIFEST = JSON.stringify({
-  latest_version: '1.6.4',
+  latest_version: CUR,
   force_update: false,
-  download_url: '/apk/Xiaoting-v1.6.4-release.apk',
+  download_url: `/apk/Xiaoting-v${CUR}-release.apk`,
   web_url: '/#/say',
-  apk: { versionCode: 10604, version: '1.6.4', url: '/apk/Xiaoting-v1.6.4-release.apk', md5: 'deadbeef', size: 3635282, force: false },
+  apk: { versionCode: CUR_CODE, version: CUR, url: `/apk/Xiaoting-v${CUR}-release.apk`, md5: 'deadbeef', size: 3635282, force: false },
 });
 
 (async () => {
@@ -143,10 +165,29 @@ const FAKE_MANIFEST = JSON.stringify({
       return c ? c.innerText.replace(/\s+/g, ' ') : '';
     });
 
+    /* ---------- ⓪ 先自检判据本身有没有鉴别力 ----------
+       「断言抓不到东西」比「断言抓到坏东西」更隐蔽。这里把两段真实文案喂进判据：
+       旧的那句必须被判成缺陷，新的那句必须被放行 —— 判据自己也要有测试。 */
+    console.log('⓪ 判据自检：关键词判据的鉴别力');
+    check('判据自检·旧指令文案「下拉通知栏，点一下 Xiaoting…apk」被判为缺陷',
+      trayDirective('下载完成后，从屏幕顶部下拉通知栏，点一下「Xiaoting…apk」。').length > 0);
+    check('判据自检·否定式说明「不用去通知栏翻文件」不被误判',
+      trayDirective('下完会自动弹出安装界面 —— 不用切到浏览器，也不用去通知栏翻文件。').length === 0);
+    console.log('');
+
     /* ---------- ① 正常：产品内下载 + 真进度 + 唤起安装界面 ---------- */
     console.log('① 场景一：正常路径（应用内下载 + 进度 + 唤起安装器）');
     {
       const { page, navs } = await openFlow();
+      // 🔴 首屏（点「开始下载」之前那张卡）必须一起断言。v1.6.4 的真实缺陷正好出在这里：
+      //    下载链路改成了「App 内下载 + 自动唤起安装器」，首屏却还留着旧骨架那句
+      //    「下载完成后，从屏幕顶部下拉通知栏，点一下 Xiaoting…apk」—— 新流程压根不往通知栏放包。
+      //    探针第一版只断言了点按钮之后的卡片文本 ⇒ 首屏那句漏网 = 假绿。
+      //    教训：断言要覆盖「用户真正会看到的那一屏」，不是「我觉得有问题的那一屏」。
+      const first = await cardText(page);
+      check('① 首屏卡（点开始下载之前）不指挥用户去通知栏', trayDirective(first).length === 0, trayDirective(first).join('|') || first.slice(0, 90));
+      check('① 首屏卡讲清了「不用切浏览器」', /不用切/.test(first), first.slice(0, 90));
+      check('① 首屏有「开始下载」按钮', (await page.locator('#installStart').count()) === 1);
       await page.click('#installStart');
       await page.waitForSelector('#dlFill', { timeout: 8000 });
       // 🔴 下载中**先抓一次快照**：卡片随后会被成功态整个替换，等成功了再回头看 #dlFill 就是 null，
@@ -169,7 +210,7 @@ const FAKE_MANIFEST = JSON.stringify({
 
       const bar = { w: midSnap.w, indet: midSnap.indet };
       const cap = await page.evaluate(() => window.__cap || null);
-      const armed = await page.evaluate(() => localStorage.getItem('xiaoting:update_armed_1.6.4'));
+      const armed = await page.evaluate((v) => localStorage.getItem('xiaoting:update_armed_' + v), CUR);
       const txt = await cardText(page);
 
       check('① 下载走的是原生 Filesystem.downloadFile（不是甩给系统/浏览器）', !!cap && cap.dl === 1, `downloadFile 调用 ${cap ? cap.dl : 0} 次`);
@@ -182,7 +223,7 @@ const FAKE_MANIFEST = JSON.stringify({
       check('① 真的调用了 FileOpener.open（唤起系统安装界面）', !!cap && cap.opens.length === 1, `open=${cap ? cap.opens.length : 0} uri=${cap ? cap.opens[0] : '-'}`);
       check('① 记下了"已装"凭据（供重启后那句交代用）', !!armed, armed ? `armed=${armed}` : '无标记');
       check('① 全程没有导航离开当前页（没跳出产品）', navs.length <= 1, `framenavigated=${navs.length}`);
-      check('① 卡里不再出现「拉通知栏 / 通知栏」的旧甩锅文案', !/通知栏/.test(txt), txt.slice(0, 80));
+      check('① 成功卡里没有「去通知栏操作」的旧甩锅指令', trayDirective(txt).length === 0, trayDirective(txt).join('|') || txt.slice(0, 80));
       await page.close();
     }
 
@@ -198,8 +239,8 @@ const FAKE_MANIFEST = JSON.stringify({
       check('② 中断后给了「再试一次」按钮', !!(await page.$('#dlRetry')));
       check('② 说了"已下那部分不算数"（不让人拿半截包去装）', /不算数/.test(txt));
       check('② 中断时没有去调 FileOpener.open（没拿坏包去唤起安装器）', !cap.opens || cap.opens.length === 0);
-      check('② 中断时也没有写"已装"凭据', !(await page.evaluate(() => localStorage.getItem('xiaoting:update_armed_1.6.4'))));
-      check('② 中断文案里也不提通知栏', !/通知栏/.test(txt));
+      check('② 中断时也没有写"已装"凭据', !(await page.evaluate((v) => localStorage.getItem('xiaoting:update_armed_' + v), CUR)));
+      check('② 中断文案里也不指挥用户去通知栏', trayDirective(txt).length === 0, trayDirective(txt).join('|'));
       await page.close();
     }
 
@@ -213,7 +254,7 @@ const FAKE_MANIFEST = JSON.stringify({
       const cap = await page.evaluate(() => window.__cap);
       check('③ 拿到的不是安装包时如实说「没下下来」', /没下下来/.test(txt), txt.slice(0, 50));
       check('③ 绝不拿假包去唤起系统安装器', !cap.opens || cap.opens.length === 0, `opens=${cap ? cap.opens.length : 0}`);
-      check('③ 假包也不会被记成"已装"', !(await page.evaluate(() => localStorage.getItem('xiaoting:update_armed_1.6.4'))));
+      check('③ 假包也不会被记成"已装"', !(await page.evaluate((v) => localStorage.getItem('xiaoting:update_armed_' + v), CUR)));
       check('③ 假包场景说了这是发布环节的问题（不是用户手机的问题）', /发布环节/.test(txt));
       await page.close();
     }
