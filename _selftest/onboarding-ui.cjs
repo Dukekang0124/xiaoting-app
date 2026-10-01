@@ -61,7 +61,9 @@ const overlayOn = (page) => page.$$eval('.welcome-overlay', (n) => n.length > 0)
     await shot(page, '02-welcome-2-record.png');
 
     await page.click('#wNext'); await page.waitForTimeout(180);
-    ok('A⑧ 第 3 屏是边界声明 + 热线（不是一句欢迎）', (await title(page)) === '重要提醒', await title(page));
+    ok('A⑧ 第 3 屏是边界声明 + 热线（不是一句欢迎）',
+      /不是心理医生/.test(await body(page)) && /400-161-9995|热线/.test(await body(page)),
+      (await body(page) || '').slice(0, 40));
     const s3 = `${await title(page)} ${await body(page)}`;
     ok('A⑨ 第 3 屏明说「不是心理医生」', /不是心理医生/.test(s3));
     ok('A⑩ 第 3 屏给了可拨打的热线号', /400-161-9995|12356|010-82951332/.test(s3));

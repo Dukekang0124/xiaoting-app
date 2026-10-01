@@ -30,7 +30,7 @@ const EXCLUDE = new Set([
   'docs',
   'server', 'server.cjs', 'package.json', 'package-lock.json',
   'capacitor.config.json', 'README.md', '.assetsignore', 'apk-icons',
-  'android-assets', 'assets', 'keystore', 'apk-dist',
+  'android-assets', 'assets', 'keystore', 'apk-dist', 'release',
 ]);
 
 /* 归类断言：仓库根新加一个条目后若忘了归类，构建直接失败
