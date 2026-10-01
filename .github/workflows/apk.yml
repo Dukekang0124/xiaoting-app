@@ -112,7 +112,7 @@ jobs:
         run: |
           cd android
           set +e
-          ./gradlew assemble${{ env.BUILD_TYPE == 'debug' && 'Debug' || 'Release' }} --no-daemon 2>&1 | tee /tmp/gradle.log
+          ./gradlew assemble${{ env.BUILD_TYPE == 'debug' && 'Debug' || 'Release' }} --no-daemon 2>&1 | tee /tmp/gradle.log "$GITHUB_WORKSPACE/gradle-build.log"
           RC=${PIPESTATUS[0]}
           if [ "$RC" -ne 0 ]; then
             ERR=$(grep -nE "error:|错误:|cannot find symbol|Execution failed|What went wrong|> Task .*FAILED|Unresolved reference|lint found|NewApi|requires API level|is not abstract|incompatible" /tmp/gradle.log | head -25 | tr '\n' '~')
@@ -121,6 +121,14 @@ jobs:
             echo "::error title=gradle-tail::${TAIL}"
           fi
           exit "$RC"
+
+      - name: Persist build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-log-${{ github.run_id }}
+          path: gradle-build.log
+          if-no-files-found: warn
 
       - name: Sign release with fixed keystore (in-app update requires same signature forever)
         if: env.BUILD_TYPE == 'release'
