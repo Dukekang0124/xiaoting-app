@@ -634,7 +634,10 @@ export async function checkUpdate(opts = {}) {
   //   起因：手动点「检查更新」在「已是最新版」时只 return {reason:'no_update'}，
   //   调用处 `.catch(()=>{})` 无 else ⇒ 页面零反馈 ⇒ 用户体感「更新功能坏了/连不上」。
   //   接口其实是通的（实测 /version.json 三通道 200 + 合法 JSON），坏的是"没有回话"。
-  const ctx = { current, latest };
+  //   v1.4.6：把 _source 一起带出去 —— 硬编码兜底路径的"最新"是**本地缓存常量**，
+  //   不是真清单。v1.4.4 真机实证：兜底时文案写「线上 v1.4.4」，用户以为是服务器说的，
+  //   实际上那一刻线上已是 1.4.5 —— 这句话把用户和开发者一起骗了（截图排查）。
+  const ctx = { current, latest, source: data._source || 'remote' };
 
   if (!hasNew && !showUpdate) return Object.assign({ shown: false, reason: 'no_update' }, ctx);
 
@@ -675,11 +678,18 @@ export function describeCheckResult(r) {
   const latest = (r && r.latest) || '';
   switch (r && r.reason) {
     case 'no_update':
+      // v1.4.6：兜底路径不再谎称「线上」。硬编码是打包时的常量，永远不可能是"未来的新版"，
+      // 但它也**证明不了**当前没有新版 —— 必须把"这是本地判断"说出口，引导用户网络好时再查。
+      if (r.source === 'hardcoded') {
+        return { ok: true, text: `暂时没连上更新服务，按本地记录你已是最新 v${cur}；网络正常时再点一次核对` };
+      }
       return { ok: true, text: `已是最新版本 v${cur}（线上 v${latest || cur}）` };
     case 'shown':
       return { ok: true, text: `发现新版本 v${latest}，已为你弹出更新提示` };
     case 'snoozed':
-      return { ok: true, text: `今天已经提醒过啦，明天再说（线上 v${latest}）` };
+      return { ok: true, text: r.source === 'hardcoded'
+        ? `今天已经提醒过啦（版本依据本地缓存 v${latest}）`
+        : `今天已经提醒过啦，明天再说（线上 v${latest}）` };
     case 'dismissed':
       return { ok: true, text: `你之前选了「稍后再说」，v${latest} 不再自动提醒（想装随时手动检查）` };
     case 'already_shown':
