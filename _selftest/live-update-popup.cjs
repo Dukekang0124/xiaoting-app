@@ -53,10 +53,23 @@ const ok = (name, cond, detail) => {
     process.exit(1);
   }
   const latest = live.latest_version;
-  if (!OLD_VERSION && (live.history || [])[1]) OLD_VERSION = (live.history)[1].version;
-  if (!OLD_VERSION) OLD_VERSION = '1.1.9'; // 兜底（首次发布或 history 不足时）
+  const cmp = (a, b) => String(a).localeCompare(b, undefined, { numeric: true });
+  /* 🔴 v1.5.0 复发（v1.4.5 也踩过一次）的坑：旧包从 history[1] 取。
+     一旦 history 顶部有重复条目（CI 回填与本地 unshift 各插了一次同一个版本），
+     history[1] 就会取到 **latest 自己** ⇒ 「旧包」其实是最新版 ⇒ B 臂必然假红，
+     而且看起来像"更新功能坏了"，其实是测试数据脏了。
+     判据：这一条断言现在会直接点名重复项，不再让它伪装成产品缺陷。 */
+  const dupAt = (live.history || []).findIndex(
+    (h, i, arr) => i > 0 && h.version === arr[i - 1].version);
+  ok('线上清单 history 顶部无重复版本（否则"旧包"会取成最新版 → B 臂假红）',
+    dupAt === -1, dupAt === -1 ? '无重复' : `history[${dupAt}] 与 history[${dupAt - 1}] 都是 ${(live.history[dupAt] || {}).version}`);
+  if (!OLD_VERSION) {
+    // 取 history 里**第一个真的小于 latest** 的版本，绝不盲信 history[1]
+    const cand = (live.history || []).map((h) => h.version).find((v) => cmp(v, latest) < 0);
+    OLD_VERSION = cand || '1.1.9';
+  }
   ok('线上清单 latest_version > 模拟旧包，弹窗前提成立',
-    String(latest).localeCompare(OLD_VERSION, undefined, { numeric: true }) > 0,
+    cmp(latest, OLD_VERSION) > 0,
     `线上 ${latest} vs 壳内 ${OLD_VERSION}`);
   ok('线上清单 history 首条 == latest_version',
     !!(live.history || [])[0] && live.history[0].version === latest,
