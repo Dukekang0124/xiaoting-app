@@ -171,7 +171,8 @@ const MOCK_SDK = `(function(){
   const page = await ctx.newPage();
   // 默认上下文的 UI/流程断言走本地规则引擎（确定性、可离线），不受网络与模型波动影响。
   // 真实模型管线在独立的 AI 上下文里单独验证（见 G 段）。
-  await ctx.addInitScript(() => { try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1');
+  await ctx.addInitScript(() => {
+     try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {} try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1');
       // 主回归不测月度复盘（那是 _selftest/monthly-review.cjs 的活儿）。每月 1 号启动会**自动**
       // 弹月度复盘窗并挡住后续点击，所以先把「本月已弹过」标记写上，让自动入口直接 return。
       // 手动入口走 force 分支不受影响 —— 主回归里点按钮的场景照旧能出卡。
@@ -561,7 +562,8 @@ const MOCK_SDK = `(function(){
      ④ 「继续倾诉」可忽略卡片、回首页且不新增卡片（同一段对话最多一张卡片、不刷屏）。 */
   const ctxW = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'zh-CN', isMobile: true, hasTouch: true });
   const pageW = await ctxW.newPage();
-  await ctxW.addInitScript(() => { try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1');
+  await ctxW.addInitScript(() => {
+     try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {} try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1');
       // 主回归不测月度复盘（那是 _selftest/monthly-review.cjs 的活儿）。每月 1 号启动会**自动**
       // 弹月度复盘窗并挡住后续点击，所以先把「本月已弹过」标记写上，让自动入口直接 return。
       // 手动入口走 force 分支不受影响 —— 主回归里点按钮的场景照旧能出卡。
@@ -697,7 +699,8 @@ const MOCK_SDK = `(function(){
   // ② UI：模拟「开心 → 委屈 → 愤怒」多轮对话
   const ctxT = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'zh-CN', isMobile: true, hasTouch: true });
   const pageT = await ctxT.newPage();
-  await ctxT.addInitScript(() => { try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1');
+  await ctxT.addInitScript(() => {
+     try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {} try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1');
       // 主回归不测月度复盘（那是 _selftest/monthly-review.cjs 的活儿）。每月 1 号启动会**自动**
       // 弹月度复盘窗并挡住后续点击，所以先把「本月已弹过」标记写上，让自动入口直接 return。
       // 手动入口走 force 分支不受影响 —— 主回归里点按钮的场景照旧能出卡。
@@ -779,7 +782,8 @@ const MOCK_SDK = `(function(){
   // ③ 边界：无情绪 → 简化卡
   const ctxE = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'zh-CN', isMobile: true, hasTouch: true });
   const pageE = await ctxE.newPage();
-  await ctxE.addInitScript(() => { try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1');
+  await ctxE.addInitScript(() => {
+     try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {} try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1');
       // 主回归不测月度复盘（那是 _selftest/monthly-review.cjs 的活儿）。每月 1 号启动会**自动**
       // 弹月度复盘窗并挡住后续点击，所以先把「本月已弹过」标记写上，让自动入口直接 return。
       // 手动入口走 force 分支不受影响 —— 主回归里点按钮的场景照旧能出卡。
@@ -812,7 +816,8 @@ const MOCK_SDK = `(function(){
   // ③ 边界：命中高危阻断 → 不生成时间线，走危机提示
   const ctxX = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'zh-CN', isMobile: true, hasTouch: true });
   const pageX = await ctxX.newPage();
-  await ctxX.addInitScript(() => { try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1');
+  await ctxX.addInitScript(() => {
+     try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {} try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1');
       // 主回归不测月度复盘（那是 _selftest/monthly-review.cjs 的活儿）。每月 1 号启动会**自动**
       // 弹月度复盘窗并挡住后续点击，所以先把「本月已弹过」标记写上，让自动入口直接 return。
       // 手动入口走 force 分支不受影响 —— 主回归里点按钮的场景照旧能出卡。
@@ -844,7 +849,8 @@ const MOCK_SDK = `(function(){
   // ③ 验收（v1.2.1 模块三）：混合情绪对话 → 双情绪并列节点「喜悦 + 委屈」渲染 + 截图证据
   const ctxD = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'zh-CN', isMobile: true, hasTouch: true });
   const pageD = await ctxD.newPage();
-  await ctxD.addInitScript(() => { try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1');
+  await ctxD.addInitScript(() => {
+     try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {} try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1');
       // 主回归不测月度复盘（那是 _selftest/monthly-review.cjs 的活儿）。每月 1 号启动会**自动**
       // 弹月度复盘窗并挡住后续点击，所以先把「本月已弹过」标记写上，让自动入口直接 return。
       // 手动入口走 force 分支不受影响 —— 主回归里点按钮的场景照旧能出卡。
@@ -910,7 +916,8 @@ const MOCK_SDK = `(function(){
   const pageY = await ctxY.newPage();
   const errsY = [];
   pageY.on('pageerror', (e) => errsY.push(e.message));
-  await ctxY.addInitScript(() => { try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1');
+  await ctxY.addInitScript(() => {
+     try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {} try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1');
       // 主回归不测月度复盘（那是 _selftest/monthly-review.cjs 的活儿）。每月 1 号启动会**自动**
       // 弹月度复盘窗并挡住后续点击，所以先把「本月已弹过」标记写上，让自动入口直接 return。
       // 手动入口走 force 分支不受影响 —— 主回归里点按钮的场景照旧能出卡。
@@ -1115,7 +1122,8 @@ const MOCK_SDK = `(function(){
 
   // ⑤ 模拟原生容器：apiBase 必须给绝对基址（真机 ASR 失效的根因就是相对路径打不到服务端）
   const ctxN = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
-  await ctxN.addInitScript(() => { window.Capacitor = { isNativePlatform: () => true, Plugins: {} }; });
+  await ctxN.addInitScript(() => {
+     try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {} window.Capacitor = { isNativePlatform: () => true, Plugins: {} }; });
   const pageN = await ctxN.newPage();
   let capturedUrl = '';
   await ctxN.route('**/api/health*', (route) => { capturedUrl = route.request().url(); route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, version: 'x', asr: 'unconfigured' }) }); });
@@ -1793,6 +1801,7 @@ const MOCK_SDK = `(function(){
     permissions: ['microphone'],
   });
   await ctx2.addInitScript(() => {
+     try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {}
     // 真麦克风：记下 getUserMedia 是否真被调用（配合 Chrome 的假音频设备）
     window.__micCalls = 0;
     try {
@@ -2265,7 +2274,8 @@ const MOCK_SDK = `(function(){
 
   // H3. 非强制弹窗 UI（?fake_version=9.9.9 让"线上最新"高于当前，自动弹出）
   const ctx3 = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'zh-CN', isMobile: true, hasTouch: true });
-  await ctx3.addInitScript(() => { try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1');
+  await ctx3.addInitScript(() => {
+     try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {} try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1');
       // 主回归不测月度复盘（那是 _selftest/monthly-review.cjs 的活儿）。每月 1 号启动会**自动**
       // 弹月度复盘窗并挡住后续点击，所以先把「本月已弹过」标记写上，让自动入口直接 return。
       // 手动入口走 force 分支不受影响 —— 主回归里点按钮的场景照旧能出卡。
@@ -2328,7 +2338,8 @@ const MOCK_SDK = `(function(){
 
   // H5. 微信分支（UA 含 MicroMessenger）
   const ctx4 = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'zh-CN', isMobile: true, hasTouch: true, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0' });
-  await ctx4.addInitScript(() => { try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1');
+  await ctx4.addInitScript(() => {
+     try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {} try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1');
       // 主回归不测月度复盘（那是 _selftest/monthly-review.cjs 的活儿）。每月 1 号启动会**自动**
       // 弹月度复盘窗并挡住后续点击，所以先把「本月已弹过」标记写上，让自动入口直接 return。
       // 手动入口走 force 分支不受影响 —— 主回归里点按钮的场景照旧能出卡。
@@ -2354,7 +2365,8 @@ const MOCK_SDK = `(function(){
 
   // H7. APK 分支（?app=android 让平台识别为安卓壳；用独立上下文避免被 snooze 污染）
   const ctx5 = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'zh-CN', isMobile: true, hasTouch: true });
-  await ctx5.addInitScript(() => { try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1');
+  await ctx5.addInitScript(() => {
+     try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {} try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1');
       // 主回归不测月度复盘（那是 _selftest/monthly-review.cjs 的活儿）。每月 1 号启动会**自动**
       // 弹月度复盘窗并挡住后续点击，所以先把「本月已弹过」标记写上，让自动入口直接 return。
       // 手动入口走 force 分支不受影响 —— 主回归里点按钮的场景照旧能出卡。
@@ -2394,6 +2406,7 @@ const MOCK_SDK = `(function(){
   //   这里刻意 **不带** ?app=android、UA 也不带标记，只靠 Capacitor 桥来认 —— 这才对应真机。
   const ctxCap = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: 'zh-CN' });
   await ctxCap.addInitScript(() => {
+     try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {}
     window.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'android', platform: 'android' };
     try {
       localStorage.setItem('xiaoting:ai', 'mock');

@@ -66,16 +66,23 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     check('恢复网络 → 离线浮条隐藏', onlineHidden, '');
 
     // 5) 更新历史拉取失败 → 优雅文案 + 「检查更新」按钮保留
+    // 🔴 尾部星号不能省：fetchJson 给每个清单请求都加 ?cb=（破网关缓存桶，v1.4.6 起），
+    //    `**/api/version/history` 匹配不到带 query 的 URL ⇒ abort 静默失效。
+    //    🔴 文案也要跟着改：v1.2.1 已把「暂时无法连接深海」统一改成「深海信号微弱，请检查网络再试」，
+    //    旧断言是在验一个不存在的产品行为（改文案不会让它变绿，只会让它验错东西）。
     await page.route('**/version.json*', (r) => r.abort());
-    await page.route('**/api/version/history', (r) => r.abort());
+    await page.route('**/api/version/history*', (r) => r.abort());
+    await page.route('**/version-latest.js*', (r) => r.abort());
+    // 🔴 改 hash 不重载页面（清单已在 update.js 内存里）⇒ 必须真重载才会重新取数走失败分支。
     await page.evaluate(() => { location.hash = '#/changelog'; });
+    await page.reload({ waitUntil: 'domcontentloaded' });
     await sleep(900);
     const clText = await page.evaluate(() => { const e = document.getElementById('clList'); return e ? e.textContent : ''; });
     const hasCheck = await page.evaluate(() => !!document.getElementById('clCheck'));
-    check('更新历史拉取失败 → 显示「暂时无法连接深海」', clText.indexOf('暂时无法连接深海') >= 0, clText.slice(0, 40));
+    check('更新历史拉取失败 → 显示「深海信号微弱，请检查网络再试」', clText.indexOf('深海信号微弱，请检查网络再试') >= 0, clText.slice(0, 40));
     check('更新历史失败 → 「检查更新」按钮保留', hasCheck, '');
     await page.unroute('**/version.json*');
-    await page.unroute('**/api/version/history');
+    await page.unroute('**/api/version/history*');
 
     // 6) 诊断页有返回按钮（→ #/settings）
     await page.evaluate(() => { location.hash = '#/settings'; });

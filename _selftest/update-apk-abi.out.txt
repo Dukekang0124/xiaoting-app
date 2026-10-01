@@ -1,5 +1,5 @@
 === 墨小溟 · 更新弹窗 APK 启动即弹 · A/B 鉴别力校验 ===
-目标：http://127.0.0.1:4211   模拟 APK 基址：https://xiaoting.app.workbuddy.host   当前版本：1.6.2
+目标：http://127.0.0.1:4210   模拟 APK 基址：https://xiaoting.app.workbuddy.host   当前版本：1.6.2
 
 ──────── variant = new （当前，期望全绿） ────────
   [A] 清单=1.6.2 → shown=false  title=""
@@ -9,7 +9,7 @@
 ──────── variant = old （修复前，期望红） ────────
   [A] 清单=1.6.2 → shown=false  title=""
   [B] 清单=1.6.3 → shown=false  title=""  via=-
-  [B] 捕获到的版本清单请求：http://127.0.0.1:4211/api/version/latest
+  [B] 捕获到的版本清单请求：http://127.0.0.1:4210/api/version/latest
 
 
 === Service Worker 不缓存版本清单（行为验证）===

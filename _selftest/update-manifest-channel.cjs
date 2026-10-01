@@ -62,6 +62,7 @@ async function runArm(browser, mode, label) {
   const context = await browser.newContext();
   // ① 模拟 APK：apiBase() 才会返回绝对基址 ⇒ 清单请求真的变成跨域
   await context.addInitScript(() => {
+     try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {}
     window.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'android', Plugins: {} };
     try { localStorage.setItem('moxiaoming:welcomed_v1', '1'); } catch (e) {}
   });

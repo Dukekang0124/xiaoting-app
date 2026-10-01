@@ -138,6 +138,7 @@ const ok = (name, cond, detail) => {
     // 旁路 /version.json），阻断它不影响要验证的「旧包→弹窗」逻辑，只让测试变确定。
     await ctx.route('**/sw.js', (r) => r.abort());
     await ctx.addInitScript(() => {
+       try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {}
       // 让页面以为自己在安卓壳里（走 APK 分支 + apiBase() 出绝对基址）
       window.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'android', platform: 'android' };
       try {
@@ -208,6 +209,7 @@ const ok = (name, cond, detail) => {
       },
     );
     await ctxG.addInitScript(() => {
+       try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {}
       window.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'android', platform: 'android' };
       try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1'); } catch (e) {}
     });
@@ -269,6 +271,7 @@ const ok = (name, cond, detail) => {
     const ctxNat = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: 'zh-CN' });
     await ctxNat.route('**/sw.js', (r) => r.abort());
     await ctxNat.addInitScript(() => {
+       try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {}
       window.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'android', platform: 'android' };
     });
     const pageNat = await ctxNat.newPage();

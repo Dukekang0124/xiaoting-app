@@ -5,6 +5,7 @@ const DEMO = '今天又和男朋友吵架了。';
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: 'zh-CN', isMobile: true, hasTouch: true, permissions: ['microphone'] });
   await ctx.addInitScript(() => {
+     try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {}
     try { localStorage.setItem('moxiaoming:welcomed_v1', '1'); localStorage.setItem('xiaoting:ai', 'mock'); } catch (e) {}
     window.__native = { startCalls: 0 };
     const fakePlugin = {

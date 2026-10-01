@@ -14,6 +14,7 @@ const check = (n, ok, d) => { ok ? pass++ : fail++; console.log(`${ok ? 'PASS' :
     permissions: ['clipboard-read', 'clipboard-write'],
   });
   await ctx.addInitScript(() => {
+     try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {}
     try { localStorage.setItem('moxiaoming:welcomed_v1', '1'); localStorage.setItem('xiaoting:ai', 'mock'); } catch (e) {}
   });
   const page = await ctx.newPage();

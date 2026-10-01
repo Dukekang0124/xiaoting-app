@@ -107,6 +107,7 @@ async function waitServer() {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: 'zh-CN' });
     // 把 app 的 __test__ 暴露到 window.__t（与 ip-state-selftest 同一手法：动态 import 复用同一模块实例）
     await ctx.addInitScript(() => {
+       try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {}
       try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1'); } catch (e) {}
       const tick = setInterval(() => {
         if (!window.__t) import('/js/app.js').then((m) => { window.__t = m.__test__; }).catch(() => {});

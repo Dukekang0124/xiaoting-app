@@ -18,9 +18,10 @@ const OUT = path.join(__dirname, 'shots-monthly');
 if (!fs.existsSync(OUT)) fs.mkdirSync(OUT, { recursive: true });
 
 let pass = 0, fail = 0;
+const failedNames = [];
 const ok = (name, cond, detail = '') => {
   const c = !!cond;
-  if (c) pass += 1; else fail += 1;
+  if (c) pass += 1; else { fail += 1; failedNames.push(name + (detail ? '  — ' + detail : '')); }
   console.log(`${c ? 'PASS' : 'FAIL'}  ${name}${detail ? '  — ' + detail : ''}`);
 };
 const settle = async (page) => {
@@ -284,6 +285,8 @@ const shot = async (page, n) => { try { await page.screenshot({ path: path.join(
 
   await browser.close();
   console.log(`\n==== 月度情绪复盘探针：${pass} 通过 / ${fail} 失败 ====`);
-  if (fail) console.log('失败项：\n' + '  ' + '❌');
+  // 🔴 必须把失败项的**名字**打出来：以前只印一个 ❌，真出问题时根本看不出是哪条挂了，
+  //    等于每次都要重跑一遍靠猜（本轮就为这两条花了额外两轮）。
+  if (fail) console.log('失败项：\n' + failedNames.map((n) => '  ❌ ' + n).join('\n'));
   process.exit(fail ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -3,7 +3,8 @@ const { chromium } = require('playwright');
 (async () => {
   const b = await chromium.launch({ channel: 'chrome', headless: true });
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
-  await ctx.addInitScript(() => { try { localStorage.setItem('xiaoting:ai', 'mock'); } catch (e) {} });
+  await ctx.addInitScript(() => {
+     try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {} try { localStorage.setItem('xiaoting:ai', 'mock'); } catch (e) {} });
   const p = await ctx.newPage();
   await p.goto('http://127.0.0.1:4173/#/say', { waitUntil: 'domcontentloaded' });
   await p.waitForSelector('#talkbtn', { timeout: 15000 });

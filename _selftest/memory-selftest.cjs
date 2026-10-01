@@ -62,11 +62,13 @@ const MOCK_SDK = `(function(){
     viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'zh-CN', isMobile: true, hasTouch: true,
   });
   const page = await ctx.newPage();
-  await ctx.addInitScript(() => { try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1'); } catch (e) {} });
+  await ctx.addInitScript(() => {
+     try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {} try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1'); } catch (e) {} });
   await ctx.addInitScript(MOCK_SDK);
   const errors = [];
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
-  page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
+  page.on('console', (m) => {
+     try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {} if (m.type() === 'error') errors.push('console: ' + m.text()); });
   page.on('dialog', (d) => d.accept());
   // 让自通道（/api/llm）走不通，逼 ask 回退到网关（SDK 替身）；同时避免打到真服务。
   await ctx.route('**/api/llm', (route) => route.abort());

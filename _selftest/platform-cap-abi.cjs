@@ -38,6 +38,7 @@ const BASE = process.env.BASE || 'http://127.0.0.1:4173';
   async function measure(label) {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: 'zh-CN' });
     await ctx.addInitScript(() => {
+       try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {}
       window.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'android', platform: 'android' };
       try { localStorage.setItem('moxiaoming:welcomed_v1', '1'); } catch (e) {}
     });

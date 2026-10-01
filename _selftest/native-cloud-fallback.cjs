@@ -38,6 +38,7 @@ function check(name, ok, detail) {
 
   // 假 Capacitor 桥：模拟「检查说可用、实际吐不出字」的真机设备（康哥手机那类国产 ROM）
   await ctx.addInitScript(() => {
+     try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {}
     try { localStorage.setItem('moxiaoming:welcomed_v1', '1'); localStorage.setItem('xiaoting:ai', 'mock'); } catch (e) {}
     window.__native = { startCalls: 0, partials: 0 };
     const fakePlugin = {

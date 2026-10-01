@@ -22,6 +22,7 @@ const check = (n, ok, d) => { ok ? pass++ : fail++; console.log(`${ok ? 'PASS' :
   const ctx = await browser.newContext({ viewport: { width: 430, height: 932 }, locale: 'zh-CN', serviceWorkers: 'block' });
   // 关掉首次欢迎浮层，否则 welcome-overlay 会拦截点击（intercepts pointer events）
   await ctx.addInitScript(() => {
+     try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {}
     try { localStorage.setItem('moxiaoming:welcomed_v1', '1'); localStorage.setItem('xiaoting:ai', 'mock'); } catch (e) {}
   });
   const page = await ctx.newPage();

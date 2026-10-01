@@ -53,7 +53,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     recordVideo: { dir: path.join(__dirname, 'shots'), size: { width: 390, height: 844 } },
   });
   const page = await ctx.newPage();
-  await page.addInitScript(() => { try { localStorage.setItem('xiaoting:ai', 'mock'); } catch (e) {} });
+  await page.addInitScript(() => {
+     try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {} try { localStorage.setItem('xiaoting:ai', 'mock'); } catch (e) {} });
   await page.route(/index\.global\.js/, (route) => route.fulfill({ status: 200, contentType: 'application/javascript; charset=utf-8', body: MOCK_SDK }));
   await page.route('**/api/asr', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, text: DEMO, engine: 'mock', ms: 1 }) }));
 

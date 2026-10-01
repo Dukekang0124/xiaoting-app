@@ -115,6 +115,7 @@ async function newCtx(browser, { noSpeechRecognition = false, fakeSpeechRecognit
     // 第一次 NotFoundError，第二次 Chrome 找到了真实麦克风，断言直接翻红）。
     // 断言的前提必须由测试自己决定，不能交给环境。
     await ctx.addInitScript((name) => {
+       try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {}
       const install = () => {
         const md = navigator.mediaDevices;
         if (!md || !md.getUserMedia) return false;
@@ -128,6 +129,7 @@ async function newCtx(browser, { noSpeechRecognition = false, fakeSpeechRecognit
     // 模拟 iOS Safari / 微信内置浏览器：WKWebView 不暴露 SpeechRecognition。
     // 这是本次攻坚的核心场景，旧版代码正是在这里把用户直接踢去打字页。
     await ctx.addInitScript(() => {
+       try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {}
       try { delete window.SpeechRecognition; } catch (e) {}
       try { delete window.webkitSpeechRecognition; } catch (e) {}
       Object.defineProperty(window, 'SpeechRecognition', { value: undefined, configurable: true });
@@ -137,6 +139,7 @@ async function newCtx(browser, { noSpeechRecognition = false, fakeSpeechRecognit
   if (fakeSpeechRecognition) {
     // 内置识别的契约替身：用来验证"云端识别挂了，内置兜底还在"这条分支。
     await ctx.addInitScript((text) => {
+       try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {}
       window.__srText = text;
       class FakeSR {
         constructor() { this.lang = ''; this.continuous = false; this.interimResults = false; }

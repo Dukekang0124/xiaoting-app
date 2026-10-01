@@ -199,6 +199,7 @@ async function getAsBrowser(pathname, extra = {}) {
       serviceWorkers: 'block',
     });
     await ctx.addInitScript(() => {
+       try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {}
       try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1'); } catch (e) {}
     });
     const page = await ctx.newPage();

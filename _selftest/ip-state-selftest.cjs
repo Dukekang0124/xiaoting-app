@@ -62,6 +62,7 @@ const waitRoute = async (page, name) => {
     const page = await ctx.newPage();
     // 暴露 app.__test__ 到 window.__t（页面已 boot，动态 import 复用同一实例），并强制 mock 本地规则引擎 + 跳过欢迎
     await ctx.addInitScript(() => {
+       try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {}
       try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1'); } catch (e) {}
       const tick = setInterval(() => { if (!window.__t) { import('/js/app.js').then((m) => { window.__t = m.__test__; }).catch(() => {}); } else clearInterval(tick); }, 50);
       setTimeout(() => clearInterval(tick), 4000);

@@ -46,7 +46,8 @@ async function waitServer() {
       viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'zh-CN', isMobile: true, hasTouch: true,
     });
     const page = await ctx.newPage();
-    await ctx.addInitScript(() => { try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1'); } catch (e) {} });
+    await ctx.addInitScript(() => {
+       try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {} try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1'); } catch (e) {} });
     const errors = [];
     page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
     page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
@@ -102,9 +103,19 @@ async function waitServer() {
     await page.evaluate(async () => { const app = await import('/js/app.js'); const c = document.getElementById('gcCancel'); if (c) c.click(); app.__test__.rec.active = false; });
 
     // ---- S5：网络降级文案（拦截版本接口 → 触发「深海信号微弱」） ----
-    await page.route('**/api/version/history', (r) => r.abort());
-    await page.route('**/version.json', (r) => r.abort());
-    await goto('/#/changelog'); await settle();
+    // 🔴 尾部星号不能省：update.js 给每个清单请求都加了 ?cb=时间戳，实测
+    //    `**/version.json` 这种结尾锚定的通配**匹配不到带 query 的 URL**（命中 0 次），
+    //    abort 静默失效 ⇒「网络失败」场景根本没发生 ⇒ 读到的是真历史 ⇒ 断言永远红。
+    //    同坑见 _selftest/update-apk-abi.cjs:214（本轮一并修掉）。
+    await page.route('**/api/version/history*', (r) => r.abort());
+    await page.route('**/version.json*', (r) => r.abort());
+    await page.route('**/version-latest.js*', (r) => r.abort());
+    // 🔴 必须真重载：page.goto 只改 hash 不重载页面（见 store 持久化那条老坑），
+    //    前面几节已经把清单读进 update.js 的内存里 ⇒ 不重载的话 S5 走的还是缓存，
+    //    网络断不断都渲染同一份历史，断言同样永远不会绿。
+    //    注意顺序：先 goto 到 changelog 把 hash 落定，再 reload —— 直接 reload 会重载上一个页面。
+    await goto('/#/changelog');
+    await page.reload({ waitUntil: 'domcontentloaded' }); await settle();
     await page.waitForTimeout(900);
     const clText = await page.evaluate(() => { const el = document.getElementById('clList'); return el ? el.textContent : ''; });
     check('S5·网络失败走降级文案「深海信号微弱，请检查网络再试」', /深海信号微弱，请检查网络再试/.test(clText), `clList="${clText.slice(0, 40)}"`);

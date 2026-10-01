@@ -32,6 +32,7 @@ function check(label, cond, extra) {
 
   // 关掉欢迎浮层，避免拦截
   await page.addInitScript(() => {
+     try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {}
     try { localStorage.setItem('moxiaoming:welcomed_v1', '1'); } catch (e) {}
   });
   await page.goto(BASE + '/', { waitUntil: 'domcontentloaded' });

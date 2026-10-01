@@ -19,6 +19,7 @@ const FU_DEMO = '我当时一直盯着手机屏幕，越等越心慌，觉得他
     recordVideo: { dir: outDir, size: { width: 390, height: 844 } },
   });
   await ctx.addInitScript(() => {
+     try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {}
     try { localStorage.setItem('moxiaoming:welcomed_v1', '1'); localStorage.setItem('xiaoting:ai', 'mock'); } catch (e) {}
   });
   await ctx.route('**/api/asr', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, text: FU_DEMO, engine: 'cloud', ms: 900 }) }));

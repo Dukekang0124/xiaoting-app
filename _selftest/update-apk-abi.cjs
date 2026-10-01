@@ -88,6 +88,7 @@ async function runArm(browser, variant, manifestVersion, label, wantVia = false)
   const context = await browser.newContext();
   // ① 模拟 APK：apiBase() 才会返回绝对基址
   await context.addInitScript(() => {
+     try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {}
     window.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'android', Plugins: {} };
     try { localStorage.setItem('moxiaoming:welcomed_v1', '1'); } catch (e) {}
   });
@@ -202,6 +203,7 @@ async function runArm(browser, variant, manifestVersion, label, wantVia = false)
 async function runSwCacheArm(browser) {
   const context = await browser.newContext();
   await context.addInitScript(() => {
+     try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {}
     window.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'android', Plugins: {} };
     try { localStorage.setItem('moxiaoming:welcomed_v1', '1'); } catch (e) {}
   });
@@ -209,7 +211,10 @@ async function runSwCacheArm(browser) {
 
   let manifestVersion = CURRENT;
   const jsonHeaders = { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' };
-  await page.route('**/version.json', (route) =>
+  // 🔴 尾部星号不能省：update.js 给清单请求加 ?cb=，实测 `**/version.json` 匹配不到带 query 的 URL，
+  //    这条 fulfill 会静默不生效，注入的 manifestVersion 永远到不了页面（脚本通道顶上来的假绿）。
+  //    同坑见 _selftest/swipe-selftest.cjs:107（本轮一并修掉）。
+  await page.route('**/version.json*', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', headers: jsonHeaders, body: JSON.stringify({ latest_version: manifestVersion }) }));
   await page.route('**/api/version/latest', (route) => route.fulfill({ status: 404, body: 'not found', headers: jsonHeaders }));
   await page.route('**/api/health', (route) => route.fulfill({ status: 503, body: '{}', headers: jsonHeaders }));

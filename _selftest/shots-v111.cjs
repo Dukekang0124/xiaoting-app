@@ -14,7 +14,8 @@ if (!fs.existsSync(DL)) fs.mkdirSync(DL, { recursive: true });
     isMobile: true, hasTouch: true, acceptDownloads: true, serviceWorkers: 'block',
   });
   const page = await ctx.newPage();
-  await ctx.addInitScript(() => { try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1'); } catch (e) {} });
+  await ctx.addInitScript(() => {
+     try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {} try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1'); } catch (e) {} });
   const settle = async (ms = 950) => {
     await page.waitForFunction(() => !document.querySelector('.toast.toast--on'), null, { timeout: 3000 }).catch(() => {});
     await page.waitForTimeout(ms);

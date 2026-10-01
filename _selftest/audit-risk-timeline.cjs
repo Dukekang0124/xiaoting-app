@@ -5,7 +5,8 @@ const BASE = process.env.BASE || 'http://127.0.0.1:4188';
   const browser = await chromium.launch({ channel: 'chrome' });
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
   const page = await ctx.newPage();
-  await page.addInitScript(() => { try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1'); } catch (e) {} });
+  await page.addInitScript(() => {
+     try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {} try { localStorage.setItem('xiaoting:ai', 'mock'); localStorage.setItem('moxiaoming:welcomed_v1', '1'); } catch (e) {} });
   await page.goto(BASE + '/#/say', { waitUntil: 'networkidle' });
   await page.waitForTimeout(400);
 
