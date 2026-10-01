@@ -162,6 +162,129 @@ ${[...groups.entries()].map(([g, list]) => `#### ${g}\n\n| title | step（做什
 ${CL.action.variants.filter((v) => v.neutral).map(actionRow).join('\n')}
 `;
 
+/* ---------- ⑬ 隐私说明（v1.6.0 落地） ---------- */
+const PV = C.privacyFull || {};
+const privacySection = `
+> 位置：设置页 → 隐私管理 → 查看隐私说明。用户能**逐字读到**，不是缩小字号的律师话术。
+
+### ${PV.title || '隐私说明'}
+
+更新日期：${PV.updated || ''}
+
+${(PV.sections || []).map((s) => `#### ${s.h}\n\n${s.t}`).join('\n\n')}
+`;
+
+/* ---------- ⑭ 月度情绪复盘（v1.6.2 骨架 / 文案于 v1.6.6 补齐） ---------- */
+const MO = C.monthly || {};
+const MO_NAME = {
+  swing: '情绪起伏大', low: '以低落、委屈、疲惫为主', angry: '以烦躁、愤怒、压抑为主',
+  positive: '正向情绪居多', flat: '整体平淡',
+};
+const MO_FIELDS = [
+  ['card_id', 'string', '月度卡片唯一 ID，如 emo_month_202610'],
+  ['create_time', 'datetime', '复盘卡片生成时间'],
+  ['target_month', 'string', '复盘所属月份，如「2026年10月」'],
+  ['record_count', 'number', '本月情绪记录总条数'],
+  ['top_emotion_tags', 'array', '本月出现最多的情绪标签'],
+  ['emotion_trend_desc', 'string', '情绪趋势描述（≤45 字，见下表）'],
+  ['insight_text', 'string', '月度洞察，温和共情（≤40 字）'],
+  ['monthly_tip', 'string', '本月温柔小建议（低压力，可为空）'],
+  ['ip_bubble_text', 'string', '墨小溟配套气泡文案'],
+  ['timeline_group', 'string', `归档分组：${MO.timelineGroup || '月度复盘'}`],
+  ['is_high_risk', 'boolean', '固定 false（复盘卡不触发高危拦截）'],
+  ['card_theme', 'string', `\`${MO.cardTheme || 'month-purple'}\``],
+  ['scenario', 'string', '命中的场景键（swing/low/angry/positive/flat）'],
+];
+const monthlySection = `
+**触发**：每月 1 号自动生成（设置里可关），也可手动点「${(MO.ui || {}).manualLabel || '生成本月情绪复盘'}」。
+当月记录少于 **${(MO.trigger || {}).minRecords ?? 3} 条**不生成 —— 提示「${(MO.ui || {}).insTitle || ''}：${(MO.ui || {}).insBody || ''}」。
+
+### 卡片字段（${MO_FIELDS.length} 个）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+${MO_FIELDS.map(([k, t, d]) => `| \`${k}\` | ${t} | ${d} |`).join('\n')}
+
+### 五套场景文案（逐字 SSOT · 共 ${Object.keys(MO.scenarios || {}).length} 套）
+
+| 场景 | emotionTrendDesc ≤45字 | insightText ≤40字 | monthlyTip | ipBubbleText |
+| --- | --- | --- | --- | --- |
+${Object.entries(MO.scenarios || {}).map(([k, v]) => `| ${MO_NAME[k] || k} | ${v.emotionTrendDesc} | ${v.insightText} | ${v.monthlyTip} | ${v.ipBubbleText} |`).join('\n')}
+
+> 场景由 \`js/monthly.js chooseScenario()\` 按本月情绪分布判定；\`monthlyTip\` 允许为空
+> （该说的话不说，强塞才是噪音）。字数上限由 \`_selftest/monthly-review.cjs\` 卡住。
+
+### 交互文案
+
+${kv(MO.ui)}
+`;
+
+/* ---------- ⑮ 动效与音效（v1.6.3 落地） ---------- */
+const MSC = JSON.parse(fs.readFileSync(path.join(root, 'moxiaoming_motion_sound_config.json'), 'utf8'));
+const G = MSC.global_setting || {};
+const IDLE = MSC.idle_standby || {};
+const grp = (n) => (IDLE.tentacle_groups || []).find((g) => g.group === n) || {};
+const motionSection = `
+> 唯一真相源：\`moxiaoming_motion_sound_config.json\`（改它即改产品，不用改代码）。
+> 编译层 \`js/motion.js\` 读配置 → 写 CSS 变量 → \`styles.css\` 里的 \`@keyframes\` 消费。
+
+### 全局
+
+- 目标帧率 **${G.target_fps}**（\`frame_rate_enforce:${G.frame_rate_enforce}\` —— **标称不强制**，靠动画本身足够缓）
+- 过渡曲线 \`${G.animation_curve}\`；开关过渡 **${(G.switch_transition_ms || []).join('–')}ms**（无硬切）
+- 默认音量 **${G.default_volume}**；高危时 \`high_risk_disable_all_active_effect:${G.high_risk_disable_all_active_effect}\`
+
+### 待机循环（常驻）
+
+| 参数 | 值 |
+| --- | --- |
+| 完整循环 | **${IDLE.float_cycle_ms}ms**（${IDLE.float_cycle_ms / 1000}s 一圈，超舒缓） |
+| 垂直浮动 | 上下 **${IDLE.vertical_range_px}px** |
+| 水平微偏移 | 左右 **${IDLE.horizontal_range_px}px** |
+| 触手 1-2 号 | 慢波浪摆动（${grp(1).amp_deg || '-'}°） |
+| 触手 3-4 号 | **滞后 ${grp(2).delay_ms}ms** 跟随 |
+| 触手 5-6 号 | 小幅度呼吸（${grp(3).amp_px}px） |
+| 触手 7-8 号 | 几乎不动（${grp(4).amp_deg}° / ${grp(4).period_ms}ms，锚定） |
+| 氛围粒子 | ${(IDLE.particle_count || {}).min}–${(IDLE.particle_count || {}).max} 颗，透明度 ${(IDLE.particle_alpha || []).join('–')} |
+| 待机底噪 | \`${IDLE.bg_sound}\`，音量 ${IDLE.bg_sound_volume}（开始倾诉立即静音） |
+
+### 点击交互（四档）
+
+| 档位 | 动画 | 时长 | 音效 |
+| --- | --- | --- | --- |
+${Object.entries(MSC.click_interact || {}).map(([k, v]) => {
+  const label = { tap1: '单击', tap2: '双击', tap3: '三连击', tap_more: '四连击以上' }[k] || k;
+  return `| ${label} | \`${v.anim}\` | ${v.duration_ms}ms | \`${v.sound}\` |`;
+}).join('\n')}
+
+### 情绪联动 & 场景特效
+
+| 键 | ip_anim | particle | sound |
+| --- | --- | --- | --- |
+${Object.entries(MSC.emotion_motion_map || {}).map(([k, v]) => `| ${k} | \`${v.ip_anim}\` | \`${v.particle}\` | \`${v.sound}\` |`).join('\n')}
+
+### 状态机规则
+
+${ul(MSC.state_machine && MSC.state_machine.rules)}
+
+### 🔴 实现状态（照实写，不吹）
+
+| 部分 | 状态 |
+| --- | --- |
+| \`idle_standby\`（浮沉 / 触手四组 / 呼吸） | ✅ 真在跑（CSS 变量 + \`@keyframes ip-float/ip-wisp*\`） |
+| \`click_interact\` 四档动画 | ✅ 真在跑（\`@keyframes ip-tap1/2/3/ip-tap-over\`） |
+| 音效 \`CUES\` | ✅ 真在跑（\`js/ip-audio.js\`，点击/情绪/卡片各有 cue） |
+| \`switch_transition_ms\` 无硬切 | ✅ 真在跑（\`js/state-machine.js\` 过渡时长） |
+| \`emotion_motion_map.*.ip_anim\` | ⚠️ **声明未实现** —— \`styles.css\` 里没有对应 \`@keyframes\`，改它不生效 |
+| \`scene_effect.*.ip_anim\` / \`card_anim\` | ⚠️ **声明未实现**（同上） |
+| \`particle*\`（粒子数量/透明度/颜色） | ⚠️ **声明未实现** —— 无任何消费方 |
+| \`click_interact.*.particle\` | ⚠️ 声明未实现；\`*.*.sound\` 名亦未接线（点击走的是 \`ipAudio.cue('receive'/'calm')\`） |
+| \`js/motion.js setState()\` | ⚠️ 空实现（只 \`return {state}\`，不驱动 CSS）；高危静态由既有 \`.mascot--danger\` 承担 |
+
+> 上面 4 条 ⚠️ 是**已知欠账**，不是文档疏漏：配置先行、实现待补。
+> 判别方式：\`grep -r "float_up_relax\\|purple_gold_light\\|particle_count" js/ styles.css\` 应当无消费方。
+`;
+
 /* ---------- 全文 ---------- */
 const md = `# 墨小溟｜情绪陪伴 App 完整产品文档
 
@@ -242,6 +365,12 @@ ${actionSection}
 > 门槛铁律（\`_selftest/action-lib.cjs\` 逐条卡死）：单条 5 秒~3 分钟；不给重大人生决策；
 > 不含「必须 / 应该 / 你要记住」这类说教；正向情绪（喜悦 / 惊讶）不出现沉重措辞；note 只松口、不追加任务。
 
+## 十三、隐私说明（设置页逐字文案）
+${privacySection}
+## 十四、月度情绪复盘
+${monthlySection}
+## 十五、全场景动效与音效系统
+${motionSection}
 ---
 
 ### 附：本版自测

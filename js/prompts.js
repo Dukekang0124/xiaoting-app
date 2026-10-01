@@ -1461,12 +1461,40 @@ export const COPY = {
     // · emotionTrendDesc ≤ 45 字　· insightText ≤ 40 字
     // · monthlyTip 可为「」（可选空：该说的话不说，强塞才是噪音）
     // · ipBubbleText：IP 那句气泡话，不是卡片正文
+    // ⚠️ 这 5 套曾长期是空串（v1.6.2 起在 version.json 里如实申报过缺口）：
+    //    判定逻辑（monthly.js chooseScenario）一直在跑，但没文案可展示 ⇒ 生成的复盘卡
+    //    trend/insight/tip 全是空——「有逻辑没文案」是最难被自测抓到的那种缺口。
     scenarios: {
-      swing:    { emotionTrendDesc: '', insightText: '', monthlyTip: '', ipBubbleText: '' },
-      low:      { emotionTrendDesc: '', insightText: '', monthlyTip: '', ipBubbleText: '' },
-      angry:    { emotionTrendDesc: '', insightText: '', monthlyTip: '', ipBubbleText: '' },
-      positive: { emotionTrendDesc: '', insightText: '', monthlyTip: '', ipBubbleText: '' },
-      flat:     { emotionTrendDesc: '', insightText: '', monthlyTip: '', ipBubbleText: '' },
+      swing: {
+        emotionTrendDesc: '这个月你的情绪来回起伏，有开心的时刻，也有不少难熬的瞬间。',
+        insightText: '情绪本就不是一条平直的线，有起伏，恰恰说明你在认真感受生活。',
+        monthlyTip: '不用强迫自己一直稳定，允许心情自然流动。',
+        ipBubbleText: '这一个月，你承载了好多复杂感受，辛苦啦。',
+      },
+      low: {
+        emotionTrendDesc: '这个月大部分时刻，你常常觉得疲惫、委屈，心里沉甸甸的。',
+        insightText: '难熬的日子占据了不少时光，你已经在很努力地撑住自己了。',
+        monthlyTip: '不必急着变好，给自己多一点宽容与休息的时间。',
+        ipBubbleText: '那些默默扛下的情绪，我都帮你好好记录下来了。',
+      },
+      angry: {
+        emotionTrendDesc: '本月你多次感受到烦躁与压抑，心里积攒了不少火气。',
+        insightText: '愤怒是内心发出的信号，它在告诉你，有些感受需要被看见。',
+        monthlyTip: '找到适合自己的方式释放紧绷，不必一直压抑情绪。',
+        ipBubbleText: '你的愤怒不是麻烦，是你保护自己的感受。',
+      },
+      positive: {
+        emotionTrendDesc: '这个月有很多轻松、愉悦的瞬间，收获了不少小美好。',
+        insightText: '那些细碎的快乐，都值得被好好收藏与记住。',
+        monthlyTip: '继续留住这些温暖的感受，在低落的时候可以回头看看。',
+        ipBubbleText: '很高兴陪你见证这一月里许许多多美好的时刻。',
+      },
+      flat: {
+        emotionTrendDesc: '这个月你的情绪整体平稳，少有剧烈的起伏，多是安静的日常。',
+        insightText: '平静也是一种难得的状态，安稳本身就是一种力量。',
+        monthlyTip: '在平淡日常里，慢慢照顾好自己就足够。',
+        ipBubbleText: '安静的时光，也同样值得被记录。',
+      },
     },
     // 交互文案（逐字 SSOT）
     ui: {
