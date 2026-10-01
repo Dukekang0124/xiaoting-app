@@ -966,11 +966,18 @@ function pageFollowup() {
       <div class="page-title">第 ${Math.min(askedCount, 3)} / 3 个问题</div>
       <span style="width:48px"></span>
     </div>
-    <div class="fu-mascot">${ipMascot(130)}</div>
+    <div class="fu-mascot" id="fuMascot">${ipMascot(130)}</div>
     ${d.opening && askedCount === 1 ? `<p class="fu-opening">${esc(d.opening)}</p>` : ''}
     ${d.empathy ? `<p class="fu-empathy">${esc(d.empathy)}</p>` : ''}
     <div class="fu-lead">${esc(COPY.followupLead[idx] || COPY.followupLead[0])}</div>
     <div class="fu-question" data-q="${esc(d.currentQuestion || '')}">${esc(d.currentQuestion || '再多说一点？')}</div>
+    <div class="fu-voice">
+      <button class="talkbtn talkbtn--mini" id="fuTalk" type="button">
+        <span class="talkbtn__label" id="fuTalkLabel">按住说</span>
+        <span class="talkbtn__timer" id="fuTalkTimer">0.0s</span>
+      </button>
+      <div class="fu-voice__hint" id="fuTalkHint"></div>
+    </div>
     <textarea class="big-input" id="fuInput" placeholder="不想说也可以跳过……"></textarea>
     <button class="primary" id="fuNext" type="button">回答</button>
     <div class="row-center"><button class="linkbtn" id="fuSkip" type="button">跳过这个问题</button></div>
@@ -978,14 +985,203 @@ function pageFollowup() {
   </section>`;
 }
 
+/* ---------------- v1.4.5 · 追问页「按住说」（语音优先、文字兜底） ----------------
+ * 复用 v1.4.4 验证过的识别链路（设备识别 → 云端回落），但目的地不同：
+ * 首页松手 → 直接进分析页；追问页松手 → 文本填进输入框，用户可改再点「回答」。
+ * 🔴 不自动提交（安全边界）：识别偏差会一路污染情绪分析，让用户过目一眼再提交更稳。
+ * IP 联动：录音 listening（触角随音量起伏）→ 识别中 thinking → 结束恢复本页派生态。
+ * IP 用「局部替换 SVG」而不是全局 render——追问页 textarea 里已有内容，整页重渲染会把话冲掉。 */
+const fuRec = { active: false, mode: 'web', media: null, stream: null, chunks: [], mime: '', t0: 0,
+  native: null, probe: null, volIv: 0, timerIv: 0, nativeFailCode: '' };
+
+function fuMascotSwap(state) {
+  const box = document.getElementById('fuMascot');
+  if (box) box.innerHTML = mascot(state, 130);
+}
+function fuMascotRestore() {
+  const box = document.getElementById('fuMascot');
+  if (box) box.innerHTML = ipMascot(130);   // 回到本页派生态（empathy / 高危 worried 等）
+}
+function fuHint(s) { const el = document.getElementById('fuTalkHint'); if (el) el.textContent = s || ''; }
+
+function fuVolTick() {
+  if (!fuRec.active) return;
+  const p = fuRec.probe;
+  try { document.documentElement.style.setProperty('--ip-vol', String(p ? p.getLevel() : 0)); } catch (e) { /* ignore */ }
+  fuRec.volIv = (typeof requestAnimationFrame !== 'undefined') ? requestAnimationFrame(fuVolTick) : 0;
+}
+
+function fuUiReset(label) {
+  const btn = document.getElementById('fuTalk');
+  const lb = document.getElementById('fuTalkLabel');
+  const next = document.getElementById('fuNext');
+  if (btn) btn.classList.remove('talkbtn--live', 'talkbtn--press', 'talkbtn--cancel');
+  if (lb) lb.textContent = label || '按住说';
+  const t = document.getElementById('fuTalkTimer');
+  if (t) t.textContent = '0.0s';
+  if (next) next.disabled = false;
+}
+
+function fuStopStreams() {
+  if (fuRec.timerIv) { clearInterval(fuRec.timerIv); fuRec.timerIv = 0; }
+  if (fuRec.volIv) { try { cancelAnimationFrame(fuRec.volIv); } catch (e) { /* ignore */ } fuRec.volIv = 0; }
+  try { document.documentElement.style.setProperty('--ip-vol', '0'); } catch (e) { /* ignore */ }
+  if (fuRec.probe) { try { fuRec.probe.stop(); } catch (e) { /* ignore */ } fuRec.probe = null; }
+  try { if (fuRec.native) fuRec.native.stop(); } catch (e) { /* ignore */ }
+  try { if (fuRec.stream) fuRec.stream.getTracks().forEach((t) => t.stop()); } catch (e) { /* ignore */ }
+  fuRec.stream = null;
+}
+
+/** 同步中止（跳过 / 离开页面时用）：立刻停音轨与计时器并复位 UI，不做任何识别 */
+function fuAbort() {
+  if (!fuRec.active) return;
+  fuRec.active = false;
+  fuStopStreams();
+  fuRec.media = null; fuRec.chunks = []; fuRec.native = null;
+  fuMascotRestore();
+  fuUiReset('按住说');
+  fuHint('');
+}
+
+async function fuBeginCapture() {
+  if (fuRec.active) return;
+  const btn = document.getElementById('fuTalk');
+  const lb = document.getElementById('fuTalkLabel');
+  const next = document.getElementById('fuNext');
+  if (!CAP.canRecord) { fuHint('这个环境拿不到麦克风，直接打字告诉我也可以'); return; }
+  fuRec.active = true;
+  fuRec.mode = 'web'; fuRec.native = null; fuRec.chunks = []; fuRec.mime = ''; fuRec.nativeFailCode = '';
+  fuRec.t0 = Date.now();
+  if (btn) btn.classList.add('talkbtn--live');
+  if (lb) lb.textContent = '松手结束';
+  if (next) next.disabled = true;   // 防呆：录音期间禁用「回答」，防重复提交
+  fuHint('');
+  fuMascotSwap('listening');        // 状态机联动：倾听
+  const tEl = document.getElementById('fuTalkTimer');
+  fuRec.timerIv = setInterval(() => { if (tEl) tEl.textContent = ((Date.now() - fuRec.t0) / 1000).toFixed(1) + 's'; }, 100);
+  // 模式选择与首页同款判据；native 模式也并行录一份 Web 音频（v1.4.4 的云端回落原料）
+  if (nativeAsr.nativeSpeechPresent() && (await nativeAsr.nativeSpeechAvailable())) {
+    const perm = await nativeAsr.nativeSpeechPermission();
+    if (perm === 'denied') {
+      fuRec.active = false; fuStopStreams(); fuMascotRestore(); fuUiReset('按住说');
+      fuHint('需要麦克风权限才能说话，可以直接打字回答');
+      return;
+    }
+    fuRec.mode = 'native';
+    fuRec.native = nativeAsr.nativeListen({ lang: 'zh-CN', onPartial: (t) => fuHint(t ? `「${t}」` : '') });
+    asr.logEvent('fu_native_start', {});
+  }
+  try {
+    fuRec.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    fuRec.mime = asr.pickMime();
+    fuRec.media = fuRec.mime ? new MediaRecorder(fuRec.stream, { mimeType: fuRec.mime }) : new MediaRecorder(fuRec.stream);
+    fuRec.media.ondataavailable = (e) => { if (e.data && e.data.size) fuRec.chunks.push(e.data); };
+    fuRec.media.start();
+    fuRec.probe = voice.createVolumeProbe(fuRec.stream);
+    fuVolTick();
+    diag.note('mic', 'fu_open', { ok: true, detail: `追问页录音就绪 模式=${fuRec.mode} 容器=${fuRec.mime || '默认'}` });
+  } catch (e) {
+    if (fuRec.mode !== 'native') {
+      fuRec.active = false; fuStopStreams(); fuMascotRestore(); fuUiReset('按住说');
+      fuHint('麦克风没拿到权限，直接打字告诉我也可以');
+      asr.logEvent('fu_mic_fail', { name: String((e && e.name) || 'unknown') });
+      return;
+    }
+    // native 模式下并行录音失败不致命：设备识别还有机会，只是云端回落会缺原料
+    diag.note('mic', 'fu_parallel', { ok: false, detail: `追问页并行录音不可用：${String((e && e.message) || e).slice(0, 60)}` });
+  }
+}
+
+async function fuFinishCapture(cancelled) {
+  if (!fuRec.active) return;
+  fuRec.active = false;
+  const input = document.getElementById('fuInput');
+  const durMs = Date.now() - fuRec.t0;
+  let nativeRes = null;
+  if (fuRec.mode === 'native' && fuRec.native) {
+    try { nativeRes = await fuRec.native.done; } catch (e) { nativeRes = null; }
+    fuRec.native = null;
+  }
+  const media = fuRec.media;
+  fuRec.media = null;
+  const blob = media ? await new Promise((resolve) => {
+    let done = false;
+    const finish = () => { if (done) return; done = true;
+      try { resolve(fuRec.chunks.length ? new Blob(fuRec.chunks, { type: fuRec.mime || 'audio/webm' }) : null); } catch (e) { resolve(null); } };
+    media.onstop = finish;
+    try { if (media.state !== 'inactive') media.stop(); else finish(); } catch (e) { finish(); }
+    setTimeout(finish, 1500);
+  }) : null;
+  fuStopStreams();
+  fuRec.chunks = [];
+
+  if (cancelled) {
+    fuMascotRestore(); fuUiReset('按住说');
+    fuHint('已取消这次录音，想说再按住说，或者直接打字');
+    asr.logEvent('fu_voice_cancel', { ms: durMs });
+    return;
+  }
+
+  // 状态机联动：识别中 → thinking
+  fuMascotSwap('thinking');
+  const lb = document.getElementById('fuTalkLabel');
+  if (lb) lb.textContent = '识别中…';
+
+  let text = '';
+  const cloudAllowed = store.getState().user.settings.cloudAsr !== false;
+  if (nativeRes && nativeRes.ok && nativeRes.text) {
+    text = nativeRes.text;
+    diag.note('asr', 'fu_native', { ok: true, detail: `追问页设备识别 ${text.length} 字` });
+  } else {
+    if (nativeRes && !nativeRes.ok) fuRec.nativeFailCode = nativeRes.code || 'native_failed';
+    if (blob && blob.size > 0 && cloudAllowed && (await asr.probeCloud()) !== 'unavailable') {
+      const r = await asr.recognize(blob);
+      if (r.ok) {
+        text = r.text;
+        asr.logEvent('asr_ok', { engine: 'fu_cloud_fallback', ms: r.ms || 0, totalMs: r.totalMs || 0, chars: text.length });
+        diag.note('asr', 'fu_cloud_fallback', { ok: true, detail: `追问页云端识别 ${text.length} 字${fuRec.nativeFailCode ? `（设备识别失败 ${fuRec.nativeFailCode} 后回落）` : ''}` });
+      } else {
+        asr.logEvent('asr_fail', { engine: 'fu_cloud', code: r.code || '', totalMs: r.totalMs || 0 });
+      }
+    }
+  }
+
+  fuMascotRestore(); fuUiReset('按住说');   // 回归本页派生态（empathy）
+
+  if (text) {
+    if (input) { input.value = text; input.dispatchEvent(new Event('input', { bubbles: true })); }
+    store.touchInteraction();
+    fuHint('已经帮你写进输入框，改一改再点「回答」也可以');
+  } else {
+    fuHint('水里有点吵，我没听清，你愿意打字告诉我吗？');
+  }
+}
+
 function bindFollowup() {
   const next = document.getElementById('fuNext');
   const skip = document.getElementById('fuSkip');
   const skipTop = document.getElementById('fuSkipTop');
   const input = document.getElementById('fuInput');
-  if (next) next.addEventListener('click', () => advanceFollowup(input.value));
-  if (skip) skip.addEventListener('click', () => advanceFollowup('不想说，跳过'));
-  if (skipTop) skipTop.addEventListener('click', () => advanceFollowup('不想说，跳过'));
+  if (next) next.addEventListener('click', () => { if (fuRec.active) fuAbort(); advanceFollowup(input.value); });
+  // 防呆：录音中点「跳过」→ 先停录音再跳过（不提交任何音频）
+  const guardSkip = () => { if (fuRec.active) fuAbort(); advanceFollowup('不想说，跳过'); };
+  if (skip) skip.addEventListener('click', guardSkip);
+  if (skipTop) skipTop.addEventListener('click', guardSkip);
+  // v1.4.5 · 追问页「按住说」：松手 → 识别 → 填入输入框（可改再回答）
+  const fuTalk = document.getElementById('fuTalk');
+  if (fuTalk) {
+    fuTalk.addEventListener('pointerdown', (e) => { e.preventDefault(); fuTalk.classList.add('talkbtn--press'); fuBeginCapture(); });
+    const release = (e) => { e.preventDefault(); fuTalk.classList.remove('talkbtn--press'); fuFinishCapture(false); };
+    fuTalk.addEventListener('pointerup', release);
+    fuTalk.addEventListener('pointercancel', release);
+    // 滑出按钮区 = 取消：不提交、明确反馈。首页"滑出也提交"是因为首页没有文字兜底通道；
+    // 追问页有，滑出多半是误触，把识别结果灌进输入框反而打扰
+    fuTalk.addEventListener('pointerleave', () => {
+      fuTalk.classList.remove('talkbtn--press');
+      if (fuRec.active) { fuTalk.classList.add('talkbtn--cancel'); fuFinishCapture(true); }
+    });
+    fuTalk.addEventListener('click', (e) => e.preventDefault()); // 点一下不算说话
+  }
   // 追问后超 20 秒未回复 ⇒ 长时间静默兜底，不再追问（§4.6）
   // 离开本页（回答 / 跳过 / 导航）都会触发 render→clearTimers 清掉此计时器，
   // 因此「fuInput 仍在 DOM」即等同于用户仍停留且尚未推进流程，无需额外标记字段。
@@ -1819,7 +2015,7 @@ function pageSettings() {
       <div class="set-title">重要声明</div>
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.4.4')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.4.5')}</p>
   </section>`;
 }
 
@@ -1974,7 +2170,7 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.4.4')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.4.5')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -1983,7 +2179,7 @@ function pageChangelog() {
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.4.4')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.4.5')}</p>
   </section>`;
 }
 
@@ -2592,6 +2788,8 @@ function render() {
   // v0.8.0 收尾：离开分析页 / 录音页时清掉防呆计时器与生命感联动类（避免残留）
   if (rec.stuckTimer) { clearTimeout(rec.stuckTimer); rec.stuckTimer = null; }
   try { document.body.classList.remove('thinking--stuck', 'recording--breath'); } catch (e) { /* ignore */ }
+  // v1.4.5：离开追问页时若「按住说」还在录，立刻同步中止（停音轨/计时器/IP 复位，不提交）
+  if (typeof fuRec !== 'undefined' && fuRec.active) fuAbort();
 
   const s = store.getState();
   // 🔴 这里**不能**写 s.lastInteractionAt = Date.now()：那样 isIdleTimeout 永远差 0ms、3 分钟回归永不触发。

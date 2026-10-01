@@ -380,6 +380,21 @@ body.thinking--stuck .stuck-bubble{opacity:1;transform:translateY(0)}
   linear-gradient(158deg,var(--orange) 0%,#FFCFA6 52%,#FFE3CB 100%)}
 /* 录音波形（放在按钮内，随声波起伏；仅录音时出现） */
 .talkbtn .wave{opacity:0;height:0;margin:0;transition:opacity .22s ease,height .22s ease,margin .22s ease}
+
+/* ===== v1.4.5 · 追问页迷你「按住说」（语音优先、文字兜底的双通道） =====
+   复用首页 talkbtn 的球体质感与配色（同一套设计令牌），只缩小尺寸、收敛动效幅度，
+   视觉上与页面元素同级，不抢主内容的戏。 */
+.fu-voice{display:flex;flex-direction:column;align-items:center;gap:8px;margin:0 0 12px}
+.talkbtn--mini{width:104px;height:104px;animation-duration:5.6s}
+.talkbtn--mini::before{inset:-6px}
+.talkbtn--mini::after{inset:-10px;border-width:1px}
+.talkbtn--mini .talkbtn__label{font-size:14px;font-weight:600}
+.talkbtn--mini .talkbtn__timer{font-size:11px}
+.talkbtn--mini.talkbtn--live .talkbtn__timer{font-size:13px;margin-top:3px}
+.talkbtn--mini.talkbtn--live .talkbtn__label{font-size:11.5px}
+/* 滑出取消的视觉反馈：短暂变灰 + 文案变化（「已取消」），让用户明确知道这次不会提交 */
+.talkbtn--cancel{filter:grayscale(.55);opacity:.75}
+.fu-voice__hint{font-size:12.5px;color:var(--ink-soft,#8b84a8);min-height:17px;text-align:center;transition:opacity .25s ease}
 .talkbtn--live .wave{opacity:1;height:20px;margin-top:8px}
 .wave{display:flex;align-items:flex-end;justify-content:center;gap:3px;height:20px}
 .wave i{display:block;width:3px;border-radius:2px;background:rgba(255,255,255,.9);height:5px;animation:wave 1.05s ease-in-out infinite}
