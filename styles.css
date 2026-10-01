@@ -891,6 +891,15 @@ body.swiping #view{touch-action:none}
 .install-steps li{margin:7px 0}
 .install-steps b{color:var(--primary-deep)}
 .install-actions{display:flex;flex-direction:column;gap:10px}
+/* v1.6.4 · 应用内下载进度（全程留在产品里，不切浏览器） */
+.install-body{margin:8px 2px 16px}
+.dl-bar{height:8px;border-radius:999px;background:rgba(158,140,216,.18);overflow:hidden}
+.dl-bar__fill{display:block;height:100%;width:0;border-radius:999px;background:linear-gradient(90deg,var(--primary),var(--primary-deep));transition:width .18s linear}
+/* 服务器没给 Content-Length 时只让条子呼吸，不给假百分比 */
+.dl-bar__fill--indet{width:6%!important;animation:dl-breathe 1.3s ease-in-out infinite}
+@keyframes dl-breathe{0%,100%{opacity:.5}50%{opacity:1}}
+.update-sub--dim{opacity:.72;font-size:13px;line-height:1.7;margin-top:6px}
+@media (prefers-reduced-motion:reduce){.dl-bar__fill{transition:none}.dl-bar__fill--indet{animation:none;opacity:.7}}
 
 /* ---------- 墨小溟 · 首次欢迎弹窗（§3.3 / §4.3） ---------- */
 .welcome-overlay{
