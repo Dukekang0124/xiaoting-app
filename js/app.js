@@ -468,9 +468,28 @@ function pageSay() {
   const quiet = !!s.quietMode;
   const last = s.cards[0];
   const sessionUser = (s.sessionLog || []).filter((m) => m.role === 'user' && m.text).length;
+  /* 🔴 方案 §8 约束 2：高危情绪状态要自动切换安全引导文案、停用普通问候。
+     此前 pageSay 只区分 quiet，高危用户回到首页看到的仍是一句普通问候
+     —— 与产品「安全边界」的对外承诺不一致（不是崩，是话术没跟上状态）。 */
+  const rk = s.risk || {};
+  const isDanger = rk.level === 'high' || rk.level === 'critical'
+    || rk.action === 'refer' || rk.action === 'emergency';
+  const dangerGreet = (((COPY.risk && COPY.risk.scripts && COPY.risk.scripts.suicide) || {}).title)
+    || '我很担心你，先陪你待一会儿。';
+  const dangerHint = '不着急，我在这里。想说的话慢慢说。';
   // v1.3.3 首页问候（会话内固定）；v1.3.2 安静模式替换专属标题/小字/卡片提示
-  const greet = quiet ? (s.quietTitle || cw.pick(cw.QUIET_COPY.titles)) : (s.greeting || greetByHour());
-  const hint = quiet ? (s.quietSmall || cw.pick(cw.QUIET_COPY.smallTexts)) : (s.greetingSmall || '不用组织语言，想到哪说到哪');
+  let greet;
+  let hint;
+  if (isDanger) {
+    greet = dangerGreet;
+    hint = dangerHint;
+  } else if (quiet) {
+    greet = s.quietTitle || cw.pick(cw.QUIET_COPY.titles);
+    hint = s.quietSmall || cw.pick(cw.QUIET_COPY.smallTexts);
+  } else {
+    greet = s.greeting || greetByHour();
+    hint = s.greetingSmall || '不用组织语言，想到哪说到哪';
+  }
   const cardHint = quiet ? (s.quietCardHint || cw.pick(cw.QUIET_COPY.cardHints)) : (s.cardHint || '还没有卡片。说一次，就会有一张。');
   return `
   <section class="say${quiet ? ' say--quiet' : ''}">
@@ -595,7 +614,10 @@ function handleIpTap(count, el) {
   target.classList.add(cls);
   setTimeout(() => { try { target.classList.remove(cls); } catch (e) { /* ignore */ } }, 1700);
   if (st.user.settings.ipBubble !== false) showIpBubble(text, count >= 4 ? 2200 : 2000);
-  if (window.ipAudio) window.ipAudio.cue(count >= 4 ? 'receive' : 'calm');
+  /* 🔴 修（v1.6.6）：点击音效走**配置里指定的名字**，不再硬编码 receive/calm ——
+     否则方案 §15 那套「单击=单气泡 / 双击=柔水流 / 三连击=绵长浸润 / 四连+=连续气泡」
+     的四档区分等于没接上：改不改配置，听到的都是同一类音。 */
+  if (window.ipAudio && _m && _m.sound) window.ipAudio.cue(_m.sound);
 }
 
 function showIpBubble(text, ms = 2000) {
@@ -2174,7 +2196,7 @@ function pageSettings() {
       }).join('')}
       ${(privacyLink((COPY.privacyFull || {}).link))}
     </div>
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.6.6')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.6.7')}</p>
   </section>`;
 }
 
@@ -2340,7 +2362,7 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.6.6')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.6.7')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -2349,7 +2371,7 @@ function pageChangelog() {
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.6.6')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.6.7')}</p>
   </section>`;
 }
 
