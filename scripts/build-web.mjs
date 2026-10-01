@@ -22,6 +22,12 @@ const EXCLUDE = new Set([
   'cloudflare',
   // _probe/：临时排障脚本（CF 探测等），用完即弃，不进包也不入库。
   '_probe',
+  // docs/：产品文档（含导出脚本 scripts/export-product-doc.mjs 生成的 .md）。
+  //   它是**给人读的文档**，不是 App 运行时要的东西 —— 进包只会白白增大体积，
+  //   而且产品文档里有完整话术表，属于内部资料，不该跟着 APK 外发。
+  //   🔴 v1.5.0 踩坑：导出产品文档后忘了归类，build:web 的归类断言直接把 CI 打成红灯
+  //      （apk.yml 首步就 build:web，tag 推完 16 秒就红）。新增根级条目必同步这里。
+  'docs',
   'server', 'server.cjs', 'package.json', 'package-lock.json',
   'capacitor.config.json', 'README.md', '.assetsignore', 'apk-icons',
   'android-assets', 'assets', 'keystore', 'apk-dist',
