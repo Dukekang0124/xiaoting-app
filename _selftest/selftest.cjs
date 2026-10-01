@@ -1763,6 +1763,15 @@ const MOCK_SDK = `(function(){
     asrCalls++;
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, text: DEMO, engine: 'mock', ms: 1 }) });
   });
+  // 🔴 云端探测也必须替身化（v1.4.3 补）：松手后云端 ASR 之前会先 probeCloud() 打
+  // **真实外网** xiaoting-asr.pages.dev/api/health（js/asr.js 的 cloudUrl 不走 apiBase）。
+  // 上面只接住了 /api/asr，health 探针却在打真网 ⇒ 沙箱出网偶发失败时探针判 'unavailable'，
+  // 云端分支被跳过；此刻 FakeSR 的 onresult（150ms 定时器）又晚于松手 ⇒ 文本为空 ⇒
+  // 「闭环①·进入分析页 / asrCalls>=1 / 草稿」三条**成簇假红**，且红与绿在不同机器上随机互换。
+  // 判据：同一链路连续多条红 + 探针不在替身清单里 ⇒ 先查"哪条真实网络请求漏 mock 了"。
+  await ctx2.route('https://xiaoting-asr.pages.dev/api/health', (route) => {
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, ai_binding: true, service: 'mock', build: 'selftest' }) });
+  });
 
   const page2 = await ctx2.newPage();
   const errors2 = [];
@@ -2095,7 +2104,7 @@ const MOCK_SDK = `(function(){
   check('update·线上清单比本地旧时（站点漏发）硬编码兜底顶上，不会永远"已是最新"',
     FB.latest === UV.latest && FB.source === 'hardcoded', JSON.stringify(FB));
   check('update·兜底地址指向本版安装包，不会拿旧包去"升级"用户',
-    /Xiaoting-v1\.4\.2-release\.apk$/.test(String(FB.url || '')), String(FB.url));
+    /Xiaoting-v1\.4\.3-release\.apk$/.test(String(FB.url || '')), String(FB.url));
 
   // H2c. 左边缘手势探针：真机"左滑没反应"必须能自证是被系统吃了还是我们自己没认
   const EP = await page.evaluate(async () => {
@@ -2106,6 +2115,36 @@ const MOCK_SDK = `(function(){
   check('update·左边缘手势探针可读（真机能自证"被系统吃掉 vs 我们自己没认"）',
     EP.hasFn && EP.f && ['total', 'lost', 'min', 'max', 'verdict'].every((k) => k in EP.f),
     JSON.stringify(EP.f && { total: EP.f.total, min: EP.f.min, max: EP.f.max }));
+
+  // H2d. v1.4.3 更新链路的三条护栏（对标 Sinoky / ChunkSpoke 后补的）
+  //
+  //   这三条都不是"功能有没有"，而是"接线有没有"——本仓在这类问题上吃过太多次亏
+  //   （isApk 恒 false、@capacitor/app 没装、notify 死开关…代码看着都在，就是没接上）。
+  const updSrc = fs.readFileSync(path.join(rootC6, 'js/update.js'), 'utf8');
+
+  // ① 下载到的必须是真 APK：Sinoky 与 ChunkSpoke 都栽在「HTTP 200 的 HTML 兜底页」上
+  check('update·下载后校验 APK 魔数（拦 HTTP 200 的 HTML 假包，两家产品踩过的坑）',
+    /validateApkBytes/.test(updSrc) && /not_an_apk/.test(updSrc) && /0x50/.test(updSrc));
+  const VAL2 = await page.evaluate(async () => {
+    const u = await import('/js/update.js');
+    if (typeof u.validateApkBytes !== 'function') return { missing: true };
+    const html = new Uint8Array(9000); html[0] = 0x3c; html[1] = 0x21; // "<!"
+    const zip = new Uint8Array(9000); zip[0] = 0x50; zip[1] = 0x4b; zip[2] = 0x03; zip[3] = 0x04;
+    return { html: u.validateApkBytes(html, 'text/html'), zip: u.validateApkBytes(zip, 'application/octet-stream') };
+  });
+  check('update·魔数校验真跑：HTML 被拒、真 APK 放行',
+    !VAL2.missing && VAL2.html.ok === false && VAL2.zip.ok === true,
+    JSON.stringify(VAL2));
+
+  // ② 手动检查在有新版本时也必须回话（v1.4.0 的承诺只覆盖了"没新版"那一半，
+  //    另半边因为 showModal 分支漏了 reason 而显示「检查失败：未知原因」，四象限测试抓到的）
+  check('update·showModal 分支带 reason（否则手动检查会误报「检查失败：未知原因」）',
+    /shown: true,\s*reason: 'shown'/.test(updSrc));
+
+  // ③ 按版本记忆"用户已拒绝"：拒绝过这个版本就不再自动打扰（对齐 Sinoky 的 apkDismissed）
+  check('update·拒绝过的版本不再自动打扰（按版本记忆，不是"当天不弹明天再弹"）',
+    /getDismissedVersion/.test(updSrc) && /setDismissedVersion/.test(updSrc)
+    && /reason: 'dismissed'/.test(updSrc) && /snooze = \(\) => \{ setSnoozeDay\(\); setDismissedVersion/.test(updSrc));
 
   // H3. 非强制弹窗 UI（?fake_version=9.9.9 让"线上最新"高于当前，自动弹出）
   const ctx3 = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'zh-CN', isMobile: true, hasTouch: true });

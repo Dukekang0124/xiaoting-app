@@ -1,17 +1,20 @@
 {
-  "latest_version": "1.4.2",
+  "latest_version": "1.4.3",
   "force_update": false,
-  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.4.2-release.apk",
+  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.4.3-release.apk",
   "web_url": "https://xiaoting.app.workbuddy.host/#/say",
   "apk": {
-    "versionCode": 10402,
-    "version": "1.4.2",
-    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.4.2-release.apk",
-    "md5": "749cde9b32423f1cf8bc2a0a6dc9030a",
-    "size": 3573525,
+    "versionCode": 10403,
+    "version": "1.4.3",
+    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.4.3-release.apk",
+    "md5": "",
+    "size": 0,
     "force": false
   },
   "release_notes": [
+    "更新弹窗不再反复打扰（v1.4.3）：以前点「稍后再说」只是今天不弹，第二天又会弹一次。现在按版本记住你的选择——这个版本暂时不装就不再自动提醒；想装的时候随时可以在「关于墨小溟」里手动检查。",
+    "安装包下载加了真伪校验（v1.4.3）：有些托管平台对不存在的文件会返回一个网页而不是报错，以前这种情况会把网页当成安装包唤起系统安装器，然后报「解析包时出现问题」。现在下载后会先校验安装包指纹，假包直接拦下并明确告诉你「安装包暂时拿不到」，不再让你对着系统报错猜原因。",
+    "「检查更新」的回话补全了最后一种情况（v1.4.3）：v1.4.0 承诺检查更新永远有回话，但「手动检查 + 确实有新版本」这个场景会同时弹出更新窗和一句「检查失败：未知原因」。本版修正——弹窗出现时，按钮下方的回话会如实说「发现新版本，已为你弹出更新提示」。",
     "版本更新这次真的能收到提示了（v1.4.2）：根因不是\"静态托管做不了接口\"——线上版本清单是静态文件、能正常读到，问题是**它一直停在 1.3.5**（APK 发了、站点没发），比你手上的 1.4.0 还旧，所以永远判定\"已是最新\"。本版把站点一并发布，并加了一道硬编码兜底：万一以后又漏发站点，你仍然收得到新版提示，不会被反向锁死。",
     "语音识别真的走云端了（v1.4.2）：v1.4.0 里\"按住说\"打的是同源 /api/asr，而线上没有后端进程 ⇒ 恒 404，云端识别一次都没成功过。本版改走自建的 Cloudflare 云端识别（Whisper），实测中文真人语音识别正确，约 1~3 秒返回，并带自动重试。",
     "返回键真的接管了（v1.4.2）：此前缺 @capacitor/app 插件，物理返回键会直接退出 App 且不报错。本版补齐，返回键改为\"子页面返回上一级 / 首页双击退出\"。",
@@ -34,6 +37,20 @@
     "新增设置开关：IP 动效总开关 / IP 触碰互动 / 气泡文字 / 动画强度（柔和·标准）/ 水墨气泡轻音效（默认关，纯 Web Audio 合成、零素材）"
   ],
   "history": [
+    {
+      "version": "1.4.3",
+      "date": "2026-10-01",
+      "title": "更新链路补齐：对标自家两个产品的更新机制后修的三件事",
+      "notes": [
+        "安装包魔数校验（对标 Sinoky / ChunkSpoke，两家都栽过的坑）：SPA 式托管对不存在的路径会回落 index.html 并返回 HTTP 200——实测 GET xiaoting-asr.pages.dev/apk/Xiaoting-v9.9.9-release.apk → 200 / text/html / 8491B。此前只判 res.ok + 体积，这段 HTML 会被写进缓存并调起系统安装器，用户看到「已唤起安装」然后系统报「解析包时出现问题」。现在下载后校验 ZIP 魔数 PK\\x03\\x04（validateApkBytes），「不是安装包」是独立错误分支，且绝不回落「用下载方式」——用户下载到的还是同一个 HTML，绕一圈回原点。",
+        "「稍后再说」按版本记忆，不按天（对标 Sinoky 的 apkDismissed）：用户点「稍后再说」的意思是「这个版本我暂时不装」，不是「今天不装明天可能装」。原来按天 snooze ⇒ 第二天继续弹。现在写 xiaoting:update_dismissed_ver；手动检查永远可用，强制更新不受影响。",
+        "修复「检查失败：未知原因」（四象限测试抓到的真缺陷）：checkUpdate 的 showModal 分支返回 {shown:true} 却漏了 reason，describeCheckResult 按 r.reason 分派 ⇒ 落 default。即「手动检查 + 确实有新版本」同时看到弹窗和一句「检查失败」——v1.4.0「检查更新永远有回话」只兑现了一半。补 reason:'shown'。",
+        "测试范式移植：Sinoky 的更新提示四象限（App内/网页端 × 版本相等/有新版本）落为 _selftest/audit-update-quadrant.cjs（15 断言）。分象限是必须的：同一份代码在 App 里和网页上正确行为相反——App 里说「刷新页面」是错的（刷了也不会变），网页上给安装包也是错的。",
+        "移植时的 meta 坑：通用拦截规则会静默抢走具体 mock（Playwright 后注册优先；原生端 apiBase() 是绝对域名，被「打断所有外域」规则吃掉 ⇒ 走硬编码兜底 ⇒ 象限假绿/假红）。对策：通用拦截排除被测域名 + 防假绿守卫断言（先证明注入的版本号真被读到）。",
+        "待采纳（下版）：min_supported_version（ChunkSpoke 的强制更新安全线语义，比 force 布尔强——运营可声明「低于此版本不允许继续用」而不必每次发版单独决定 force）。",
+        "主回归 429 → 433（新增 H2d 四条护栏：魔数校验接线 + 真跑 / showModal 带 reason / 按版本记忆拒绝），连跑两轮 433/433。"
+      ]
+    },
     {
       "version": "1.4.2",
       "date": "2026-10-01",

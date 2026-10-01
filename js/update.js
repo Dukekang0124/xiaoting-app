@@ -38,11 +38,11 @@ const SNOOZE_KEY = 'xiaoting:update_snooze_day'; // 当天"稍后再说"过的�
  * 🔴 与 APP_VERSION 必须同步：自测里有一条断言卡死这条（两者必须相等），
  *   否则「发版忘改常量」又会变成下一个静默故障。
  */
-export const LATEST_VERSION = '1.4.2';
+export const LATEST_VERSION = '1.4.3';
 
 /** 兜底安装包地址：必须是**版本化文件名**，不能用 xiaoting-latest.apk 别名
  *  （别名指向"站点上最新的那一版"，站点没发布时它反而是旧版 ⇒ 会让人装回旧包）。 */
-const FALLBACK_APK_URL = 'https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.4.2-release.apk';
+const FALLBACK_APK_URL = 'https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.4.3-release.apk';
 
 /**
  * 版本清单的两个候选路径，按顺序试（v1.1.4 修）。
@@ -129,6 +129,25 @@ export function getSnoozeDay() {
 }
 export function setSnoozeDay() {
   try { localStorage.setItem(SNOOZE_KEY, todayStr()); } catch (e) {}
+}
+
+/**
+ * 按**版本**记住"用户已经拒绝过这次更新"（v1.4.3，对齐 Sinoky 的 apkDismissed 语义）。
+ *
+ * 旧行为是"当天不再提示，明天继续弹"：用户明确点过「稍后再说」，第二天又被弹一次，
+ * 而他并没有改变主意。按版本记忆才对得上用户的真实意图——
+ * 「这个版本我暂时不装」≠「今天不装，明天我可能就装」。
+ *
+ * 自动检测才会被它短路；「关于墨小溟」页的手动检查**永远可用**（用户主动问就必须给答案）。
+ * 拒绝过 1.4.3 之后，1.5.0 发布时仍然会正常提示（版本不同）。
+ */
+const DISMISS_KEY = 'xiaoting:update_dismissed_ver';
+
+export function getDismissedVersion() {
+  try { return localStorage.getItem(DISMISS_KEY) || ''; } catch (e) { return ''; }
+}
+export function setDismissedVersion(v) {
+  try { localStorage.setItem(DISMISS_KEY, String(v || '')); } catch (e) {}
 }
 
 async function fetchJson(url) {
@@ -282,24 +301,31 @@ function showModal(data, opts) {
   document.body.appendChild(overlay);
   modalEl = overlay;
 
+  /**
+   * 「稍后再说」的统一语义（v1.4.3）：当天不再自动弹 **且** 这个版本不再自动弹。
+   * 三个入口（稍后按钮 / 点遮罩 / ESC）都走这里，避免以后加入口时漏掉其中一个。
+   * 强制更新（force）永远不给这条路 —— 上面三个入口在 force 时都不注册。
+   */
+  const snooze = () => { setSnoozeDay(); setDismissedVersion(data.latest_version); };
+
   const now = document.getElementById('updateNow');
   if (now) now.addEventListener('click', () => doUpdate(p, data));
 
   const later = document.getElementById('updateLater');
   if (later) later.addEventListener('click', () => {
-    setSnoozeDay();
+    snooze();
     closeModal();
   });
 
   // 强制更新：点遮罩不关、ESC 不关；非强制：点遮罩 = 稍后再说
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay && !force) {
-      setSnoozeDay();
+      snooze();
       closeModal();
     }
   });
   if (!force) {
-    overlay._onKey = (e) => { if (e.key === 'Escape') { setSnoozeDay(); closeModal(); } };
+    overlay._onKey = (e) => { if (e.key === 'Escape') { snooze(); closeModal(); } };
     document.addEventListener('keydown', overlay._onKey);
   }
 }
@@ -408,16 +434,49 @@ async function loadInstaller() {
   }
 }
 
-function blobToBase64(blob) {
-  return new Promise((resolve, reject) => {
-    const fr = new FileReader();
-    fr.onload = () => {
-      const s = String(fr.result || '');
-      resolve(s.slice(s.indexOf(',') + 1));
+function bytesToBase64(u8) {
+  let s = '';
+  const CHUNK = 0x8000; // 分块，避免 apply 参数过多爆栈
+  for (let i = 0; i < u8.length; i += CHUNK) {
+    s += String.fromCharCode.apply(null, u8.subarray(i, i + CHUNK));
+  }
+  return btoa(s);
+}
+
+/**
+ * 下载结果到底是不是一个真的 APK。
+ *
+ * 🔴 为什么必须校验：托管平台对**不存在的路径**有两种完全不同的反应，而只有一种会被
+ *   `res.ok` 拦住：
+ *     · 普通静态托管 → 404（`res.ok===false`，已被拦住）✅ 墨小溟线上就是这种
+ *     · SPA 式托管（Cloudflare Pages / Vercel 等）→ **回落 index.html 并返回 200**
+ *   ⇒ 第二种情况下 `res.ok` 为真，正文却是 HTML。实测复现过：
+ *     `https://xiaoting-asr.pages.dev/apk/Xiaoting-v9.9.9-release.apk`
+ *     → HTTP **200**、`text/html`、8491 字节。
+ *   如果只靠 `res.ok` + 体积判断，这段 HTML 会被写进缓存目录并**调起系统安装器**，
+ *   用户看到「已唤起安装界面」，然后系统报「解析包时出现问题」——完全不知道发生了什么。
+ *
+ *   Sinoky 与 ChunkSpoke 都栽在同一个坑上（ChunkSpoke 的注释写明是「Sinoky 踩坑移植」），
+ *   两家的解法一致：**校验 ZIP/APK 魔数 PK\x03\x04**。
+ *   体积阈值治不了这个病 —— 假包 8KB，比 1KB 的阈值大得多。
+ *
+ * @returns {{ok:true}|{ok:false, reason:string, detail:string}}
+ */
+export function validateApkBytes(bytes, contentType) {
+  const ct = String(contentType || '');
+  if (!bytes || bytes.byteLength < 4096) {
+    return { ok: false, reason: 'download_too_small', detail: `仅 ${(bytes && bytes.byteLength) || 0} 字节` };
+  }
+  const isZip = bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04;
+  if (!isZip) {
+    const head = Array.from(bytes.slice(0, 4)).map((b) => b.toString(16).padStart(2, '0')).join(' ');
+    return {
+      ok: false,
+      reason: 'not_an_apk',
+      detail: `前四字节 ${head}（应为 50 4b 03 04），Content-Type=${ct || '(空)'}`,
     };
-    fr.onerror = () => reject(new Error('read_failed'));
-    fr.readAsDataURL(blob);
-  });
+  }
+  return { ok: true };
 }
 
 /**
@@ -442,14 +501,23 @@ export async function installApkInApp(url, version = '') {
   try {
     const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) return { ok: false, reason: 'download_failed', detail: 'HTTP ' + res.status };
-    const blob = await res.blob();
-    if (!blob || blob.size < 1024) return { ok: false, reason: 'download_empty', detail: String((blob && blob.size) || 0) };
-    const b64 = await blobToBase64(blob);
+    // 用 arrayBuffer 而不是 blob：魔数校验需要拿到前几个字节，且后续转 base64 自己控制编码
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    const ctype = res.headers.get('content-type') || '';
+
+    // 🔴 关键拦截：HTTP 200 也可能是 HTML（SPA 式托管的兜底页）。详见 validateApkBytes 注释。
+    const valid = validateApkBytes(bytes, ctype);
+    if (!valid.ok) {
+      diag.note('update', 'installer_bad_payload', { ok: false, detail: `${valid.reason} ${valid.detail} url=${url}` });
+      return { ok: false, reason: valid.reason, detail: valid.detail };
+    }
+
+    const b64 = bytesToBase64(bytes);
     await Filesystem.writeFile({ path: file, directory: Directory.Cache, data: b64, recursive: true });
     const uri = await Filesystem.getUri({ path: file, directory: Directory.Cache });
     await FileOpener.open({ url: uri.uri, contentType: 'application/vnd.android.package-archive' });
-    diag.note('update', 'installer_opened', { ok: true, detail: `已唤起系统安装器 ${uri.uri} 大小=${blob.size}B` });
-    return { ok: true, size: blob.size };
+    diag.note('update', 'installer_opened', { ok: true, detail: `已唤起系统安装器 ${uri.uri} 大小=${bytes.byteLength}B 魔数=PK` });
+    return { ok: true, size: bytes.byteLength };
   } catch (e) {
     const detail = String((e && e.message) || e);
     diag.note('update', 'installer_failed', { ok: false, detail: detail.slice(0, 160) });
@@ -516,7 +584,17 @@ function showInstallGuide(data, p) {
       return;
     }
 
-    // 降级：触发下载（WebView 里指向 .apk 会被当成下载而非跳转），再给通知栏指引。
+    // 🔴 下载到的根本不是安装包（假包 / 太小）：**绝不能**回落到「用下载方式」——
+    //    用户会下载到同一个 HTML 文件，绕一圈回到原点，还会以为是自己手机的问题。
+    //    这种情况必须如实说「服务器上的安装包有问题」，并指向手动下载入口。
+    if (r.reason === 'not_an_apk' || r.reason === 'download_too_small') {
+      showStep('worried', '安装包暂时拿不到',
+        '服务器返回的不是安装包文件（可能是网页文件），这通常是发布环节出了问题，不是你的手机的问题。<br/>请稍后再试，或到「关于墨小溟」页手动下载。',
+        `<p class="update-sub">（诊断：${esc(String(r.detail || r.reason))}）</p>`);
+      return;
+    }
+
+    // 其余失败（插件缺失等）：降级为触发下载（WebView 里指向 .apk 会被当成下载而非跳转），再给通知栏指引。
     try { window.location.href = url; } catch (e) { /* ignore */ }
     showStep('listening', '正在下载安装包…',
       '下载完成后，从屏幕顶部<b>下拉通知栏</b>，点「Xiaoting…apk」即可安装。<br/>若提示「允许安装未知应用」，请打开该权限后再点安装。',
@@ -559,6 +637,14 @@ export async function checkUpdate(opts = {}) {
   const ctx = { current, latest };
 
   if (!hasNew && !showUpdate) return Object.assign({ shown: false, reason: 'no_update' }, ctx);
+
+  // v1.4.3：用户对**这个版本**点过「稍后再说」⇒ 不再自动打扰。
+  //   放在 force 判断之外是刻意的：强制更新（force_update / 低于最低可用版本）不接受拒绝。
+  //   手动检查（opts.manual）也不受影响 —— 用户主动问，就必须回答。
+  if (!data.force_update && !showUpdate && !opts.manual && getDismissedVersion() === latest) {
+    return Object.assign({ shown: false, reason: 'dismissed' }, ctx);
+  }
+
   if (!data.force_update && !showUpdate && !opts.manual && getSnoozeDay() === todayStr()) {
     return Object.assign({ shown: false, reason: 'snoozed' }, ctx);
   }
@@ -569,7 +655,14 @@ export async function checkUpdate(opts = {}) {
   lastShownKey = key;
 
   showModal(data, { force: !!data.force_update, platform: platform() });
-  return Object.assign({ shown: true, force: !!data.force_update, data }, ctx);
+
+  // 🔴 v1.4.3 修：这里必须带 `reason: 'shown'`。
+  //    describeCheckResult 是按 r.reason 分派的，漏了它就会落到 default 分支，
+  //    于是「手动检查 + 发现新版本」这个**最该有回话**的场景反而显示「检查失败：未知原因」
+  //    —— 用户同时看到弹窗和一句"检查失败"，自相矛盾。
+  //    v1.4.0 承诺"检查更新永远有回话"时只覆盖了「没新版」那一半，这半边一直漏着，
+  //    是四象限测试（象限①/④ 的手动检查分支）把它暴露出来的。
+  return Object.assign({ shown: true, reason: 'shown', force: !!data.force_update, data }, ctx);
 }
 
 /**
@@ -587,6 +680,8 @@ export function describeCheckResult(r) {
       return { ok: true, text: `发现新版本 v${latest}，已为你弹出更新提示` };
     case 'snoozed':
       return { ok: true, text: `今天已经提醒过啦，明天再说（线上 v${latest}）` };
+    case 'dismissed':
+      return { ok: true, text: `你之前选了「稍后再说」，v${latest} 不再自动提醒（想装随时手动检查）` };
     case 'already_shown':
       return { ok: true, text: `本次已提示过新版本 v${latest}` };
     case 'fetch_failed':

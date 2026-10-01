@@ -33,7 +33,7 @@ const path = require('node:path');
 const ROOT = __dirname;
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
-const VERSION = '1.4.2';
+const VERSION = '1.4.3';
 
 /* ==================== 静态资源白名单 ==================== */
 
