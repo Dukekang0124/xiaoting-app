@@ -1,17 +1,18 @@
 {
-  "latest_version": "1.6.7",
+  "latest_version": "1.6.8",
   "force_update": false,
-  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.7-release.apk",
+  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.8-release.apk",
   "web_url": "https://xiaoting.app.workbuddy.host/#/say",
   "apk": {
-    "versionCode": 10607,
-    "version": "1.6.7",
-    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.7-release.apk",
+    "versionCode": 10608,
+    "version": "1.6.8",
+    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.8-release.apk",
     "md5": "f7787ba041658250ea3af24ee83e68d0",
     "size": 3643474,
     "force": false
   },
   "release_notes": [
+    "App 图标重绘（v1.6.8）：旧图标头顶那两根\"触角\"其实是水母的特征，墨鱼没有 —— 这次去掉了。背景从大片白色换成深紫径向渐变的深海光晕，墨鱼主体放大、质感改成半通透磨砂紫、8 条短腕末端带柔光。启动屏的白底也一起换成了深紫。",
     "两处按方案补齐（v1.6.7）：① 高危时首页问候改用安全引导文案，不再用普通时段问候；② 点击墨小溟的音效改按方案里指定的四档名字触发，不再固定两种。两处都已配自动断言守住。",
     "打开就有声音了（v1.6.6）：之前陪伴音效默认是关着的，所以打开应用一点声音都没有——但方案里写的是待机有水底底噪、点击和情绪变化也有轻音，实际对不上。这一版改成默认开启：首屏一层几乎听不见的水底底噪，点墨小溟、情绪变化、生成卡片时会有极轻的水墨/气泡声。想安静可以在设置里关掉（关了就不会再被打开）。顺带补齐了月度情绪复盘的场景文案。",
     "修一处文案错位（v1.6.5）：上一版把更新改成了「在 App 里下载、下完自动弹安装界面」，但安装指引的第一屏还留着旧流程那句话——叫你「从屏幕顶部下拉通知栏，点一下 Xiaoting…apk」。新流程不往通知栏放包，照着找是白找。这一版首屏已对齐新流程。",
@@ -51,6 +52,16 @@
     "新增设置开关：IP 动效总开关 / IP 触碰互动 / 气泡文字 / 动画强度（柔和·标准）/ 水墨气泡轻音效（默认关，纯 Web Audio 合成、零素材）"
   ],
   "history": [
+    {
+      "version": "1.6.8",
+      "date": "2026-10-02",
+      "title": "App 图标重绘：去掉水母触角（IP 特征错误）、去白底、换深海紫光晕",
+      "notes": [
+        "图标有两个问题：一是**IP 特征错误** —— 旧图标头顶画了两根长触角，那是水母的特征，墨鱼没有；二是大面积白底，放在桌面上很飘。",
+        "这一版重绘：去掉顶部触角；背景换成低饱和深紫径向渐变（中心亮、四周压暗的深海光晕，#3A2E54→#5C4880）；墨鱼主体放大到约占画布七成；8 条短腕从下方聚拢后自然散开，末端带淡紫柔光；躯体半通透磨砂质感、微弱内发光、底部水墨弥散 —— 呼应「墨」字。",
+        "同步更新了 Android 各密度图标（launcher/round/foreground）与启动屏背景色（也是白底，一起换掉）。"
+      ]
+    },
     {
       "version": "1.6.7",
       "date": "2026-10-02",

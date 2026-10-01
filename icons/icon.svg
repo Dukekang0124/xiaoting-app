@@ -1,90 +1,99 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <!-- 墨小溟 App 图标（v1.1）：云朵水母 IP。颜色在此硬编码（独立 SVG 无法读 CSS 变量），
-       与 js/ip.js 的待机态变量组保持一致：身体 #B8A9E8 / 微光 #FFB88C+#A8C8E8 / 背景 #FFF8F0 -->
+  <!-- 墨小溟 App 图标（v1.6.7）
+       IP 关键约束：墨鱼 **没有** 顶部两根长触角（那是水母特征，v1.1 曾搞错，已移除）。
+       造型：圆润躯体（宽>高，带两侧裙边鳍）+ 8 条短腕从下方中央聚拢后自然散开，末端淡紫柔光。
+       比例：躯体 + 触手整体占画布 ~72-75%，安全边距 10%。
+       背景：低饱和深紫径向渐变（中心亮 → 四周压暗），深海光晕。
+       质感：半通透磨砂紫 + 微弱内发光 + 水墨弥散（呼应"墨"）。 -->
+
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#FFF8F0"/>
-      <stop offset="100%" stop-color="#E9E0FC"/>
-    </linearGradient>
-    <radialGradient id="body" cx="46%" cy="30%" r="80%">
-      <stop offset="0%" stop-color="#F3EEFF" stop-opacity=".96"/>
-      <stop offset="56%" stop-color="#D9CDF5" stop-opacity=".84"/>
-      <stop offset="100%" stop-color="#B8A9E8" stop-opacity=".72"/>
+    <radialGradient id="bg" cx="50%" cy="40%" r="75%">
+      <stop offset="0%" stop-color="#6E5794"/>
+      <stop offset="55%" stop-color="#5C4880"/>
+      <stop offset="100%" stop-color="#3A2E54"/>
     </radialGradient>
+
+    <radialGradient id="body" cx="42%" cy="26%" r="86%">
+      <stop offset="0%" stop-color="#EFE8FF" stop-opacity=".95"/>
+      <stop offset="52%" stop-color="#CBB9F0" stop-opacity=".82"/>
+      <stop offset="100%" stop-color="#A78DD6" stop-opacity=".68"/>
+    </radialGradient>
+
     <radialGradient id="core" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#FFE7C4" stop-opacity=".85"/>
-      <stop offset="55%" stop-color="#CFE4F7" stop-opacity=".34"/>
+      <stop offset="0%" stop-color="#FFE7C4" stop-opacity=".70"/>
+      <stop offset="60%" stop-color="#CFE4F7" stop-opacity=".24"/>
       <stop offset="100%" stop-color="#CFE4F7" stop-opacity="0"/>
     </radialGradient>
-    <radialGradient id="halo" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#C9BCF0" stop-opacity=".55"/>
-      <stop offset="100%" stop-color="#C9BCF0" stop-opacity="0"/>
+
+    <radialGradient id="ink">
+      <stop offset="0%" stop-color="#8E76C0" stop-opacity=".30"/>
+      <stop offset="70%" stop-color="#8E76C0" stop-opacity=".10"/>
+      <stop offset="100%" stop-color="#8E76C0" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="eye" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#6C6689"/>
-      <stop offset="100%" stop-color="#4E4969"/>
-    </linearGradient>
-    <linearGradient id="wisp" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#C0B0EC" stop-opacity=".55"/>
-      <stop offset="70%" stop-color="#C0B0EC" stop-opacity=".22"/>
-      <stop offset="100%" stop-color="#C0B0EC" stop-opacity="0"/>
-    </linearGradient>
+
+    <radialGradient id="tip">
+      <stop offset="0%" stop-color="#D9C8FF" stop-opacity=".68"/>
+      <stop offset="100%" stop-color="#D9C8FF" stop-opacity="0"/>
+    </radialGradient>
+
+    <radialGradient id="fin">
+      <stop offset="0%" stop-color="#BBA6E8" stop-opacity=".55"/>
+      <stop offset="100%" stop-color="#BBA6E8" stop-opacity=".12"/>
+    </radialGradient>
   </defs>
 
   <rect width="1024" height="1024" rx="220" fill="url(#bg)"/>
 
-  <g transform="translate(512,540) scale(2.62) translate(-100,-100)">
-    <circle cx="100" cy="104" r="90" fill="url(#halo)"/>
+  <!-- 水墨弥散（底层，大范围低透明度） -->
+  <ellipse cx="512" cy="520" rx="380" ry="340" fill="url(#ink)"/>
 
-    <!-- 头顶触角 -->
-    <g>
-      <path d="M82 52 C69 34 71 21 80 13" fill="none" stroke="#C0B0EC" stroke-width="3.2" stroke-linecap="round"/>
-      <path d="M118 52 C131 34 129 21 120 13" fill="none" stroke="#C0B0EC" stroke-width="3.2" stroke-linecap="round"/>
-      <circle cx="80" cy="12" r="10" fill="#FFD9A8" opacity=".22"/>
-      <circle cx="120" cy="12" r="10" fill="#FFD9A8" opacity=".22"/>
-      <circle cx="80" cy="12" r="4.6" fill="#FFC78F"/>
-      <circle cx="120" cy="12" r="4.6" fill="#FFC78F"/>
-    </g>
+  <!-- 两侧裙边鳍（墨鱼特征：体侧的波浪薄膜） -->
+  <path d="M212 420 C260 360 330 320 420 300 C360 350 320 420 300 500 C270 490 235 460 212 420 Z"
+        fill="url(#fin)"/>
+  <path d="M812 420 C764 360 694 320 604 300 C664 350 704 420 724 500 C754 490 789 460 812 420 Z"
+        fill="url(#fin)"/>
 
-    <!-- 体内核心光 -->
-    <ellipse cx="100" cy="106" rx="52" ry="48" fill="url(#core)"/>
+  <!-- 8 条短腕：从躯体下方中央聚拢 → 向下自然散开 → 末端微光 -->
+  <g fill="none" stroke="#B7A1E6" stroke-linecap="round" stroke-opacity=".88">
+    <path d="M452 660 C424 724 418 786 434 838" stroke-width="22"/>
+    <path d="M484 668 C470 734 474 794 496 844" stroke-width="21"/>
+    <path d="M514 670 C516 736 528 796 552 846" stroke-width="20"/>
+    <path d="M546 666 C560 730 580 788 608 836" stroke-width="20"/>
+    <path d="M576 656 C598 716 626 766 660 806" stroke-width="19"/>
+    <path d="M602 640 C634 694 668 736 706 766" stroke-width="18"/>
+    <path d="M424 646 C390 706 362 754 334 792" stroke-width="18"/>
+    <path d="M398 624 C358 678 326 720 298 752" stroke-width="17"/>
+  </g>
 
-    <!-- 垂须 -->
-    <path d="M80 138 C75 148 76 156 81 160" fill="none" stroke="url(#wisp)" stroke-width="3.4" stroke-linecap="round"/>
-    <path d="M100 142 C100 152 101 159 104 163" fill="none" stroke="url(#wisp)" stroke-width="3.4" stroke-linecap="round"/>
-    <path d="M120 138 C125 148 124 156 119 160" fill="none" stroke="url(#wisp)" stroke-width="3.4" stroke-linecap="round"/>
+  <!-- 触手末端淡紫柔光 -->
+  <g>
+    <circle cx="434" cy="838" r="17" fill="url(#tip)"/>
+    <circle cx="496" cy="844" r="16" fill="url(#tip)"/>
+    <circle cx="552" cy="846" r="16" fill="url(#tip)"/>
+    <circle cx="608" cy="836" r="15" fill="url(#tip)"/>
+    <circle cx="660" cy="806" r="14" fill="url(#tip)"/>
+    <circle cx="706" cy="766" r="13" fill="url(#tip)"/>
+    <circle cx="334" cy="792" r="13" fill="url(#tip)"/>
+    <circle cx="298" cy="752" r="12" fill="url(#tip)"/>
+  </g>
 
-    <!-- 云朵水母身体 -->
-    <path d="M100 26 C142 26 166 56 164 92
-             C163 104 158 114 150 121 C152 130 147 138 138 137
-             C134 145 126 147 120 142 C113 149 105 149 100 145
-             C95 149 87 149 80 142 C74 147 66 145 62 137
-             C53 138 48 130 50 121 C42 114 37 104 36 92
-             C34 56 58 26 100 26 Z" fill="url(#body)"/>
+  <!-- 圆润躯体（宽 > 高，中心 512,420；上圆下略收，像斗篷） -->
+  <path d="M512 120
+           C672 120 786 236 788 392
+           C790 500 748 580 668 626
+           L356 626
+           C276 580 234 500 236 392
+           C238 236 352 120 512 120 Z"
+        fill="url(#body)"/>
 
-    <!-- 左上柔光 -->
-    <ellipse cx="72" cy="60" rx="23" ry="14" fill="#ffffff" opacity=".36" transform="rotate(-24 72 60)"/>
+  <!-- 微弱内发光（躯体内上缘，柔和渐隐） -->
+  <ellipse cx="452" cy="268" rx="180" ry="120" fill="url(#core)"/>
 
-    <!-- 内部流动微光 -->
-    <g style="mix-blend-mode:screen">
-      <circle cx="76" cy="116" r="7.6" fill="#FFE7C4" opacity=".75"/>
-      <circle cx="110" cy="128" r="5.8" fill="#CFE4F7" opacity=".68"/>
-      <circle cx="127" cy="109" r="6.4" fill="#FFE7C4" opacity=".60"/>
-      <circle cx="92" cy="134" r="4" fill="#CFE4F7" opacity=".56"/>
-    </g>
-
-    <!-- 眼睛（无嘴巴） -->
-    <g transform="rotate(-5 82 101)">
-      <ellipse cx="82" cy="101" rx="10.8" ry="12.8" fill="url(#eye)"/>
-      <ellipse cx="82" cy="90.6" rx="10.8" ry="6.4" fill="#F3EEFF" opacity=".38"/>
-      <circle cx="78.1" cy="95.9" r="3.7" fill="#ffffff"/>
-      <circle cx="85.6" cy="106.6" r="1.8" fill="#ffffff" opacity=".5"/>
-    </g>
-    <g transform="rotate(5 118 101)">
-      <ellipse cx="118" cy="101" rx="10.8" ry="12.8" fill="url(#eye)"/>
-      <ellipse cx="118" cy="90.6" rx="10.8" ry="6.4" fill="#F3EEFF" opacity=".38"/>
-      <circle cx="114.1" cy="95.9" r="3.7" fill="#ffffff"/>
-      <circle cx="121.6" cy="106.6" r="1.8" fill="#ffffff" opacity=".5"/>
-    </g>
+  <!-- 眼睛：低饱和、克制、不幼态（无大高光） -->
+  <g>
+    <ellipse cx="438" cy="452" rx="34" ry="42" fill="#5C5675" opacity=".90"/>
+    <ellipse cx="586" cy="452" rx="34" ry="42" fill="#5C5675" opacity=".90"/>
+    <circle cx="428" cy="434" r="10" fill="#F3EEFF" opacity=".22"/>
+    <circle cx="576" cy="434" r="10" fill="#F3EEFF" opacity=".22"/>
   </g>
 </svg>
