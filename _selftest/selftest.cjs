@@ -317,6 +317,14 @@ const MOCK_SDK = `(function(){
     const cNotice = ai.buildScenarioCard({ analysis: rumination });
     const cAction = ai.buildScenarioCard({ analysis: neg });
     const cHold = ai.buildScenarioCard({ analysis: pos });
+    // v1.5.0：行动库改成 17 情绪 × 多套 + 确定性轮换，不再「命中即固定第一条」。
+    //   这里按 title 反查 SSOT 条目（而不是 variants[1] 这种下标——下标会随扩库漂移），
+    //   再让页面内的 pickActionVariant 重跑一遍，验证卡片上的行动**真的出自行动库且同组**。
+    const actionLibEntry = ((LIB.action && LIB.action.variants) || []).find((v) => v.title === '给情绪一个空间') || {};
+    const actionPool = ((LIB.action && LIB.action.variants) || [])
+      .filter((v) => (v.match || []).includes('委屈')).map((v) => v.title);
+    const actHit = ai.pickActionVariant(['委屈'], '');
+    const actLib = (LIB.action && LIB.action.variants) || [];
     return {
       tSee: ai.selectCardType({ analysis: mixed, transcript: mixed.thought }),
       tNotice: ai.selectCardType({ analysis: rumination }),
@@ -326,9 +334,14 @@ const MOCK_SDK = `(function(){
       seeTitle: cSee.title, seeBody: cSee.card_body, seeType: cSee.card_type, seeLayer: cSee.card_layer, seeName: cSee.card_name,
       noticeTitle: cNotice.title, noticeBody: cNotice.card_body,
       actionTitle: cAction.title, actionStep: cAction.action_step, actionNote: cAction.action_note, actionType: cAction.card_type,
+      // 轮换后不再固定某一条 ⇒ 不能拿「库里第 N 条」当 SSOT 参照，
+      // 改为**到整库里逐字反查**（这样卡片上的行动只可能出自行动库，模型编不出来）。
+      actionInLib: !!actHit && actHit.title === cAction.title && actHit.step === cAction.action_step && actHit.note === cAction.action_note,
+      actionStepInLib: actLib.some((v) => v.step === cAction.action_step),
+      actionNoteInLib: actLib.some((v) => v.note === cAction.action_note),
+      actionPool: actionPool,
       holdTitle: cHold.title, holdBody: cHold.card_body, holdType: cHold.card_type,
       libSee: LIB.see.title, libSeeBody: LIB.see.body, libNotice: LIB.notice.title, libNoticeBody: LIB.notice.body,
-      libActionTitle: LIB.action.variants[1].title, libActionStep: LIB.action.variants[1].step, libActionNote: LIB.action.variants[1].note,
       libHold: LIB.hold.title, libHoldBody: LIB.hold.body,
     };
   });
@@ -343,9 +356,27 @@ const MOCK_SDK = `(function(){
   check('情绪看见卡·卡片名 = 情绪看见卡', SC.seeName === '情绪看见卡', SC.seeName);
   check('轻觉察卡·标题逐字 = SSOT', SC.noticeTitle === SC.libNotice && SC.noticeTitle === '区分事实和心里的感受', SC.noticeTitle);
   check('轻觉察卡·正文逐字 = SSOT', SC.noticeBody === SC.libNoticeBody, SC.noticeBody.slice(0, 16));
-  check('微小行动卡·命中「委屈」→「给情绪一个空间」', SC.actionTitle === SC.libActionTitle && SC.actionTitle === '给情绪一个空间', SC.actionTitle);
-  check('微小行动卡·步骤逐字 = SSOT', SC.actionStep === SC.libActionStep, SC.actionStep.slice(0, 12));
-  check('微小行动卡·提示逐字 = SSOT', SC.actionNote === SC.libActionNote, SC.actionNote);
+  // v1.5.0：轮换后同一情绪不再固定推第一条 ⇒ 断言改为「落在委屈组 + 整库逐字反查得到」
+  check('微小行动卡·命中「委屈」→ 落在委屈组（候选：给情绪一个空间/只说一句委屈/哭完洗把脸）',
+    SC.actionInLib && SC.actionPool.includes(SC.actionTitle), `${SC.actionTitle}`);
+  check('微小行动卡·步骤逐字 = 行动库某一条（模型编不出来）', SC.actionStepInLib, SC.actionStep.slice(0, 14));
+  check('微小行动卡·提示逐字 = 行动库某一条', SC.actionNoteInLib, SC.actionNote);
+  // 扩库后的链路验证：17 种情绪都拿得到自己那一组，且卡上行动不会被中性兜底顶掉
+  const AL = await page.evaluate(async () => {
+    const ai = await import('/js/ai.js');
+    const pr = await import('/js/prompts.js');
+    const EMO = pr.TIMELINE_EMOTIONS || [];
+    const bad = [];
+    for (const e of EMO) {
+      const v = ai.pickActionVariant([e], '');
+      if (!v || !(v.match || []).includes(e)) bad.push(`${e}→${v && v.title}`);
+    }
+    const f = ai.pickActionVariant([], '');
+    return { total: EMO.length, bad, fb: f && f.title };
+  });
+  check('微小行动库·17 情绪各自命中专属组（无串组 / 无漏网）', AL.bad.length === 0 && AL.total >= 17,
+    AL.bad.length ? AL.bad.join('，') : `${AL.total} 情绪全中`);
+  check('微小行动库·无情绪输入 → 中性兜底（不再推「最沉重的一句话」）', AL.fb === '就待一会儿', AL.fb);
   check('情绪安放卡·标题逐字 = SSOT', SC.holdTitle === SC.libHold && SC.holdTitle === '把情绪暂时留在深海', SC.holdTitle);
   check('情绪安放卡·正文逐字 = SSOT', SC.holdBody === SC.libHoldBody, SC.holdBody.slice(0, 16));
   check('四类卡片·buildScenarioCard 全程逐字回填 SSOT（type 与标题一致）', SC.seeType === 'see' && SC.actionType === 'action' && SC.holdType === 'hold', `${SC.seeType}/${SC.actionType}/${SC.holdType}`);
@@ -2103,8 +2134,11 @@ const MOCK_SDK = `(function(){
   await page.unroute('**/version.json*');
   check('update·线上清单比本地旧时（站点漏发）硬编码兜底顶上，不会永远"已是最新"',
     FB.latest === UV.latest && FB.source === 'hardcoded', JSON.stringify(FB));
+  // 版本号不写死（v1.5.0 起跟随 APP_VERSION，否则每升一版这里都会假红一次）
+  const APPV = await page.evaluate(() => window.APP_VERSION || '');
   check('update·兜底地址指向本版安装包，不会拿旧包去"升级"用户',
-    /Xiaoting-v1\.4\.6-release\.apk$/.test(String(FB.url || '')), String(FB.url));
+    new RegExp(`Xiaoting-v${String(APPV).replace(/\./g, '\\.')}-release\\.apk$`).test(String(FB.url || '')),
+    `v${APPV}｜${FB.url}`);
 
   // H2c. 左边缘手势探针：真机"左滑没反应"必须能自证是被系统吃了还是我们自己没认
   const EP = await page.evaluate(async () => {

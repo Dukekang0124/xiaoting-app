@@ -471,15 +471,42 @@ export function selectCardType({ analysis = {}, transcript = '' } = {}) {
   return 'hold';
 }
 
-/** 按情绪类型从微小行动卡的 4 套备选里选一套（命中 match 即选用，顺序即优先级） */
-export function pickActionVariant(emotion = [], transcript = '') {
-  const emo = Array.isArray(emotion) ? emotion : [];
-  const t = transcript || '';
-  const variants = (CARD_LIB.action && CARD_LIB.action.variants) || [];
-  for (const v of variants) {
-    if (emo.some((e) => (v.match || []).includes(e)) || (v.match || []).some((m) => t.includes(m))) return v;
+/** 什么都没命中时的兜底（v1.5.0 前是硬编码 variants[1] =「把最沉重的一句话写下来」，
+ *  对正向情绪（用户说了件开心事）会推错方向；现统一到中性的「就待一会儿」）。 */
+const ACTION_FALLBACK = { title: '就待一会儿', step: '不用做任何事。深呼吸三轮，让这一刻就停在这。', note: '不赶时间。' };
+
+/** 稳定 32 位 hash（FNV-1a）：同一 (情绪, 文本) 永远得到同一个候选下标 */
+function actionHash(str) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < str.length; i += 1) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
   }
-  return variants[1] || { title: '给情绪一个空间', step: '把此刻心里最沉重的一句话，直接打字留在这。不用修饰，写完就可以。', note: '写下来，不一定要立刻解决它。' };
+  return h >>> 0;
+}
+
+/**
+ * 从【微小行动库】里挑一套行动（v1.5.0 起：17 情绪 × 多套）。
+ * ① 先收齐所有 match 命中的候选；② 同情绪多套时用稳定 hash 轮换，避免同一个人每次都被推同一句；
+ * ③ 同一 (emotion, transcript) 必须可复现（自测断言依赖这点）；④ 全不命中落到 neutral 兜底。
+ * @param {string[]} emotion 标准情绪短词
+ * @param {string} transcript 该节点/场景原文（用于关键词兜底）
+ * @param {{seed?:number}} [opts] 传数字 seed 可强制候选下标，供 A/B 与自测使用
+ */
+export function pickActionVariant(emotion = [], transcript = '', { seed = null } = {}) {
+  const emo = Array.isArray(emotion) ? emotion : [];
+  const t = String(transcript || '');
+  const variants = (CARD_LIB.action && CARD_LIB.action.variants) || [];
+  const hit = variants.filter((v) => {
+    const m = Array.isArray(v.match) ? v.match : [];
+    if (!m.length) return false; // neutral 兜底只在「全没命中」时启用
+    return emo.some((e) => m.includes(e)) || m.some((x) => t.includes(x));
+  });
+  const pool = hit.length ? hit : variants.filter((v) => v.neutral);
+  const list = pool.length ? pool : [ACTION_FALLBACK];
+  if (list.length === 1) return list[0];
+  const h = Number.isFinite(seed) ? seed >>> 0 : actionHash(emo.join('|') + '|' + t.slice(0, 96));
+  return list[h % list.length];
 }
 
 /**
