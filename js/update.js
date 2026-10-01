@@ -38,11 +38,11 @@ const SNOOZE_KEY = 'xiaoting:update_snooze_day'; // 当天"稍后再说"过的�
  * 🔴 与 APP_VERSION 必须同步：自测里有一条断言卡死这条（两者必须相等），
  *   否则「发版忘改常量」又会变成下一个静默故障。
  */
-export const LATEST_VERSION = '1.4.5';
+export const LATEST_VERSION = '1.4.6';
 
 /** 兜底安装包地址：必须是**版本化文件名**，不能用 xiaoting-latest.apk 别名
  *  （别名指向"站点上最新的那一版"，站点没发布时它反而是旧版 ⇒ 会让人装回旧包）。 */
-const FALLBACK_APK_URL = 'https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.4.5-release.apk';
+const FALLBACK_APK_URL = 'https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.4.6-release.apk';
 
 /**
  * 版本清单的两个候选路径，按顺序试（v1.1.4 修）。
@@ -59,6 +59,17 @@ const FALLBACK_APK_URL = 'https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.4.
  *   顺序是有意的：有后端时优先用后端（以后端为准），没后端就落到静态清单。
  */
 const LATEST_PATHS = ['/api/version/latest', '/version.json'];
+
+// v1.4.6 · 清单第三条路：Cloudflare Pages 域名（与站点**不同源、不同 CDN、不同缓存桶**）。
+// 背景（v1.4.4 真机截图实证）：发版后 workbuddy 网关的缓存收敛窗口可达小时级，
+// 期间站点清单一直返回旧 latest ⇒ 检查更新永远「已是最新」，用户收不到任何提示。
+// 只靠"等 TTL 自愈"是把用户的更新体验押在运气上。清单从此三条候选**并行全拿、取版本号最大者**：
+// 任何一个节点先更新到新清单，用户就能收到提示 —— 这是"保证弹"的唯一结构性解法。
+const LATEST_FALLBACK_ORIGIN = 'https://xiaoting-asr.pages.dev';
+// 🔴 开关必须与部署状态同步：pages.dev 上还没有 version.json（部署需要 CF 凭证，待办），
+//    现在启用的话每轮检查更新都会多一个必失败请求（SPA 回落 200+HTML ⇒ JSON.parse 抛错 ⇒
+//    console.error 噪音 + 主回归「无页面 JS 错误」护栏红）。部署完成后改 true。
+const LATEST_FALLBACK_ENABLED = false;
 
 /** 最近一次取数失败的原因（给诊断页 / 自测断言用，不再静默） */
 let lastError = '';
@@ -151,19 +162,26 @@ export function setDismissedVersion(v) {
 }
 
 async function fetchJson(url) {
+  // v1.4.6：随机 query 破网关缓存桶。
+  // `cache:'no-store'` 只约束**浏览器** HTTP 缓存，管不了 CloudStudio 网关 ——
+  // 它按 (路径, Accept-Encoding) 分桶缓存（v1.3.5 实测），发版后清单会被拖在旧节点上
+  // 长达小时级，期间用户无论怎么点都只拿到旧快照（v1.4.4 真机截图实证：
+  // 线上已发 1.4.5，真机检查更新却读回 1.4.4）。随机 query = 新 URL key = 网关必然回源。
+  // 清单是低频请求（启动 + 手动检查），每次多一个回源代价可忽略。Sinoky 同款（?t= 防缓存）。
+  const bustUrl = url + (url.includes('?') ? '&' : '?') + 'cb=' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   // v1.1.10：版本检测补 8 秒超时保护（ASR/LLM 已有，这里补齐最后一处网络请求）
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 8000);
   try {
-    const res = await fetch(url, { cache: 'no-store', signal: ctrl.signal });
+    const res = await fetch(bustUrl, { cache: 'no-store', signal: ctrl.signal });
     if (!res.ok) {
       // v1.2.1 攻坚·战役三：真实错误日志（HTTP 状态 + URL），排障时直接在控制台看得到，不只在诊断面板。
-      console.error('[更新检测] 请求失败', { url, http: res.status });
+      console.error('[更新检测] 请求失败', { url: bustUrl, http: res.status });
       throw new Error('http_' + res.status);
     }
     return res.json();
   } catch (e) {
-    if (!(e && String(e.message).startsWith('http_'))) console.error('[更新检测] 请求异常', { url, err: String((e && e.message) || e) });
+    if (!(e && String(e.message).startsWith('http_'))) console.error('[更新检测] 请求异常', { url: bustUrl, err: String((e && e.message) || e) });
     throw e;
   } finally {
     clearTimeout(timer);
@@ -171,39 +189,61 @@ async function fetchJson(url) {
 }
 
 /**
- * 依次试候选路径，返回第一个能解析成"版本清单"的结果。
- * 每个候选都带 apiBase() 前缀（原生容器里是绝对基址，Web 上是同源）。
+ * 依次试候选路径（v1.4.6 起改为**并行全拿、取版本号最大者**）。
+ *
+ * 🔴 为什么不能"第一个成功就返回"：旧缓存也是**合法结果**（200 + 合法 JSON，只是 latest 停在旧值）。
+ *    "第一个成功"遇上网关缓存拖住时，等于永远采信最旧的节点 —— 第三候选加得再多也轮不到它。
+ *    并行取大者才有意义：任何一个通道先拿到新清单，用户就能收到提示。
  * 全部失败时把**每个候选的失败原因**都带上 —— 排障时最怕的就是只看到一句 fetch_failed。
+ * @returns {{data:object, via:string}} via = 胜出候选的标签（诊断用）
  */
 async function fetchManifest(paths) {
-  const tried = [];
-  for (const p of paths) {
-    const url = apiBase() + p;
-    try {
-      const data = await fetchJson(url);
-      if (data && typeof data === 'object' && (data.latest_version || data.history)) {
-        lastError = '';
-        diag.note('update', 'manifest_ok', { path: p, latest: data.latest_version || '' });
-        return data;
-      }
-      tried.push(p + ':bad_shape');
-    } catch (e) {
-      tried.push(p + ':' + ((e && e.message) || 'err'));
-    }
+  const cands = [];
+  if (LATEST_FALLBACK_ENABLED) cands.push({ label: 'pages.dev', url: LATEST_FALLBACK_ORIGIN + '/version.json' });
+  for (const p of paths) cands.push({ label: p, url: /^https?:\/\//.test(p) ? p : apiBase() + p });
+  const settled = await Promise.allSettled(cands.map(async ({ label, url }) => {
+    const data = await fetchJson(url);
+    if (!(data && typeof data === 'object' && (data.latest_version || data.history))) throw new Error('bad_shape');
+    return { label, data };
+  }));
+  const ok = [];
+  const fails = [];
+  for (let i = 0; i < settled.length; i++) {
+    const s = settled[i];
+    if (s.status === 'fulfilled') ok.push(s.value);
+    else fails.push(cands[i].label + ':' + ((s.reason && s.reason.message) || 'err'));
   }
-  lastError = tried.join(' | ');
-  diag.note('update', 'manifest_fail', { tried: lastError, base: apiBase() || '(same-origin)' });
-  throw new Error('fetch_failed: ' + lastError);
+  if (!ok.length) {
+    lastError = fails.join(' | ');
+    diag.note('update', 'manifest_fail', { tried: lastError, base: apiBase() || '(same-origin)' });
+    throw new Error('fetch_failed: ' + lastError);
+  }
+  // 取版本号最大者；并列时优先站点通道（pages.dev 是备用独立通道，正常情况以站点为准）
+  let best = null;
+  for (const o of ok) {
+    if (!best || cmpVersion(String(o.data.latest_version || ''), String(best.data.latest_version || '')) > 0) best = o;
+  }
+  const siteHit = ok.find((o) => o.label !== 'pages.dev');
+  const pick = (siteHit && cmpVersion(String(siteHit.data.latest_version || ''), String(best.data.latest_version || '')) === 0) ? siteHit : best;
+  diag.note('update', 'manifest_pick', {
+    via: pick.label,
+    latest: pick.data.latest_version || '',
+    candidates: ok.map((o) => `${o.label}=${o.data.latest_version || '?'}`).join(' | ') || '-',
+    failed: fails.join(' | ') || '-',
+  });
+  return { data: pick.data, via: pick.label };
 }
 
-/** 取线上最新版本信息（带测试 query 覆盖） */
+/** 取线上最新版本信息（带测试 query 覆盖）。三候选并行取大者，见 fetchManifest。 */
 export async function fetchLatest() {
-  let data = null;
+  let picked = null;
   try {
-    data = await fetchManifest(LATEST_PATHS);
+    picked = await fetchManifest(LATEST_PATHS);
   } catch (e) {
-    data = null; // 失败不抛：下面用硬编码兜底，用户至少还能收到"有新版本"这件事
+    picked = null; // 失败不抛：下面用硬编码兜底，用户至少还能收到"有新版本"这件事
   }
+  const via = (picked && picked.via) || '';
+  let data = picked && picked.data;
 
   const remoteLatest = String((data && data.latest_version) || '');
   const remoteIsStale = cmpVersion(remoteLatest || '0', LATEST_VERSION) < 0;
@@ -216,6 +256,7 @@ export async function fetchLatest() {
       download_url: FALLBACK_APK_URL,
       _source: 'hardcoded',
       _remote: 'fetch_failed',
+      _via: '',
     };
     diag.note('update', 'manifest_fallback', { source: 'hardcoded', remote: 'fetch_failed', used: LATEST_VERSION });
   } else if (remoteIsStale) {
@@ -226,10 +267,11 @@ export async function fetchLatest() {
       download_url: FALLBACK_APK_URL,
       _source: 'hardcoded',
       _remote: remoteLatest,
+      _via: via,
     });
-    diag.note('update', 'manifest_fallback', { source: 'hardcoded', remote: remoteLatest, used: LATEST_VERSION });
+    diag.note('update', 'manifest_fallback', { source: 'hardcoded', remote: remoteLatest, used: LATEST_VERSION, via });
   } else {
-    data = Object.assign({}, data, { _source: 'remote', _remote: remoteLatest });
+    data = Object.assign({}, data, { _source: 'remote', _remote: remoteLatest, _via: via });
   }
 
   const q = new URLSearchParams(location.search);
@@ -242,7 +284,11 @@ export async function fetchLatest() {
 
 /** 取更新历史（给「关于墨小溟」页）。后端与静态清单字段名不同，这里统一形状。 */
 export async function fetchHistory() {
-  const data = await fetchManifest(['/api/version/history', '/version.json']);
+  // v1.4.6：fetchManifest 现在返回 {data, via} 包装（并行取大者），这里解包 ——
+  //   漏解包的后果实测过：拿到包装对象当数据 ⇒ latest_version 空、versions 空 ⇒
+  //   更新日志页渲染「暂无更新历史」（主回归 H6 两条红当场抓住）。
+  const picked = await fetchManifest(['/api/version/history', '/version.json']);
+  const data = picked.data;
   return {
     latest_version: data.latest_version || '',
     versions: data.versions || data.history || [],

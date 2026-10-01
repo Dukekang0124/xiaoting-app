@@ -79,7 +79,7 @@ const manifest = (latest) => JSON.stringify({
     const body = manifest(c.online);
     // 🔴 两个候选路径都要 mock：fetchManifest 先试 /api/version/latest，
     //    它在本地 server 上是真端点，只 mock /version.json 会走不到我们想要的输入。
-    await ctx.route('**/api/version/latest', (r) => r.fulfill({ status: 200, contentType: 'application/json', body }));
+    await ctx.route('**/api/version/latest*', (r) => r.fulfill({ status: 200, contentType: 'application/json', body }));
     await ctx.route('**/version.json*', (r) => r.fulfill({ status: 200, contentType: 'application/json', body }));
     /**
      * 外域一律打断，避免真联网（与 Sinoky 的做法一致）。

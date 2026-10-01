@@ -2092,19 +2092,19 @@ const MOCK_SDK = `(function(){
     download_url: 'https://example.invalid/old.apk', apk: {}, force_update: false,
   });
   const staleRoute = (r) => r.fulfill({ status: 200, contentType: 'application/json', body: staleBody });
-  await page.route('**/api/version/latest', staleRoute);
-  await page.route('**/version.json', staleRoute);
+  await page.route('**/api/version/latest*', staleRoute);
+  await page.route('**/version.json*', staleRoute);
   const FB = await page.evaluate(async () => {
     const u = await import('/js/update.js');
     const d = await u.fetchLatest();
     return { latest: d.latest_version, url: d.download_url, source: d._source, remote: d._remote };
   });
-  await page.unroute('**/api/version/latest');
-  await page.unroute('**/version.json');
+  await page.unroute('**/api/version/latest*');
+  await page.unroute('**/version.json*');
   check('update·线上清单比本地旧时（站点漏发）硬编码兜底顶上，不会永远"已是最新"',
     FB.latest === UV.latest && FB.source === 'hardcoded', JSON.stringify(FB));
   check('update·兜底地址指向本版安装包，不会拿旧包去"升级"用户',
-    /Xiaoting-v1\.4\.5-release\.apk$/.test(String(FB.url || '')), String(FB.url));
+    /Xiaoting-v1\.4\.6-release\.apk$/.test(String(FB.url || '')), String(FB.url));
 
   // H2c. 左边缘手势探针：真机"左滑没反应"必须能自证是被系统吃了还是我们自己没认
   const EP = await page.evaluate(async () => {

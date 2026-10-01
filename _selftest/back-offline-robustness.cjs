@@ -66,7 +66,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     check('恢复网络 → 离线浮条隐藏', onlineHidden, '');
 
     // 5) 更新历史拉取失败 → 优雅文案 + 「检查更新」按钮保留
-    await page.route('**/version.json', (r) => r.abort());
+    await page.route('**/version.json*', (r) => r.abort());
     await page.route('**/api/version/history', (r) => r.abort());
     await page.evaluate(() => { location.hash = '#/changelog'; });
     await sleep(900);
@@ -74,7 +74,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const hasCheck = await page.evaluate(() => !!document.getElementById('clCheck'));
     check('更新历史拉取失败 → 显示「暂时无法连接深海」', clText.indexOf('暂时无法连接深海') >= 0, clText.slice(0, 40));
     check('更新历史失败 → 「检查更新」按钮保留', hasCheck, '');
-    await page.unroute('**/version.json');
+    await page.unroute('**/version.json*');
     await page.unroute('**/api/version/history');
 
     // 6) 诊断页有返回按钮（→ #/settings）
