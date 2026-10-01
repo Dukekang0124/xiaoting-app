@@ -63,6 +63,9 @@ const PUBLIC_FILES = new Set([
   // 不返回 Access-Control-Allow-Origin ⇒ fetch 被 CORS 拒 ⇒ 更新弹窗一次都不弹。
   // 经典 <script src> 不受 CORS 读限制，这条才是 APK 真能走通的路。
   '/version-latest.js',
+  // '/moxiaoming_motion_sound_config.json'（v1.6.3）：动效/音效参数真相源。
+  // 不放行的话本地自测 fetch 不到，而线上有 ⇒ 「本地全绿、线上没生效」的经典假绿。
+  '/moxiaoming_motion_sound_config.json',
 ]);
 // '/vendor/'（v1.1.3）：云服务 SDK 的随包副本。之前只有 /js/ /icons/ /assets/，
 // 加了 vendor/ 却忘了开白名单 ⇒ 本地副本 404 ⇒ SDK 静默回退 CDN ⇒ 一旦外网不可达整条 AI 链路降级。

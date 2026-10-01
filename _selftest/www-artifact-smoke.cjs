@@ -139,7 +139,7 @@ async function waitServer() {
 
     // ③ 关键模块都能从 www/ 加载（白名单漏项会在这里现形）
     const mods = await page.evaluate(async () => {
-      const names = ['state-machine', 'copywriting', 'interaction', 'ip-audio', 'ip', 'store', 'prompts', 'api', 'ai', 'asr', 'voice', 'router', 'config', 'update', 'diag', 'memory', 'llm', 'native-asr'];
+      const names = ['state-machine', 'copywriting', 'interaction', 'ip-audio', 'ip', 'store', 'prompts', 'api', 'ai', 'asr', 'voice', 'router', 'config', 'update', 'diag', 'memory', 'llm', 'native-asr', 'motion'];
       const out = {};
       for (const n of names) {
         try { const m = await import('/js/' + n + '.js'); out[n] = Object.keys(m).length > 0 || typeof m.default === 'object'; }

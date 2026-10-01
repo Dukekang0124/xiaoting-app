@@ -31,6 +31,9 @@ const ASSETS = [
   './js/notify.js',
   './vendor/workbuddy-cloud-sdk.js',
   './js/monthly.js',
+  './js/motion.js',
+  // 动效参数真相源：同样要预缓存，离线时不然动效悄悄退回 CSS 默认值
+  './moxiaoming_motion_sound_config.json',
 ];
 
 self.addEventListener('install', (e) => {

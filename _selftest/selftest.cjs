@@ -1437,7 +1437,7 @@ const MOCK_SDK = `(function(){
   const st = IP.idle;
   check('IP 有云朵水母身体（圆顶+波浪裙摆）', st.n.halo === 1 && st.blobFill.startsWith('url('), st.blobFill);
   check('IP 头顶触角 2 根（独立分组，末端光点跟随）', st.n.ant === 2 && st.n.antenna === 2, `ant=${st.n.ant}`);
-  check('IP 垂须 3 条', st.n.wisp === 3, String(st.n.wisp));
+  check('IP 垂须 8 条（v1.6.3：分四组驱动摆动，见 motion-sound-config 探针）', st.n.wisp === 8, String(st.n.wisp));
   check('IP 体内流动微光 4 点', st.n.glow === 4, String(st.n.glow));
   check('IP 温柔大眼 2 只 + 双高光', st.n.eye === 2 && st.n.shine === 2, `eye=${st.n.eye} shine=${st.n.shine}`);
   check('IP 没有明确嘴巴', st.n.mouth === 0, String(st.n.mouth));

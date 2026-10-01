@@ -19,7 +19,8 @@ const out = path.join(src, 'www');
 
 // 需要进包的目录 / 文件（其余一律不带）
 const DIRS = ['js', 'icons', 'vendor'];
-const FILES = ['index.html', 'styles.css', 'sw.js', 'manifest.webmanifest'];
+// 动效音效参数真相源：前端 js/motion.js 运行时 fetch 它。
+const FILES = ['index.html', 'styles.css', 'sw.js', 'manifest.webmanifest', 'moxiaoming_motion_sound_config.json'];
 
 // 明确不上线的根级条目
 const EXCLUDE = new Set([

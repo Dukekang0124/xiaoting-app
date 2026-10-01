@@ -111,16 +111,27 @@ body:not(.has-nav) .tabbar{display:none}
 .ant--r{transform-origin:118px 52px}
 .mascot__glows{transform-origin:100px 116px}
 
-/* 待机：缓慢呼吸 + 轻微浮动 */
-.mascot--idle{animation:ip-float 5.6s ease-in-out infinite}
-.mascot--idle .mascot__body{animation:ip-breathe 4.4s ease-in-out infinite}
-.mascot--idle .glow{animation:ip-drift 6.4s ease-in-out infinite}
+/* 待机：缓慢呼吸 + 轻微浮动 —— 6s 一整圈（浮动/呼吸/微光/垂须同周期，才像同一口呼吸） */
+.mascot--idle{animation:ip-float var(--mm-float-ms, 6s) ease-in-out infinite}
+.mascot--idle .mascot__body{animation:ip-breathe var(--mm-breathe-ms, 6s) ease-in-out infinite}
+.mascot--idle .glow{animation:ip-drift 6s ease-in-out infinite}
 .mascot--idle .glow--2{animation-duration:7.8s;animation-delay:-1.2s}
 .mascot--idle .glow--3{animation-duration:5.8s;animation-delay:-2.4s}
 .mascot--idle .glow--4{animation-duration:7s;animation-delay:-3.4s}
-.mascot--idle .mascot__wisp{animation:ip-wisp 4.8s ease-in-out infinite}
+.mascot--idle .mascot__wisp{animation:ip-wisp var(--mm-wisp-ms, 6s) ease-in-out infinite}
 .mascot--idle .wisp--2{animation-delay:-1.6s}
-.mascot--idle .wisp--3{animation-delay:-3.1s}
+
+/* 八条垂须分组时序（v1.6.3 动效配置化）：不统一摆动，模拟真实水生生物不同步的呼吸。
+   幅度全部 ≤3deg / ≤2px，无弹跳无冲击。分组只作用于待机（用户 90% 时间看的那一态）。 */
+.mascot--idle .tentacle--g2{animation-delay:.5s}                            /* 3/4 号：滞后 0.5s 跟随 */
+.mascot--idle .tentacle--g3{animation-name:ip-wisp-tiny}                    /* 5/6 号：仅 2px 呼吸起伏 */
+.mascot--idle .tentacle--g4{animation-name:ip-wisp-still;animation-duration:9s;animation-delay:-2s;opacity:.7} /* 7/8 号：几乎不动，作锚定 */
+@keyframes ip-wisp-tiny{0%,100%{transform:translateY(0)}50%{transform:translateY(var(--mm-wisp-tiny-amp, 2px))}}
+@keyframes ip-wisp-still{0%,100%{transform:rotate(calc(-1 * var(--mm-wisp-still-amp, 1deg)))}50%{transform:rotate(var(--mm-wisp-still-amp, 1deg))}}
+
+/* 总开关沿用既有 body.ip-motion-off（设置项「IP互动动画」）：
+   那套规则已经把 .mascot / 涟漪 / 呼吸环全停掉 = 极致省电的极简安静模式。
+   🔴 这里**不另造 class**——另造一个就变成"两个开关管同一件事"，关了这个那个还在动。 */
 
 /* 倾听：身体微微前倾 + 触角发光 + 随声波轻晃 */
 .mascot--listening{animation:ip-lean 2.8s ease-in-out infinite}
@@ -251,8 +262,8 @@ body.thinking--stuck .stuck-bubble{opacity:1;transform:translateY(0)}
 .mascot--worried .glow{opacity:.34}
 .mascot--worried .mascot__wisp{animation:ip-wisp 6.4s ease-in-out infinite}
 
-@keyframes ip-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
-@keyframes ip-breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.035)}}
+@keyframes ip-float{0%,100%{transform:translateY(0)}50%{transform:translateY(calc(-1 * var(--mm-float-range, 6px)))}}
+@keyframes ip-breathe{0%,100%{transform:scale(1)}50%{transform:scale(calc(1 + var(--mm-breathe-scale, .035)))}}
 @keyframes ip-lean{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-4px) rotate(-2.4deg)}}
 @keyframes ip-ant-l{0%,100%{transform:rotate(-2deg)}50%{transform:rotate(5deg)}}
 @keyframes ip-ant-r{0%,100%{transform:rotate(2deg)}50%{transform:rotate(-5deg)}}
@@ -264,7 +275,7 @@ body.thinking--stuck .stuck-bubble{opacity:1;transform:translateY(0)}
 @keyframes ip-blink{0%,100%{opacity:.4}50%{opacity:.95}}
 @keyframes ip-drift{0%,100%{transform:translate(0,0)}33%{transform:translate(3px,-4px)}66%{transform:translate(-3px,3px)}}
 @keyframes ip-sway{0%,100%{transform:translateX(-1.6px)}50%{transform:translateX(1.6px)}}
-@keyframes ip-wisp{0%,100%{transform:rotate(-3deg)}50%{transform:rotate(3deg)}}
+@keyframes ip-wisp{0%,100%{transform:rotate(calc(-1 * var(--mm-wisp-amp, 3deg)))}50%{transform:rotate(var(--mm-wisp-amp, 3deg))}}
 @keyframes ip-breathe-nod{0%,100%{transform:scale(calc(1 + var(--ip-vol,0) * .08 + var(--ip-rate,0) * .04 - var(--ip-shrink,0) * .06)) translateY(0)}50%{transform:scale(calc(1 + var(--ip-vol,0) * .08 + var(--ip-rate,0) * .04 - var(--ip-shrink,0) * .06)) translateY(2px)}}
 @keyframes ip-tear{0%{transform:translateY(-2px);opacity:0}12%{opacity:.9}100%{transform:translateY(13px);opacity:0}}
 @keyframes ip-spark{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1.15)}}

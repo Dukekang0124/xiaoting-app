@@ -92,12 +92,27 @@ export function mascot(state = 'idle', size = 180, colors = null, modClass = '')
 
     <!-- 垂须（水母感）：短、柔、向下淡出；小尺寸自然隐去 -->
     <g class="mascot__wisps">
-      <path class="mascot__wisp wisp--1" d="M80 138 C75 148 76 156 81 160"
+      <!-- 八条垂须：整体分组驱动，模拟水生生物不同步的呼吸节奏（v1.6.3 动效配置化）
+           tentacle--g1 = 1/2 号（慢波浪，同步主周期）
+           tentacle--g2 = 3/4 号（滞后 0.5s 跟随摆动）
+           tentacle--g3 = 5/6 号（仅小幅度呼吸起伏）
+           tentacle--g4 = 7/8 号（几乎不动，作锚定） -->
+      <path class="mascot__wisp wisp--1 tentacle tentacle--1 tentacle--g1" d="M56 128 C50 140 51 150 57 154"
+            fill="none" stroke="url(#wisp-${uid})" stroke-width="2.8" stroke-linecap="round"/>
+      <path class="mascot__wisp wisp--2 tentacle tentacle--2 tentacle--g1" d="M68 134 C63 145 64 154 70 158"
+            fill="none" stroke="url(#wisp-${uid})" stroke-width="2.9" stroke-linecap="round"/>
+      <path class="mascot__wisp wisp--3 tentacle tentacle--3 tentacle--g2" d="M80 138 C75 148 76 156 81 160"
             fill="none" stroke="url(#wisp-${uid})" stroke-width="3.2" stroke-linecap="round"/>
-      <path class="mascot__wisp wisp--2" d="M100 142 C100 152 101 159 104 163"
+      <path class="mascot__wisp wisp--4 tentacle tentacle--4 tentacle--g2" d="M95 141 C95 152 97 160 100 164"
+            fill="none" stroke="url(#wisp-${uid})" stroke-width="2.9" stroke-linecap="round"/>
+      <path class="mascot__wisp wisp--5 tentacle tentacle--5 tentacle--g3" d="M105 141 C106 152 105 160 101 164"
+            fill="none" stroke="url(#wisp-${uid})" stroke-width="2.9" stroke-linecap="round"/>
+      <path class="mascot__wisp wisp--6 tentacle tentacle--6 tentacle--g3" d="M120 138 C125 148 124 156 119 160"
             fill="none" stroke="url(#wisp-${uid})" stroke-width="3.2" stroke-linecap="round"/>
-      <path class="mascot__wisp wisp--3" d="M120 138 C125 148 124 156 119 160"
-            fill="none" stroke="url(#wisp-${uid})" stroke-width="3.2" stroke-linecap="round"/>
+      <path class="mascot__wisp wisp--7 tentacle tentacle--7 tentacle--g4" d="M132 134 C137 145 136 154 130 158"
+            fill="none" stroke="url(#wisp-${uid})" stroke-width="2.9" stroke-linecap="round"/>
+      <path class="mascot__wisp wisp--8 tentacle tentacle--8 tentacle--g4" d="M144 128 C150 140 149 150 143 154"
+            fill="none" stroke="url(#wisp-${uid})" stroke-width="2.8" stroke-linecap="round"/>
     </g>
 
     <!-- 云朵水母身体：圆顶 + 浅波浪裙摆 -->

@@ -1,0 +1,73 @@
+{
+  "schema": "moxiaoming.motion.sound.v1",
+  "schema_note": "参数真相源：前端 js/motion.js 读取后写入 CSS 自定义属性与动画分组类，改这里即改动效，不用翻 CSS。所有 'anim'/'sound'/'ip_state' 字段必须是代码里真实存在的名字，反向断言 _selftest/motion-sound-config.cjs 会逐条校验。",
+  "global_setting": {
+    "target_fps": 24,
+    "frame_rate_enforce": false,
+    "frame_rate_note": "不锁帧率。锁帧 = 掉帧 = 顿挫，与「无顿挫」目标相反；舒缓感来自 时长长 + 缓动柔 + 位移小。低配降级走 motion_scales + prefers-reduced-motion，不动帧率。",
+    "default_curve": "ease-in-out",
+    "default_volume": 0.08,
+    "max_volume": 0.05,
+    "sound_default_on": false,
+    "enable_particle": true,
+    "enable_sound": true,
+    "high_risk_disable_all_active_effect": true,
+    "switch_transition_ms": [600, 1200],
+    "motion_scales": { "gentle": 0.6, "standard": 1, "full": 1.3 },
+    "motion_scales_note": "复用既有设置项 ipIntensity（gentle/standard/full），不新造开关。"
+  },
+  "idle_standby": {
+    "float_cycle_ms": 6000,
+    "vertical_range_px": 6,
+    "horizontal_range_px": 4,
+    "curve": "ease-in-out",
+    "tentacle_anim": {
+      "group_cycle_ms": 6000,
+      "group1": { "ids": [1, 2], "anim": "ip-wisp", "amp_deg": 3, "delay_ms": 0 },
+      "group2": { "ids": [3, 4], "anim": "ip-wisp", "amp_deg": 3, "delay_ms": 500 },
+      "group3": { "ids": [5, 6], "anim": "ip-wisp-tiny", "amp_px": 2, "delay_ms": 0 },
+      "group4": { "ids": [7, 8], "anim": "ip-wisp-still", "amp_deg": 1, "delay_ms": -2000, "period_ms": 9000, "opacity": 0.7 }
+    },
+    "particle_count": { "min": 4, "max": 6 },
+    "particle_alpha": [0.15, 0.3],
+    "particle_color": "#9d7cd8",
+    "bg_sound": "underwater_low_white_noise",
+    "bg_sound_volume": 0.08,
+    "bg_sound_mute_on_speak": true
+  },
+  "click_interact": {
+    "max_count_for_tap3": 3,
+    "tap1": { "anim": "ip-tap1", "duration_ms": 800, "curve": "ease-in-out", "particle": 2, "sound": "bubble_soft_1" },
+    "tap2": { "anim": "ip-tap2", "duration_ms": 1200, "curve": "ease-in-out", "particle": "light_ink_fog", "sound": "water_soft_short" },
+    "tap3": { "anim": "ip-tap3", "duration_ms": 1500, "curve": "ease-in-out", "particle": "aura_soft_diffuse", "sound": "water_long_heal" },
+    "tap_more": { "anim": "ip-tap-over", "duration_ms": 1000, "curve": "ease-in-out", "particle": "random_light_float", "sound": "bubble_series_tiny" }
+  },
+  "emotion_motion_map": {
+    "joy": { "ip_state": "joy", "ip_anim": "float_up_relax", "particle": "purple_gold_light", "sound": "bubble_happy_light" },
+    "sad": { "ip_state": "sad", "ip_anim": "sink_quiet", "particle": "light_down_fall", "sound": "water_deep_calm" },
+    "angry": { "ip_state": "angry", "ip_anim": "tight_swing_slow", "particle": "gray_ink_fog", "sound": "water_stable_short" },
+    "anxious": { "ip_state": "anxious", "ip_anim": "tiny_shiver_slow", "particle": "slow_ripple_fine", "sound": "water_tiny_steady" },
+    "tired": { "ip_state": "tired", "ip_anim": "super_slow_idle", "particle": "none", "sound": "whisper_noise_low" },
+    "mixed": { "ip_state": "mixed", "ip_anim": "drift_sway_alternate", "particle": "dual_color_blend", "sound": "bubble_intermittent" },
+    "danger": { "ip_state": "danger", "ip_anim": "static_calm", "particle": "none", "sound": "base_comfort_low", "lock_motion": true }
+  },
+  "scene_effect": {
+    "home_greet_pop": { "ip_anim": "tentacle_greet", "sound": "bubble_single_soft" },
+    "card_create": { "ip_anim": "point_to_card", "card_anim": "slide_up_fade", "sound": "water_card_pop" },
+    "quiet_mode": { "ip_anim": "ultra_slow_idle", "sound": "underwater_loop_very_low", "float_cycle_ms": 12000 },
+    "monthly_review": { "ip_anim": "spread_full_rotate_half", "aura": "purple_gradient_bloom", "sound": "water_long_heal_full" }
+  },
+  "state_machine": {
+    "default": "idle_standby",
+    "flow": ["idle_standby", "click_interact", "emotion_motion", "idle_standby"],
+    "rules": [
+      "默认常驻 idle_standby 循环",
+      "点击 → 打断待机 → 播点击动画 → 回归待机",
+      "倾诉情绪 → 播对应情绪动效（单次）→ 回归待机",
+      "进入安静模式 → 切 ultra_slow（周期 12000ms）",
+      "高危 → 强制锁定静态沉稳，禁活泼动效，保留静态警示环（防读成卡死）",
+      "所有动效单次播放、不无限循环",
+      "状态切换过渡 600~1200ms，无硬切"
+    ]
+  }
+}

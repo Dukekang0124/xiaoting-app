@@ -12,6 +12,7 @@ import * as update from './update.js';
 import * as nativeAsr from './native-asr.js';
 import * as ipSM from './state-machine.js'; // v1.3.0 IP 情绪状态机
 import ipAudio from './ip-audio.js'; // v1.3.0 IP 轻音效（Web Audio 合成，零素材）
+import motion from './motion.js'; // v1.6.3 动效编排层（配置 → CSS 变量）
 import * as cw from './copywriting.js'; // v1.3.1~1.3.4 文案库
 import { createIpInteraction, tapAnimClass } from './interaction.js'; // v1.3.1 IP 点击轻互动
 import * as diag from './diag.js';
@@ -222,6 +223,7 @@ async function beginCapture() {
   rec.active = true;
   rec.transcript = ''; rec.srText = ''; rec.chunks = []; rec.t0 = Date.now();
   document.body.classList.add('recording');
+  if (window.ipAudio) window.ipAudio.setMuted(true); // 倾诉开始：待机环境音立刻让位（方案 §2.6）
   const btn = document.getElementById('talkbtn');
   if (btn) btn.classList.add('talkbtn--live');
   const label = document.getElementById('talkLabel');
@@ -270,6 +272,7 @@ async function beginCapture() {
   if (rec.mode !== 'native' && !rec.media) {
     rec.active = false;
     document.body.classList.remove('recording');
+  if (window.ipAudio) window.ipAudio.setMuted(false);
     if (rec.iv) clearInterval(rec.iv);
     if (rec.hintIv) clearInterval(rec.hintIv);
     if (rec.maxTimer) clearTimeout(rec.maxTimer);
@@ -335,6 +338,7 @@ async function endCapture() {
   if (!rec.active) return;
   rec.active = false;
   document.body.classList.remove('recording');
+  if (window.ipAudio) window.ipAudio.setMuted(false);
   if (rec.iv) clearInterval(rec.iv);
   if (rec.hintIv) clearInterval(rec.hintIv);
   if (rec.maxTimer) clearTimeout(rec.maxTimer);
@@ -582,7 +586,8 @@ function handleIpTap(count, el) {
   store.touchInteraction(); // §三.4：点一下 IP 算有效交互，重置 3 分钟回归计时
   const st = store.getState();
   const text = st.quietMode ? cw.quietTapBubble(count) : cw.normalTapBubble(count, st.emotionKey);
-  const cls = tapAnimClass(count);
+  const _m = (window.motion && window.motion.playTap) ? window.motion.playTap(count) : null;
+  const cls = (_m && _m.cls) || tapAnimClass(count);
   const target = (el && el.closest && el.closest('.say__mascot')) || el; // 动画类挂到容器（CSS 选择器 .say__mascot.ip-tapN）
   if (!target) return;
   target.classList.remove('ip-tap1', 'ip-tap2', 'ip-tap3', 'ip-tap-over');
@@ -2194,13 +2199,14 @@ function bindSettings() {
   if (mem) mem.addEventListener('change', () => store.setSetting('memory_on', mem.checked));
   // v1.3.0 IP 情绪动效三个开关
   const ipMotion = document.getElementById('setIpMotion');
-  if (ipMotion) ipMotion.addEventListener('change', () => { store.setSetting('ipMotion', ipMotion.checked); document.body.classList.toggle('ip-motion-off', !ipMotion.checked); });
+  if (ipMotion) ipMotion.addEventListener('change', () => { store.setSetting('ipMotion', ipMotion.checked); document.body.classList.toggle('ip-motion-off', !ipMotion.checked); if (window.motion) window.motion.setEnabled(ipMotion.checked); });
   const ipInt = document.getElementById('setIpIntensity');
   if (ipInt) ipInt.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
     const v = b.dataset.v;
     store.setSetting('ipIntensity', v);
     ipInt.querySelectorAll('button').forEach((x) => x.classList.toggle('seg--on', x === b));
     document.body.classList.toggle('ip-intensity-gentle', v === 'gentle');
+    if (window.motion) window.motion.setIntensity(v);
   }));
   const snd = document.getElementById('setSound');
   if (snd) snd.addEventListener('change', () => { store.setSetting('soundOn', snd.checked); if (window.ipAudio) window.ipAudio.setEnabled(snd.checked); });
@@ -3622,6 +3628,14 @@ export function boot() {
   // v1.3.0 IP 视觉引擎：轻音效接入全局 + 按开关初始化（默认关）
   window.ipAudio = ipAudio;
   ipAudio.setEnabled(store.getState().user.settings.soundOn === true);
+  // v1.6.3 动效编排：读配置 → 写 CSS 变量（配置丢了也不许冻住 IP，见 motion.js）
+  try {
+    if (window.motion) {
+      window.motion.load().catch(() => {});
+      window.motion.setEnabled(store.getState().user.settings.ipMotion !== false);
+      window.motion.setIntensity(store.getState().user.settings.ipIntensity || 'standard');
+    }
+  } catch (e) { /* 动效配置失败不许影响主流程 */ }
   window.addEventListener('online', updateOfflineBar);
   window.addEventListener('offline', updateOfflineBar);
   updateOfflineBar();
