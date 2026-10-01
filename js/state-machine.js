@@ -291,11 +291,15 @@ export function isIdleTimeout(lastInteractionAt, now = Date.now(), timeoutMs = T
 //   「我的」页设置区的五个开关全部归口在这里；改默认值只改这里。
 //   ipMotion:   动效总开关，false → 关闭全部色彩/动画/特效（body.ip-motion-off）
 //   ipIntensity:'gentle' | 'standard'（柔和/标准 两档，body.ip-intensity-gentle 减速减幅）
-//   soundOn:    轻音效开关，默认 false（Web Audio 合成水墨/气泡轻音，零素材）
+//   soundOn:    轻音效开关，默认 true（Web Audio 合成水墨/气泡轻音，零素材；v1.6.6 由默认关改为默认开）
 //   ipTouch:    触碰互动总开关（点击/长按的动画与气泡）
 //   ipBubble:   气泡文字开关（关掉只留动画）
 export const IP_SETTINGS_DEFAULT = {
-  ipMotion: true, ipIntensity: 'standard', soundOn: false, ipTouch: true, ipBubble: true,
+  // 🔴 soundOn 默认**开**（v1.6.6 改）：方案 §15 把待机底噪写成「循环、不间断、音量 8%」，
+  //    且点击/情绪/场景各有音效 —— 是"常驻"描述，不是"默认静音"。此前默认 false，
+  //    用户打开 App 完全无声，与方案不符（也和"做了音效"这件事自相矛盾）。
+  //    仍受设置页开关控制，想安静随时可关；自动播放策略下需用户首次手势才真正出声。
+  ipMotion: true, ipIntensity: 'standard', soundOn: true, ipTouch: true, ipBubble: true,
 };
 
 /** 非 IP 类设置默认值（与 IP 设置合并成完整 settings；同样只在这里定义一次） */

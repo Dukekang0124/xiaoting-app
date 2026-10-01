@@ -2137,7 +2137,7 @@ function pageSettings() {
         <span>水墨 / 气泡轻音效</span>
         <input type="checkbox" id="setSound" ${st.soundOn ? 'checked' : ''}/>
       </label>
-      <p class="set-sub">独立开关。开启后，情绪变化、接收与高危时会有极轻的水墨 / 气泡合成音（默认关闭，需手动开启；不依赖任何音频素材文件）。</p>
+      <p class="set-sub">独立开关，默认开启：情绪变化、接收、点墨小溟、生成卡片时会有极轻的水墨 / 气泡合成音，首屏还有一层几乎听不见的水底底噪（你说第一句话时会自动让位）。不依赖任何音频素材文件，想安静随时关掉。</p>
     </div>
     <div class="set-block">
       <div class="set-title">月度情绪复盘</div>
@@ -2174,7 +2174,7 @@ function pageSettings() {
       }).join('')}
       ${(privacyLink((COPY.privacyFull || {}).link))}
     </div>
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.6.5')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.6.6')}</p>
   </section>`;
 }
 
@@ -2340,7 +2340,7 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.6.5')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.6.6')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -2349,7 +2349,7 @@ function pageChangelog() {
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.6.5')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.6.6')}</p>
   </section>`;
 }
 

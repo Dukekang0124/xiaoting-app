@@ -88,6 +88,18 @@ function restore() {
       state.sessionLog = fresh ? data.sessionLog : [];
       state.sessionAt = fresh ? at : 0;
     }
+
+    /* 一次性迁移：音效默认值由「关」改成「开」（v1.6.6）。
+     * 🔴 为什么必须迁移：改 SETTINGS_DEFAULT 只对**新用户**有效 —— 老用户的 localStorage 里
+     *    已经持久化了旧默认 `soundOn:false`，升级后仍然完全无声（改了个寂寞）。
+     *    这里把新默认应用到「还没迁移过」的用户一次；之后用户自己关掉，因为标记已打，
+     *    不会被再打开 —— 只纠正默认值，不覆盖用户的显式选择。 */
+    const st = state.user && state.user.settings;
+    if (st && st.soundOn === false && !st.soundDefaultMigrated) {
+      st.soundOn = true;
+      st.soundDefaultMigrated = true;
+      persist();
+    }
   } catch (e) { /* ignore */ }
 }
 
