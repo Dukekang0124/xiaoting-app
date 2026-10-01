@@ -84,7 +84,7 @@ function startServer() {
 }
 
 /** 跑一个臂，返回观测结果 */
-async function runArm(browser, variant, manifestVersion, label) {
+async function runArm(browser, variant, manifestVersion, label, wantVia = false) {
   const context = await browser.newContext();
   // ① 模拟 APK：apiBase() 才会返回绝对基址
   await context.addInitScript(() => {
@@ -97,12 +97,27 @@ async function runArm(browser, variant, manifestVersion, label) {
   const errors = [];
   page.on('request', (r) => {
     const u = r.url();
-    // 注意：API 路径是 `version/latest`（斜杠），静态清单是 `version.json`（点）。
-    // 第一版这里写成 `/version\.(json|latest)/` 只匹配了后者，导致"先试后端接口"这条断言
+    // 注意：API 路径是 `version/latest`（斜杠），静态清单是 `version.json`（点），
+    // 脚本通道是 `version-latest.js`（带 -latest 的 .js）。
+    // 第一版这里写成 `/version\.(json|latest)/` 只匹配了前两者，导致"先试后端接口"这条断言
     // 永远红 —— 是断言写错，不是代码错。断言自身也必须被复核。
-    if (/version(\.json|\/latest)/.test(u)) seen.push(u);
+    // v1.6.2：漏掉 version-latest.js 的后果更糟 —— 新通道明明被加载了，断言却当它不存在，
+    // 于是把「通道其实通了」误判成「功能坏了」（实测 7 条红全这么来的）。
+    // 🔴 一律去掉 query 再存：`?cb=xxx` 是每次请求现算的防缓存串，
+    //    存带 query 的原样会让下面所有 `/\/version\.json$/` 这类**结尾锚定**的判据全部失配
+    //    （实测就是这么红的：明明日志里打出了 /version.json，断言却说"没探过"）。
+    if (/version(\.json|\/latest|-latest\.js)/.test(u)) seen.push(u.replace(/\?.*$/, ''));
   });
   page.on('pageerror', (e) => errors.push(String(e && e.message)));
+  // 🔴 CORS 自证守卫：先证明「给的是对不上的 ACAO，而且真的被拒了」。
+  //    没有这一步，下面那条 via 断言就是**在一条假通路**上通过 ——
+  //    Playwright 的 route.fulfill 会给跨源响应补 ACAO，如果它偷偷补成了 `*`，
+  //    那么 JSON 通道也通了，我们等于白测。守卫红 ⇒ 说明环境变了，得先看它再谈结论。
+  const corsBlocked = [];
+  page.on('requestfailed', (r) => {
+    const u = r.url().replace(/\?.*$/, '');
+    if (/version\.json$/.test(u)) corsBlocked.push(`${u} :: ${(r.failure() && r.failure().errorText) || 'failed'}`);
+  });
 
   // ⚠️ route 后注册优先 ⇒ 先注册通用（此处无需），再注册具体。
   // 模拟静态托管：没有后端 ⇒ /api/version/* 恒 404
@@ -111,11 +126,15 @@ async function runArm(browser, variant, manifestVersion, label) {
   await page.route('**/api/version/history', (route) =>
     route.fulfill({ status: 404, contentType: 'text/plain', body: 'not found', headers: { 'Access-Control-Allow-Origin': '*' } }));
   // 静态清单：本臂的受控变量
-  await page.route('**/version.json', (route) =>
+  // 🔴 ACAO 必须是**一个对不上的 Origin**（线上真实值：根本没有 ACAO 头 ⇒ CORS 拒）。
+  //    Playwright 的 route.fulfill 会给跨源响应自动补 ACAO；照抄 `*` 就等于把线上那条
+  //    致命约束抹掉了，测出来的"通道通了"是假通。自证守卫 corsGuard 会先证明它确确实实被拒。
+  const hostileAcao = { 'Access-Control-Allow-Origin': 'https://not-the-apk-origin.invalid' };
+  await page.route('**/version.json*', (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      headers: { 'Access-Control-Allow-Origin': '*' },
+      headers: hostileAcao,
       body: JSON.stringify({
         latest_version: manifestVersion,
         force_update: false,
@@ -124,6 +143,23 @@ async function runArm(browser, variant, manifestVersion, label) {
         web_url: `${HOSTED}/#/say`,
       }),
     }));
+  // v1.6.2 新增第三通道：把同一份清单再发一次「脚本形态」。
+  // 跨源 <script src> 是经典脚本标签，从诞生起就允许跨源执行，**不受 CORS 读回限制** ——
+  // 这就是线上 APK 里唯一还能通的那条路。所以这里同样给"对不上的 ACAO"：
+  //  intentional —— 它必须在这种 hostile 头下照样加载成功，否则等于我没忠实复刻线上。
+  await page.route('**/version-latest.js*', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/javascript', // 必须显式给：不给的话 Chrome 走 ORB 判定，跨源脚本会被拦掉
+      headers: hostileAcao,
+      body: `window.__VERSION_MANIFEST__ = ${JSON.stringify({
+        latest_version: manifestVersion,
+        force_update: false,
+        release_notes: ['测试用发布说明'],
+        download_url: `${HOSTED}/apk/Xiaoting-v${manifestVersion}-release.apk`,
+        web_url: `${HOSTED}/#/say`,
+      })};`,
+    }));
   // 把与本次断言无关的旁路请求挡掉（避免打到真实公网，拖慢且不可控）
   await page.route('**/api/health', (route) => route.fulfill({ status: 503, body: '{}', headers: { 'Access-Control-Allow-Origin': '*' } }));
   await page.route('**/api/events', (route) => route.fulfill({ status: 204, body: '', headers: { 'Access-Control-Allow-Origin': '*' } }));
@@ -131,9 +167,19 @@ async function runArm(browser, variant, manifestVersion, label) {
   await page.goto(BASE + '/', { waitUntil: 'load', timeout: 40000 });
   await sleep(1800); // 等 initUpdate 的异步检测落地
 
-  const state = await page.evaluate(() => {
+  // wantVia：额外问一次「这次是哪个通道胜出的」。这条信息很关键 ——
+  // 弹窗弹出来只能证明"有效果"，证明不了"效果来自哪条路"。
+  // 静态检查看不出来，只能真跑：读 update.js 自己的 manifest_pick 落点 _via。
+  const state = await page.evaluate(async (want) => {
     const ov = document.querySelector('.update-overlay');
     const title = document.querySelector('.update-title');
+    let via = '';
+    if (want) {
+      try {
+        const u = await import('/js/update.js');
+        via = (await u.fetchLatest())._via || '';
+      } catch (e) { via = 'read_error:' + String((e && e.message) || e).slice(0, 60); }
+    }
     return {
       appVersion: window.APP_VERSION || null,
       shown: !!ov,
@@ -141,11 +187,12 @@ async function runArm(browser, variant, manifestVersion, label) {
       force: ov ? ov.classList.contains('update-overlay--force') : null,
       hasNowBtn: !!document.getElementById('updateNow'),
       hasLaterBtn: !!document.getElementById('updateLater'),
+      via,
     };
-  });
+  }, wantVia);
 
   await context.close();
-  return { label, variant, manifestVersion, seen, errors, ...state };
+  return { label, variant, manifestVersion, seen, errors, corsBlocked, ...state };
 }
 
 /** SW 缓存行为验证：版本清单绝不能被 Service Worker 缓存住。
@@ -233,11 +280,11 @@ async function runSwCacheArm(browser) {
 
       log(`──────── variant = ${variant} ${variant === 'old' ? '（修复前，期望红）' : '（当前，期望全绿）'} ────────`);
       const a = await runArm(browser, variant, CURRENT, 'A 控制臂（清单==当前）');
-      const b = await runArm(browser, variant, BUMPED, 'B 处理臂（清单>当前）');
+      const b = await runArm(browser, variant, BUMPED, 'B 处理臂（清单>当前）', variant === 'new');
       results[variant] = { a, b };
 
       log(`  [A] 清单=${a.manifestVersion} → shown=${a.shown}  title="${a.title}"`);
-      log(`  [B] 清单=${b.manifestVersion} → shown=${b.shown}  title="${b.title}"`);
+      log(`  [B] 清单=${b.manifestVersion} → shown=${b.shown}  title="${b.title}"  via=${b.via || '-'}`);
       log(`  [B] 捕获到的版本清单请求：${b.seen.length ? b.seen.join('  |  ') : '（无）'}`);
       if (b.errors.length) log(`  [B] 页面错误：${b.errors.slice(0, 3).join(' || ')}`);
       log('');
@@ -276,8 +323,15 @@ async function runSwCacheArm(browser) {
     const sameOriginHits = N.b.seen.filter((u) => u.startsWith(BASE));
     ok(hostedHits.length > 0, '★ 取数走绝对基址（APK 里唯一能到达服务端的路径）', `hosted=${hostedHits.length}`);
     ok(sameOriginHits.length === 0, '★ 没有把请求打到页面同源（APK 里那是 WebView 本地资产，必然 404）', sameOriginHits.join(','));
-    ok(hostedHits.some((u) => /\/version\.json$/.test(u)), '静态清单 version.json 被真的用上了（静态托管下唯一可行路径）');
-    ok(hostedHits.some((u) => /\/api\/version\/latest$/.test(u)), '先试了后端接口 /api/version/latest（有后端时以后端为准）');
+    // v1.6.2 改判据：线上 /version.json 没有 ACAO ⇒ JSON 通道一定被 CORS 拒，
+    // 「唯一可行路径」早就不是它了，是**跨域脚本清单通道**。断言必须跟着事实走，
+    // 否则测的还是旧架构（实测：旧判据会让 7 条断言假红，逼人去改一处根本没坏的代码）。
+    ok(hostedHits.some((u) => /\/api\/version\/latest$/.test(u)), '先探了后端接口 /api/version/latest（有后端时以后端为准）');
+    ok(hostedHits.some((u) => /\/version\.json$/.test(u)), '再探了静态清单 version.json（静态托管下唯一还有的 JSON 路）');
+    ok(hostedHits.some((u) => /\/version-latest\.js$/.test(u)), '★ 跨域脚本清单 version-latest.js 被真的加载了');
+    ok(N.b.corsBlocked.length > 0, '★ CORS 守卫：/version.json 确实被拒了（否则 via 断言是在假通路上通过）', N.b.corsBlocked.join(' | ') || '没有被拒，hostileAcao 没生效');
+    ok(N.b.via === 'version-latest.js', '★ 胜出通道 = 脚本通道（JSON 那条被 ACAO 挡住，弹窗不是靠它蒙对的）', String(N.b.via));
+    ok(N.b.shown === true && N.a.shown === false && N.b.via !== '', '弹窗效果与通道选择是同一条因果链（不是"永远弹"碰巧撞上）');
 
     log('');
     log('=== 旧版（修复前）断言：期望**红**，用来证明这套断言有鉴别力 ===');

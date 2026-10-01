@@ -12,8 +12,10 @@
  *
  * 跑：node _selftest/doc-closure.cjs
  */
+const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
+const ROOT = path.resolve(__dirname, '..');
 
 const IMP = (p) => import(pathToFileURL(path.resolve(__dirname, '..', p)).href);
 
@@ -122,23 +124,59 @@ function ok(name, cond, detail) {
   ok('㉑ 引导结束后的问候气泡逐字 = 文档原文',
     prompts.COPY.onboardingDone === '你好，我是墨小溟，想说说此刻的心情吗？', prompts.COPY.onboardingDone);
 
-  /* ── 5. 隐私说明完整四段（文档 §三.2 逐字） ── */
+  /* ── 5. 隐私说明七段（文档 §追加模块2 骨架） ── */
   const P = prompts.COPY.privacyFull || {};
-  ok('㉒ 隐私说明四段齐全且非零长',
-    ['data_store', 'audio', 'memory', 'crisis'].every((k) => P[k] && P[k].length > 10),
-    Object.keys(P).join(','));
-  ok('㉓ 存储段说清 IndexedDB + 本地优先 + 只有按住说才传服务端',
-    /IndexedDB/.test(P.data_store) && /不经云端/.test(P.data_store) && /按住说/.test(P.data_store));
+  const SEC = P.sections || [];
+  const secOf = (k) => (SEC.find((s) => s && s.k === k) || {});
+  ok('㉒ 隐私说明七段齐全且每段非零长',
+    ['own', 'collect', 'use', 'rights', 'protect', 'notice', 'contact']
+      .every((k) => secOf(k).t && secOf(k).t.length > 30),
+    SEC.map((s) => s.k).join(','));
+  // 🔴 v1.6.2：这条判据**之前是错的**——它用朴素子串否定去禁「完全不出本机」，
+  //    结果把「这一步做不到「完全不出本机」，不想拿好听话糊过去」这句**主动认丑的诚实声明**
+  //    也判成假承诺 ⇒ 假红。正确判法：禁的是「把完全不出本机当正面承诺」，
+  //    即总出现次数里只要有一处**不是**否定式的，就是真假承诺。
+  {
+    const t = secOf('own').t || '';
+    const total = (t.match(/完全不出本机/g) || []).length;
+    const negated = (t.match(/(做不到|做不到|不是|并不|并非|谈不上|没那么|不等于)[^。；\n]{0,12}完全不出本机/g) || []).length;
+    ok('㉓ 第 1 段说清本地优先 + 语音/文字什么时候会出本机，且「完全不出本机」只作为否定声明出现（不许当正面承诺）',
+      /本地优先|本地/.test(t) && /云端|服务端/.test(t) && (total - negated) === 0 && !/不经(过)?云端|不会自动上传/.test(t),
+      `完全不出本机 出现 ${total} 次 / 其中否定式 ${negated} 次`);
+    // 🔴 承诺里点名的开关必须在代码里**真实存在且真接线**：写个不存在的开关 =
+    //    假承诺 + 死开关（「死开关比没开关更糟」）。这里直接读源码，不靠人记。
+    const appSrc = fs.readFileSync(path.join(ROOT, 'js/app.js'), 'utf8');
+    const hasEl = /id="setCloudAsr"/.test(appSrc);
+    const hasHandler = /getElementById\('setCloudAsr'\)\s*[\s\S]{0,80}addEventListener\(/.test(appSrc);
+    const hasGate = /settings\.cloudAsr\s*!==\s*false/.test(appSrc);
+    ok('㉓b 隐私文案点名的开关在代码里真实存在 + 真接线 + 真生效（不是空头承诺）',
+      /允许把录音发给云端转写/.test(t) && hasEl && hasHandler && hasGate,
+      `渲染=${hasEl} 绑事件=${hasHandler} 上传闸门=${hasGate}`);
+  }
+  // 🔴 判据落在**代码事实**上：全库搜不到「云备份/加密上传」的实现，写了就是空头承诺。
+  //    同理「开发团队也无法读取」做不到，"IndexedDB" 与真实存储（localStorage）也不符。
+  const all = SEC.map((s) => (s.t || '')).join(' ');
+  ok('㉔ 不承诺不存在的云备份 / 不写「开发团队也读不到」/ 不写 IndexedDB',
+    !/云备份|开发团队|IndexedDB/.test(all),
+    (all.match(/云备份|开发团队|IndexedDB/) || [''])[0] || '干净');
   // 判据要落在**承诺点上**，不能箍死某几个字：隐私文案每版都会为了严谨重写
   // （v1.6.0 就把 audio/memory 两段扩写成更完整的说法），照字面断言只会变成改文案就红。
-  ok('㉔ 音频段说清转写后不留音频 + 不用于训练 + 不用于商业分析',
-    /不会(被)?留(下|存)/.test(P.audio) && /训练/.test(P.audio) && /(商业分析|用户画像)/.test(P.audio),
-    P.audio);
-  ok('㉕ 记忆段说清可查看/编辑/一键清空 + 开关由你控制',
-    /查看/.test(P.memory) && /编辑/.test(P.memory) && /清空/.test(P.memory) && /你/.test(P.memory),
-    P.memory);
-  ok('㉖ 危机段说清不泄露第三方 + 紧急生命危险打 120/110',
-    /不会将你的数据泄露给任何第三方/.test(P.crisis) && /120 或 110/.test(P.crisis));
+  ok('㉕ 收集段说清存在本机什么 / 临时过云端什么 / 不收什么',
+    /设备/.test(secOf('collect').t) && /云端/.test(secOf('collect').t) && /剪贴板/.test(secOf('collect').t),
+    secOf('collect').t);
+  ok('㉖ 用途段说清不做广告推送 / 不出售第三方',
+    /广告推送/.test(secOf('use').t) && /(第三方|卖给)/.test(secOf('use').t), secOf('use').t);
+  ok('㉗ 权利段说清单条删除 / 一键清空 / 关开关都能自己说了算',
+    /单条删除/.test(secOf('rights').t) && /清空/.test(secOf('rights').t) && /你/.test(secOf('rights').t),
+    secOf('rights').t);
+  ok('㉘ 安全段说清真实保护（带鉴权通道 + 不训练 + 不画画像）',
+    /鉴权/.test(secOf('protect').t) && /训练/.test(secOf('protect').t) && /画像/.test(secOf('protect').t),
+    secOf('protect').t);
+  ok('㉙ 声明段给心理援助热线 400-161-9995 / 120',
+    /400-161-9995/.test(secOf('notice').t) && !(secOf('notice').t || '').includes('IndexedDB'),
+    secOf('notice').t);
+  ok('㉚ 「联系我们」指向真实可达的外链（不是 App 里不存在的帮助通道）',
+    /^https?:\/\//.test((P.link || {}).href || ''), (P.link || {}).href || '无链接');
 
   /* ── 6. 微小行动库与文档 §三.1 七条的关系 ── */
   const acts = (prompts.CARD_LIB.action.variants || []).map((v) => v.step || '');
@@ -161,6 +199,50 @@ function ok(name, cond, detail) {
   ok('㉘b 文档 7 条与 42 条主体并存（情绪组没被文档 7 条替掉）',
     (prompts.CARD_LIB.action.variants || []).filter((v) => (v.match || []).length).length === 41,
     `${(prompts.CARD_LIB.action.variants || []).filter((v) => (v.match || []).length).length} 条情绪专属`);
+
+  /* ── 6b. 文档 §追加模块1 · 逐字 24 条（v1.6.2 新增，优先级高于上面 49 条） ──
+     判据：一条都不能改字。改了就是「文档说一套、产品说另一套」，用户会照着文档对不上。 */
+  const DOC24 = [
+    '做3次缓慢深呼吸，吸气4秒，呼气6秒。',
+    '找一个舒服的姿势，安静坐1分钟。',
+    '写下一句此刻心里最直接的感受。',
+    '喝一杯温水，感受水流过喉咙。',
+    '看看窗外，留意眼前任意一件小东西。',
+    '允许自己哭一会儿，不用强行忍住。',
+    '握紧拳头5秒，再慢慢松开，重复3次。',
+    '起身走动一小会儿，离开当下的环境。',
+    '在心里默默数10个数，慢慢平复。',
+    '把想吐槽的话全部写下来，写完可以删掉。',
+    '吹一口气，把心里紧绷的感觉释放一点。',
+    '闭眼休息30秒，什么都不用想。',
+    '放下手头事情，短暂放空。',
+    '拉伸肩膀，释放身体紧绷感。',
+    '不用逼自己振作，允许短暂摆烂。',
+    '调低环境光线，安静待一会。',
+    '记住此刻这种舒服的感觉，好好留存。',
+    '简单记下这件让你快乐的小事。',
+    '深呼吸，感受这份喜悦留在身体里。',
+    '给自己一句肯定，你值得这份美好。',
+    '不用立刻做出决定，先把两种感受分开写下来。',
+    '只关注当下这一刻，不去想以后的结果。',
+    '问问自己：现在我最需要的是什么？',
+    '先暂停思考，休息片刻再梳理。',
+  ];
+  const docSteps = (prompts.CARD_LIB.action.docSet || []).map((v) => v.step || '');
+  const miss24 = DOC24.filter((s) => !docSteps.includes(s));
+  ok('㉛ 文档点名的 24 条微小行动逐字入库（低落6/愤怒5/疲惫5/开心4/矛盾4）',
+    docSteps.length === 24 && miss24.length === 0,
+    miss24.length ? `缺 ${miss24.length} 条：${miss24.join(' | ')}` : '24/24 逐字一致');
+  const docOver = (prompts.CARD_LIB.action.docSet || []).filter((v) => (v.step || '').length > 30);
+  ok('㉜ 24 条每条 ≤30 字（适配卡片 UI）', docOver.length === 0,
+    docOver.length ? docOver.map((v) => `${v.step}(${v.step.length})`).join('，')
+      : `最长 ${Math.max(...docSteps.map((s) => s.length))} 字`);
+  const docPreachy = (prompts.CARD_LIB.action.docSet || []).filter((v) => /应该|必须|你要/.test(`${v.step}${v.title}${v.note}`));
+  ok('㉝ 24 条都不说教（无「应该/必须/你要」）', docPreachy.length === 0,
+    docPreachy.map((v) => v.title).join('，') || '干净');
+  const docOverlap = docSteps.filter((s) => acts.includes(s));
+  ok('㉞ 24 条与既有 49 条不重字（两套库各自独立可查）', docOverlap.length === 0,
+    docOverlap.join(' | ') || '两套无重叠');
 
   console.log(`\n==== 文档收口探针：${pass} 通过 / ${fail} 失败 ====`);
   if (fail) { console.log('失败项：' + failures.join(' / ')); process.exit(1); }

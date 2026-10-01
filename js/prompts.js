@@ -740,6 +740,208 @@ export const CARD_LIB = {
         note: '肩膀可以松。',
       },
     ],
+
+    /* v1.6.2 文档 §追加模块1 · 微小行动库（SSOT 逐字，24 条）
+     * 与上面 49 条 variants 的关系：docSet 是**文档逐字版、优先级更高**。
+     * 规则①单张卡片只选 1 条；②混合情绪取权重最高的那个情绪的组；
+     * ③高危场景禁用（由 pickActionVariant 的 safe 参数控制，见 js/ai.js）；
+     * ④无合适行动 → 空串；⑤每条 ≤30 字、不说教、不含「应该」类词。
+     * 探针 _selftest/action-lib.cjs 会逐条比对 step 与文档原文，改一个字就红。
+     */
+    docSet: [
+      {
+        group: 'low',
+        rank: 1,
+        match: ['低落', '委屈', '难过', '悲伤', '伤心', '失落', '无助', '低沉', '心酸', '想哭'],
+        title: '三次缓慢呼吸',
+        step: '做3次缓慢深呼吸，吸气4秒，呼气6秒。',
+        note: '数不准也没关系。',
+      },
+      {
+        group: 'low',
+        rank: 2,
+        match: ['低落', '委屈', '难过', '低落', '沮丧', '消沉'],
+        title: '安静坐一会',
+        step: '找一个舒服的姿势，安静坐1分钟。',
+        note: '一分钟，谁都做得到。',
+      },
+      {
+        group: 'low',
+        rank: 3,
+        match: ['低落', '委屈', '难过', '悲伤', '无助'],
+        title: '写一句感受',
+        step: '写下一句此刻心里最直接的感受。',
+        note: '不用组织语言。',
+      },
+      {
+        group: 'low',
+        rank: 4,
+        match: ['低落', '委屈', '难过', '疲惫'],
+        title: '一杯温水',
+        step: '喝一杯温水，感受水流过喉咙。',
+        note: '慢慢咽，别急。',
+      },
+      {
+        group: 'low',
+        rank: 5,
+        match: ['低落', '委屈', '难过', '麻木', '空落落'],
+        title: '看窗外',
+        step: '看看窗外，留意眼前任意一件小东西。',
+        note: '越普通越好。',
+      },
+      {
+        group: 'low',
+        rank: 6,
+        match: ['委屈', '想哭', '憋屈', '沉重', '堵得慌'],
+        title: '哭一会儿',
+        step: '允许自己哭一会儿，不用强行忍住。',
+        note: '忍着更累。',
+      },
+      {
+        group: 'angry',
+        rank: 1,
+        match: ['愤怒', '生气', '烦躁', '压抑', '憋屈', '火大', '恼火', '气愤', '愤懑', '抓狂'],
+        title: '松手三次',
+        step: '握紧拳头5秒，再慢慢松开，重复3次。',
+        note: '重点是松开那一下。',
+      },
+      {
+        group: 'angry',
+        rank: 2,
+        match: ['愤怒', '烦躁', '压抑', '火大'],
+        title: '离开一会儿',
+        step: '起身走动一小会儿，离开当下的环境。',
+        note: '不用走远，下楼就够。',
+      },
+      {
+        group: 'angry',
+        rank: 3,
+        match: ['愤怒', '烦躁', '压抑', '憋屈'],
+        title: '心里数10下',
+        step: '在心里默默数10个数，慢慢平复。',
+        note: '数完再决定也不迟。',
+      },
+      {
+        group: 'angry',
+        rank: 4,
+        match: ['愤怒', '烦躁', '压抑', '憋屈'],
+        title: '写下来再删',
+        step: '把想吐槽的话全部写下来，写完可以删掉。',
+        note: '写完就算发出去了。',
+      },
+      {
+        group: 'angry',
+        rank: 5,
+        match: ['愤怒', '烦躁', '压抑', '憋屈'],
+        title: '吹一口气',
+        step: '吹一口气，把心里紧绷的感觉释放一点。',
+        note: '像吹蜡烛那样。',
+      },
+      {
+        group: 'tired',
+        rank: 1,
+        match: ['疲惫', '麻木', '耗竭', '累', '乏力', '没劲', '倦怠', '透支', '木然', '没感觉', '僵住'],
+        title: '闭眼30秒',
+        step: '闭眼休息30秒，什么都不用想。',
+        note: '想别的也可以。',
+      },
+      {
+        group: 'tired',
+        rank: 2,
+        match: ['疲惫', '耗竭', '透支', '累'],
+        title: '放下手头事',
+        step: '放下手头事情，短暂放空。',
+        note: '五分钟就够。',
+      },
+      {
+        group: 'tired',
+        rank: 3,
+        match: ['疲惫', '麻木', '累', '乏力'],
+        title: '松肩膀',
+        step: '拉伸肩膀，释放身体紧绷感。',
+        note: '耸起来再落下去。',
+      },
+      {
+        group: 'tired',
+        rank: 4,
+        match: ['疲惫', '耗竭', '累', '倦怠'],
+        title: '允许摆烂',
+        step: '不用逼自己振作，允许短暂摆烂。',
+        note: '今晚就这样，没关系。',
+      },
+      {
+        group: 'tired',
+        rank: 5,
+        match: ['疲惫', '麻木', '耗竭', '僵住'],
+        title: '调暗光线',
+        step: '调低环境光线，安静待一会。',
+        note: '灯暗一点，脑子也慢一点。',
+      },
+      {
+        group: 'joy',
+        rank: 1,
+        match: ['喜悦', '开心', '高兴', '快乐', '满足', '欣喜', '幸福', '治愈', '轻松', '欣慰'],
+        title: '存住这一刻',
+        step: '记住此刻这种舒服的感觉，好好留存。',
+        note: '记住就行。',
+      },
+      {
+        group: 'joy',
+        rank: 2,
+        match: ['喜悦', '开心', '快乐', '满足', '幸福'],
+        title: '记下这件小事',
+        step: '简单记下这件让你快乐的小事。',
+        note: '一句话就够。',
+      },
+      {
+        group: 'joy',
+        rank: 3,
+        match: ['喜悦', '开心', '快乐', '释然'],
+        title: '把喜悦留下',
+        step: '深呼吸，感受这份喜悦留在身体里。',
+        note: '让它在身体里停一会。',
+      },
+      {
+        group: 'joy',
+        rank: 4,
+        match: ['喜悦', '开心', '快乐', '满足', '幸福'],
+        title: '肯定自己',
+        step: '给自己一句肯定，你值得这份美好。',
+        note: '小声说也行。',
+      },
+      {
+        group: 'conflict',
+        rank: 1,
+        match: ['矛盾', '纠结', '两难', '摇摆', '拉扯', '进退两难', '拿不准'],
+        title: '两种分开写',
+        step: '不用立刻做出决定，先把两种感受分开写下来。',
+        note: '先不急着选。',
+      },
+      {
+        group: 'conflict',
+        rank: 2,
+        match: ['矛盾', '纠结', '迷茫', '摇摆'],
+        title: '只看这一刻',
+        step: '只关注当下这一刻，不去想以后的结果。',
+        note: '以后的事以后再说。',
+      },
+      {
+        group: 'conflict',
+        rank: 3,
+        match: ['矛盾', '纠结', '迷茫', '拉扯'],
+        title: '问自己一句',
+        step: '问问自己：现在我最需要的是什么？',
+        note: '答案可能会有。',
+      },
+      {
+        group: 'conflict',
+        rank: 4,
+        match: ['矛盾', '纠结', '迷茫', '犹豫'],
+        title: '先歇会儿',
+        step: '先暂停思考，休息片刻再梳理。',
+        note: '想不清的事先放下。',
+      },
+    ],
   },
 };
 
@@ -805,6 +1007,34 @@ export function emotionScoreFor(emotions) {
   return Math.max(-100, Math.min(100, Math.round(sum / list.length)));
 }
 
+
+/** v1.6.2 文档 §追加模块1 规则②：混合情绪时**优先匹配权重最高的情绪**。
+ *  权重 = 该情绪的标准关键词在原文里出现的次数（出现一次 ≥1）；
+ *  同分时**谁先被说起谁更重**（first = 该情绪任一关键词在原文首次出现的下标）——
+ *  「这几天真的难过，只有一点高兴」应是「难过」占主，而不是「高兴」极性更强(85>70)就抢走。
+ *  再平才比 |polarity|，最后字序兜底（保证同输入可复现，不靠数组顺序）。
+ *  返回降序数组，供 pickActionVariant 逐情绪取第一条命中的组。 */
+export function emotionWeights(emotions, text = '') {
+  const t = String(text || '');
+  const emo = (Array.isArray(emotions) ? emotions : []).filter((e) => typeof e === 'string' && e);
+  const uniq = emo.filter((e, i) => emo.indexOf(e) === i);
+  const scored = uniq.map((e) => {
+    const kws = TIMELINE_EMOTION_KEYWORDS[e] || [e];
+    let w = 0;
+    let first = -1;
+    for (const k of kws) {
+      let i = t.indexOf(k);
+      while (i >= 0 && w < 9) {
+        w += 1;
+        if (first < 0 || i < first) first = i;
+        i = t.indexOf(k, i + k.length);
+      }
+    }
+    return { emotion: e, weight: w, first, magnitude: Math.abs(EMOTION_POLARITY[e] || 0) };
+  });
+  scored.sort((a, b) => (b.weight - a.weight) || (a.first - b.first) || (b.magnitude - a.magnitude) || (a.emotion < b.emotion ? -1 : 1));
+  return scored;
+}
 /** 情绪倾向 → 卡片主题色（紫 / 浅蓝 / 暖黄 / 灰）。高危恒灰 —— 灰是唯一「不安抚、只陪着」的颜色 */
 export function cardThemeFor(score, isHighRisk) {
   const s = Number(score) || 0;
@@ -1044,10 +1274,50 @@ export const COPY = {
    * 所以第 1、2 段必须说清「什么时候传、传完删不删」，不能拿好听话糊过去。 */
   privacyFull: {
     title: '隐私说明',
-    data_store: '你的情绪记录优先保存在本地设备（IndexedDB），不经云端。只有在你主动点击「按住说」时，语音才会临时传送到服务端进行文字转写。',
-    audio: '语音转写完成后，音频不会被留下。我们不用你的声音训练模型，也不拿它做商业分析、画用户画像。',
-    memory: '墨小溟只记你授权的少量内容，用来延续下一次对话；你可以在「记忆」里逐条查看、编辑，也可以一键清空，开关始终在你手里。',
-    crisis: '如果识别到自伤、自杀等极端风险，系统会弹出安全提示并提供心理援助热线，但不会将你的数据泄露给任何第三方。若涉及紧急生命危险，请优先拨打 120 或 110。',
+    updated: '更新日期：2026-10-01',
+    sections: [
+      {
+        k: 'own',
+        h: '1. 你的情绪记录归属于你',
+        t: '墨小溟默认本地优先：你写下的倾诉、生成的情绪卡片，先存在你自己设备的浏览器存储里，不设账号。但想让你得到回应，你写下的文字会临时走一次云端生成，你说的声音会临时送到服务端转成文字——这一步做不到「完全不出本机」，不想拿好听话糊过去。设置页第一项「允许把录音发给云端转写」就是那个开关：关掉后你说话不再上传任何一段音频，改用手机自带的语音识别或打字，声音就不会离开这台设备。',
+      },
+      {
+        k: 'collect',
+        h: '2. 我们收集哪些信息',
+        t: '存在这台设备上的：倾诉文字、情绪标签、卡片与时间线、你手动留下的记忆。临时经过云端的：你说的话（转成文字）和你写下的内容（生成回应与卡片）。我们不收的：手机号、实名信息，你可以匿名使用；也不会读取你的剪贴板、相册、通讯录。',
+      },
+      {
+        k: 'use',
+        h: '3. 数据用来做什么',
+        t: '只用来做三件事：生成情绪卡片和情绪时间线、陪你把这一轮说完、必要时提醒你去求助专业帮助。不会拿你的记录做广告推送，也不会卖给任何第三方；云端那几步走的是带鉴权的通道。',
+      },
+      {
+        k: 'rights',
+        h: '4. 你可以怎么支配这些数据',
+        t: '✅ 随时翻回所有记录　✅ 单条删除　✅ 一键清空全部情绪档案　✅ 关掉语音云端转写、关掉记忆　✅ 清除本地缓存。删了就回不来，但删不删这件事在你手里，不用向我们申请。',
+      },
+      {
+        k: 'protect',
+        h: '5. 安全方面做了什么',
+        t: '你的档案默认只躺在你自己的设备里，不进我们的日常数据库；云端那几步调用同样走带鉴权的通道，不是敞着门的。我们不用你的声音和文字去训练模型，也不给用户画画像。',
+      },
+      {
+        k: 'notice',
+        h: '6. 重要声明',
+        t: '墨小溟不是心理咨询师，不做诊断。保护隐私只保护你的数据，不等于能替代专业帮助。如果你正处在很重的痛苦里，或者想到了伤害自己，请先联系身边信任的人，或拨打全国24小时心理危机咨询热线 400-161-9995。',
+      },
+      {
+        k: 'contact',
+        h: '7. 有事怎么找到我们',
+        t: '这份说明跟着 App 版本走，改了会在上面更新日期里体现。如果它哪里写得和你实际看到的对不上，点下面的链接说一声——说错了就改，这份说明也得跟代码一致。',
+      },
+    ],
+    /* 真实可达的反馈通道（文档 §7 说「App 内帮助通道」，但 App 里没有这个入口，
+       ⇒ 不写承诺不存在的入口；用公开仓库 issues，用户点得到、我们收得到。 */
+    link: {
+      label: 'GitHub · 提一句你的疑问',
+      href: 'https://github.com/Dukekang0124/xiaoting-app/issues',
+    },
   },
   opening: '你可以慢慢讲，我在这里听着。',
   onboardingDone: '你好，我是墨小溟，想说说此刻的心情吗？',
@@ -1178,7 +1448,41 @@ export const COPY = {
       },
     },
   },
+  // ── 月度情绪复盘（文档 §追加模块3）─────────────────────────────────────
+  // 触发：每月 1 号凌晨自动生成一次 + 手动按钮「生成本月情绪复盘」。
+  // 🔴 硬约束：当月记录 < minRecords 条**不自动生成**，走 insufficient 提示。
+  // 🔴 全部字段**本机生成**，不交给模型 —— 卡片日期/统计都是模型编过的地方
+  //    （曾返回 2025-07-09 这种合法但假的日期），月度总结同理，宁可规则引擎。
+  monthly: {
+    trigger: { day: 1, auto: true, minRecords: 3 },
+    cardTheme: 'month-purple',
+    timelineGroup: '月度复盘',
+    // 5 套场景：起伏大 / 低落委屈疲惫 / 烦躁愤怒压抑 / 正向居多 / 整体平淡
+    // · emotionTrendDesc ≤ 45 字　· insightText ≤ 40 字
+    // · monthlyTip 可为「」（可选空：该说的话不说，强塞才是噪音）
+    // · ipBubbleText：IP 那句气泡话，不是卡片正文
+    scenarios: {
+      swing:    { emotionTrendDesc: '', insightText: '', monthlyTip: '', ipBubbleText: '' },
+      low:      { emotionTrendDesc: '', insightText: '', monthlyTip: '', ipBubbleText: '' },
+      angry:    { emotionTrendDesc: '', insightText: '', monthlyTip: '', ipBubbleText: '' },
+      positive: { emotionTrendDesc: '', insightText: '', monthlyTip: '', ipBubbleText: '' },
+      flat:     { emotionTrendDesc: '', insightText: '', monthlyTip: '', ipBubbleText: '' },
+    },
+    // 交互文案（逐字 SSOT）
+    ui: {
+      autoTitle: '你的月度情绪复盘已生成✨',
+      autoPrimary: '查看复盘',
+      autoSecondary: '稍后再看',
+      manualLabel: '生成本月情绪复盘',
+      manualHint: '汇总你本月所有心情记录，生成一张月度总结卡片',
+      insTitle: '暂时无法生成月度复盘',
+      insBody: '记录还不够多，再多记录一些心情，再来生成月度复盘',
+      insBtn: '知道了',
+    },
+  },
 };
+
+export { pickBy };
 
 /** 主情绪 → 分情绪场景回应短句（§4.5）。未知/兜底走 fallback。 */
 export function pickEmotionResponse(primary) {
@@ -1273,5 +1577,3 @@ export function scrubForbidden(text) {
   for (const [k, v] of Object.entries(repl)) out = out.split(k).join(v);
   return out;
 }
-
-export { pickBy };

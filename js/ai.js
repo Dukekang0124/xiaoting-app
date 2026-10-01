@@ -3,7 +3,7 @@
 
 import {
   scrubForbidden, CARD_LIB, CARD_LAYER, TIMELINE_EMOTION_KEYWORDS, TIMELINE_EMOTIONS,
-  emotionScoreFor, cardThemeFor,
+  emotionScoreFor, cardThemeFor, emotionWeights,
 } from './prompts.js';
 
 /* ==================== 词典 ==================== */
@@ -499,15 +499,37 @@ function actionHash(str) {
 /** 仅兜底池轮换用的内部计数（命中情绪组时不推进，见下方注释） */
 let neutralTick = 0;
 
-export function pickActionVariant(emotion = [], transcript = '', { seed = null } = {}) {
+export function pickActionVariant(emotion = [], transcript = '', { seed = null, highRisk = false } = {}) {
   const emo = Array.isArray(emotion) ? emotion : [];
   const t = String(transcript || '');
+  // 🔴 文档 §追加模块1 规则③：高危场景 actionTip **直接禁用**，一条行动都不给。
+  //    以前是无条件给一条（连「把最沉重的一句话写下来」都往外挂），而高危卡已经灰了、
+  //    危机弹窗也弹了 —— 卡上再推行动自相矛盾（v1.6.2 修）。
+  if (highRisk) return { title: '', step: '', note: '', disabled: true };
   const variants = (CARD_LIB.action && CARD_LIB.action.variants) || [];
   const hit = variants.filter((v) => {
     const m = Array.isArray(v.match) ? v.match : [];
     if (!m.length) return false; // neutral 兜底只在「全没命中」时启用
     return emo.some((e) => m.includes(e)) || m.some((x) => t.includes(x));
   });
+  /* ---- v1.6.2 文档 §追加模块1：docSet（逐字 24 条）优先，且按**权重最高的情绪**取组 ---- */
+  const docSet = (CARD_LIB.action && CARD_LIB.action.docSet) || [];
+  // 只要原库能命中候选，就由 docSet 优先接管；原库没命中时这里自然走空，落到下面原有兜底
+  if (docSet.length && hit.length) {
+    // 规则①单张卡只选 1 条；规则②混合情绪取权重最高的那个情绪所在的组
+    for (const { emotion } of emotionWeights(emo, t)) {
+      const group = docSet
+        .filter((v) => (Array.isArray(v.match) ? v.match : []).includes(emotion))
+        .sort((a, b) => (a.rank || 0) - (b.rank || 0));
+      if (group.length) {
+        const h = Number.isFinite(seed)
+          ? seed >>> 0
+          : actionHash("doc|" + emotion + "|" + t.slice(0, 96));
+        return group[h % group.length];
+      }
+    }
+  }
+
   const pool = hit.length ? hit : variants.filter((v) => v.neutral);
   const list = pool.length ? pool : [ACTION_FALLBACK];
   if (list.length === 1) return list[0];
@@ -671,7 +693,10 @@ export function withTimelineMeta(tl) {
     ...base,
     timeline_list: buildTimelineList(tl.nodes),
     summary_text: summary,
-    action_tip: (actionHint.step) || TL_ACTION_DEFAULT,
+    // 🔴 高危一律空串，**不回落 TL_ACTION_DEFAULT** —— 回落等于「禁用了个寂寞」：
+    //    灰卡 + 危机弹窗上又挂一句行动提示，跟弹窗自相矛盾；
+    //    规则④「无合适行动填空字符串」同理：宁可空着，也不拿文案糊。
+    action_tip: (actionHint && actionHint.step) || '',
   };
 }
 
@@ -768,12 +793,12 @@ export function buildTimeline(conversation = []) {
 
   // 微小停靠提示：复用【微小行动卡】库，按最后一节点的情绪挑最低门槛那一档
   const last = nodes[nodes.length - 1];
-  const hint = pickActionVariant(last.emotions, last.text);
-  const actionHint = {
-    title: (hint && hint.title) || '给情绪一个空间',
-    step: (hint && hint.step) || '把此刻心里最沉重的一句话，直接打字留在这。不用修饰，写完就可以。',
-    note: (hint && hint.note) || '写下来，不一定要立刻解决它。',
-  };
+  // 🔴 文档规则③：整卡高危（cardRisk 与危机弹窗同源）⇒ 这一条不生成行动提示
+  const hint = pickActionVariant(last.emotions, last.text, { highRisk: !!cardRisk });
+  const safe = !!hint && !hint.disabled;
+  const actionHint = safe
+    ? { title: hint.title || '', step: hint.step || '', note: hint.note || '' }
+    : { title: '', step: '', note: '' };
 
   // 整卡三个 UI 字段：倾向值取「最后一个有情绪的节点」（倾诉总以最后那句的情绪定调），
   // 高危取「任一节点高危」（漏判高危的代价远大于误标）

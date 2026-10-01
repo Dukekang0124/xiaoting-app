@@ -31,9 +31,24 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 
 const ROOT = __dirname;
+// 清单→JS 生成器：与 scripts/build-web.mjs 共用同一份实现（唯一真相源 server/version.json）。
+const { buildManifestJs } = require('./scripts/version-manifest-js.cjs');
+async function ensureManifestJs(abs) {
+  try {
+    const raw = await fsp.readFile(path.join(ROOT, 'server', 'version.json'), 'utf8');
+    const obj = JSON.parse(raw);
+    await fsp.mkdir(path.dirname(abs), { recursive: true });
+    await fsp.writeFile(abs, buildManifestJs(obj), 'utf8');
+    return true;
+  } catch (e) {
+    console.error('[moxiaoming][manifest-js-fail]', e && e.message);
+    return false;
+  }
+}
+
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
-const VERSION = '1.6.1';
+const VERSION = '1.6.2';
 
 /* ==================== 静态资源白名单 ==================== */
 
@@ -43,6 +58,11 @@ const PUBLIC_FILES = new Set([
   // 理由见 js/update.js 顶部——APK 里读不到后端时就靠它。本地放行它，是为了让
   // "走静态清单"这条分支在自测里能真跑（否则本地行为与线上不一致，等于没测）。
   '/version.json',
+  // '/version-latest.js'（v1.6.2）：清单的**脚本形态**（window.__VERSION_MANIFEST__ = {...}）。
+  // APK 里取清单是跨域（页面在 https://localhost，清单在托管域），而线上网关对 /version.json
+  // 不返回 Access-Control-Allow-Origin ⇒ fetch 被 CORS 拒 ⇒ 更新弹窗一次都不弹。
+  // 经典 <script src> 不受 CORS 读限制，这条才是 APK 真能走通的路。
+  '/version-latest.js',
 ]);
 // '/vendor/'（v1.1.3）：云服务 SDK 的随包副本。之前只有 /js/ /icons/ /assets/，
 // 加了 vendor/ 却忘了开白名单 ⇒ 本地副本 404 ⇒ SDK 静默回退 CDN ⇒ 一旦外网不可达整条 AI 链路降级。
@@ -68,7 +88,7 @@ const MIME = {
 };
 
 /** 把 URL pathname 解析成磁盘绝对路径；不在白名单内一律返回 null（404）。 */
-function resolvePublic(pathname) {
+async function resolvePublic(pathname) {
   let p;
   try { p = decodeURIComponent(pathname); } catch (e) { return null; }
   if (pathname === '/' || p === '/') p = '/index.html';
@@ -78,6 +98,14 @@ function resolvePublic(pathname) {
   // 这里直接映到单一真相源 server/version.json —— 不复制副本，本地与线上行为因此完全一致，
   // 「走静态清单」这条分支才可能在自测里被真跑（否则本地 404、线上 200，等于没测）。
   if (p === '/version.json') return path.join(ROOT, 'server', 'version.json');
+  if (p === '/version-latest.js') {
+    const absJs = path.join(ROOT, 'www', 'version-latest.js');
+    // 本地没跑过 build:web 时不能让它 404 —— 那会让"脚本通道"这条分支在自测里永远失败，
+    // 而失败会被静默吞掉（回落硬编码）⇒ 又是一次看得见摸不着的假绿。这里直接从 SSOT 生成。
+    try { await fsp.access(absJs); }
+    catch (e) { if (!(await ensureManifestJs(absJs))) return null; }
+    return absJs;
+  }
   // '/apk/'（v1.1.5）：安装包。线上是构建产物 www/apk/，这里直接映射过去，
   // 让「点立即更新能不能真下到包」在本地自测里可被真跑。
   // 🔴 之前漏了这条：线上清单里 download_url 指向 /apk/xxx.apk，而本地一律 404 ——
@@ -97,7 +125,7 @@ function resolvePublic(pathname) {
 }
 
 async function serveStatic(req, res, pathname) {
-  const abs = resolvePublic(pathname);
+  const abs = await resolvePublic(pathname);
   if (!abs) return sendText(res, 404, 'not found');
   let st;
   try { st = await fsp.stat(abs); } catch (e) { return sendText(res, 404, 'not found'); }

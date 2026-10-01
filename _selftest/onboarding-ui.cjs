@@ -123,15 +123,34 @@ const overlayOn = (page) => page.$$eval('.welcome-overlay', (n) => n.length > 0)
     await page.waitForSelector('.privacy-box', { timeout: 6000 }).catch(() => {});
     const keys = await page.$$eval('[data-privacy]', (n) => n.map((e) => e.getAttribute('data-privacy'))).catch(() => []);
     ok('C① 设置页出现隐私说明区块', (await page.$('.privacy-box')) !== null);
-    ok('C② 四段齐全（存储/音频/记忆/危机）',
-      ['data_store', 'audio', 'memory', 'crisis'].every((k) => keys.includes(k)), keys.join(','));
-    const lens = await page.$$eval('[data-privacy]', (n) => n.map((e) => (e.textContent || '').trim().length)).catch(() => []);
-    ok('C③ 每段都非空长（不是补个标题就完事）', lens.length >= 4 && lens.every((l) => l >= 40), lens.join('/'));
+    ok('C② 七段齐全（归属/收集/用途/权利/安全/声明/联系）',
+      ['own', 'collect', 'use', 'rights', 'protect', 'notice', 'contact'].every((k) => keys.includes(k)), keys.join(','));
+    // 🔴 判「段非空长」要**只看正文段**：`updated` 那条是「更新日期：2026-10-01」的说明行
+    //    （DOM 上也是 data-privacy，但只有 15 字），拿它凑数会让「补个标题就完事」蒙混过关，
+    //    也会把正常的日期行误判成缺陷。
+    const lens = await page.$$eval('[data-privacy]', (n) => n
+      .filter((e) => e.getAttribute('data-privacy') !== 'updated')
+      .map((e) => (e.textContent || '').trim().length)).catch(() => []);
+    ok('C③ 七段正文都非空长（不是补个标题就完事）', lens.length === 7 && lens.every((l) => l >= 40), lens.join('/'));
     const txt = await page.$eval('.privacy-box', (el) => el.innerText || '').catch(() => '');
     ok('C④ 说清数据存本机（不骗人「我们不存储」）', /本机|本地|设备/.test(txt));
     ok('C⑤ 说清音频用途边界（转写/不用于训练）', /训练|商业|分析/.test(txt));
     ok('C⑥ 说清记忆控制权（可查看/编辑/清空）', /清空|查看|删除/.test(txt));
-    ok('C⑦ 危机段给了紧急电话（120/110）', /120|110/.test(txt));
+    ok('C⑦ 危机段给了心理援助热线', /400-161-9995|120|110/.test(txt));
+    // 🔴 v1.6.2：隐私说明里**不许出现兑现不了的承诺**（云备份/开发团队也读不到/完全不出本机）。
+    // 宁可空着，也不拿假承诺糊 —— 假承诺被戳穿一次，比没有隐私说明更伤。
+    // 🔴 v1.6.2 修正（doc-closure ㉓ 同款）：「完全不出本机」被**主动否定**时是诚实声明
+    //    （「这一步做不到「完全不出本机」，不想拿好听话糊过去」），朴素子串否定会把这句
+    //    也判红 ⇒ 假红。要禁的是「把它当正面承诺」：出现次数 - 否定式次数必须 = 0。
+    const forbidden = /云备份|开发团队|不会自动上传|不经(过)?云端/;
+    const total = (txt.match(/完全不出本机/g) || []).length;
+    const negated = (txt.match(/(做不到|不是|并不|并非|谈不上|没那么|不等于)[^。；\n]{0,12}完全不出本机/g) || []).length;
+    const promise = (txt.match(forbidden) || []).length + (total - negated);
+    ok('C⑧ 承诺点与代码事实一致（无云备份/开发团队也读不到/「完全不出本机」不作正面承诺）',
+      promise === 0,
+      promise ? (txt.match(forbidden) || ['完全不出本机 当正面承诺 x' + (total - negated)])[0] : `否定式 ${negated}/${total} 次`);
+    const href = await page.$eval('.privacy__link', (a) => (a && a.getAttribute('href')) || '').catch(() => '');
+    ok('C⑨ 「联系我们」是真实可达的地址（不是 App 里不存在的帮助通道）', /^https?:\/\//.test(href), href || '无链接');
     await shot(page, '06-settings-privacy.png');
     await ctx.close();
   }

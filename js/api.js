@@ -14,7 +14,7 @@
 
 import {
   safetyCheck, analyzeMain, nextFollowup, generateCard, weeklyReport, validateShape,
-  buildScenarioCard, selectCardType, pickActionVariant, buildTimeline, detectTimelineEmotions,
+  buildScenarioCard, selectCardType, pickActionVariant, buildTimeline, detectTimelineEmotions, isHighRiskText,
   withTimelineMeta, descForNode,
 } from './ai.js';
 import { callJson, isStructural, debug as llmDebug, stats as llmStats } from './llm.js';
@@ -264,7 +264,7 @@ export function normalizeCard(raw, analysis, followup, extra, transcript = '') {
   let actionStep = '';
   let actionNote = '';
   if (cardType === 'action') {
-    const variant = pickActionVariant(rule.emotion, sceneText);
+    const variant = pickActionVariant(rule.emotion, sceneText, { highRisk: isHighRiskText(sceneText) });
     title = variant.title;
     actionTitle = variant.title;
     actionStep = variant.step;

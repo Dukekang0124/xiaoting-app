@@ -23,6 +23,7 @@ import {
 import { AI, ASR, isNativeApp } from './config.js';
 import * as memory from './memory.js';
 import * as notify from './notify.js'; // v1.4.1 轻提醒（修复「允许轻提醒」死开关）
+import * as monthly from './monthly.js'; // v1.6.2 月度情绪复盘（文档 §追加模块3）
 
 const $view = () => document.getElementById('view');
 const $tabbar = () => document.getElementById('tabbar');
@@ -1419,7 +1420,9 @@ function timelineBody(tl) {
     const nRisk = !!it.is_high_risk;
     const nTheme = it.card_theme || cardThemeFor(nScore, nRisk);
     return `<div class="tl-node tl-node--${nTheme}${nRisk ? ' tl-node--risk' : ''}">
-      <div class="tl-node__no">第 ${no} 段</div>
+      // node_label：可选。月度复盘卡复用时间线结构，但它的节点是「高频情绪」不是「倾诉分段」，
+      // 不给标签就会一律渲染成「第 1 段」，读起来像月度总结在分段。
+      ${(it.node_label != null && it.node_label !== '') ? `<div class="tl-node__no">${esc(String(it.node_label))}</div>` : `<div class="tl-node__no">第 ${no} 段</div>`}
       <div class="tl-node__emo${dual ? ' tl-node__emo--dual' : ''}">${esc(emo)}</div>
       <div class="tl-node__cap">${esc(desc)}${tail}</div>
     </div>`;
@@ -1485,6 +1488,130 @@ function pageTimeline(p) {
   </section>`;
 }
 
+/* ==================== 月度情绪复盘（文档 §追加模块3）====================
+ * 两个入口：①每月 1 号启动自动生成并弹窗；②设置页「生成本月情绪复盘」手动触发。
+ * 🔴 硬约束：当月记录 < 3 条**不生成**，只给一句「记录还不够多」—— 不硬凑、不假称。
+ * 🔴 已弹过的月份写进 localStorage（monthly:done），否则 1 号一天能弹八次。
+ */
+const MONTHLY_DONE_KEY = 'monthly:done';
+const monthlyDone = (ym) => { try { return !!localStorage.getItem(MONTHLY_DONE_KEY + '_' + ym); } catch (e) { return false; } };
+const monthlyMark = (ym) => { try { localStorage.setItem(MONTHLY_DONE_KEY + '_' + ym, String(Date.now())); } catch (e) {} };
+
+/** 通用小弹窗（不是 confirm：复盘是「送给你看的东西」，不该长得像二次确认） */
+function showMonthlyModal(opt) {
+  const o = opt || {};
+  const btns = (o.buttons || []).map(function (b, i) {
+    return '<button class="' + (b.cls || 'ghost') + '" type="button" data-mi="' + i + '">' + esc(b.text) + '</button>';
+  }).join('');
+  const overlay = document.createElement('div');
+  overlay.className = 'monthly-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.innerHTML =
+    `<div class="monthly-card">` +
+      `<div class="monthly-card__ip">${mascot(o.mood || 'empathy', 78)}</div>` +
+      `<div class="monthly-card__title">${esc(o.title || '')}</div>` +
+      `<div class="monthly-card__body">${o.body || ''}</div>` +
+      `<div class="monthly-card__btns">${btns}</div>` +
+    `</div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelectorAll('[data-mi]').forEach((el) => {
+    el.addEventListener('click', () => {
+      const b = (o.buttons || [])[Number(el.getAttribute('data-mi'))] || {};
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      if (typeof b.act === 'function') b.act();
+    });
+  });
+  const first = overlay.querySelector('[data-mi]');
+  if (first) first.focus();
+  return overlay;
+}
+
+/** 复盘卡 → 可渲染的 timeline 结构（复用时间线 UI，只换主题与字段） */
+function monthlyCardView(rev) {
+  const list = (rev.top_emotion_tags || []).map((t, i) => ({
+    node_index: i + 1,
+    emotion_text: t,
+    desc_text: '',
+    node_label: '高频情绪 ' + (i + 1),
+  }));
+  return {
+    type: 'timeline',
+    id: rev.card_id,
+    saved_at: rev.create_time,
+    card_title: rev.target_month + ' 月度情绪复盘',
+    // 高频情绪交给节点显示（node_label），这里不重复一遍
+    card_subtitle: '这个月你一共说了 ' + rev.record_count + ' 次',
+    timeline_list: list,
+    nodes: [],
+    summary_text: rev.emotion_trend_desc || '',
+    footer_note: TIMELINE_DISCLAIMER,
+    emotion_trend_desc: rev.emotion_trend_desc || '',
+    insight_text: rev.insight_text || '',
+    monthly_tip: rev.monthly_tip || '',
+    timeline_group: rev.timeline_group,
+    is_high_risk: false,
+    card_theme: rev.card_theme,
+    actionHint: { title: '', step: '', note: '' },
+  };
+}
+
+/** 生成并保存本月复盘；不足 minRecords 条时走「记录还不够多」提示 */
+function generateMonthlyReview(opt) {
+  const o = opt || {};
+  const now = o.now || new Date();
+  const ym = monthly.monthKey(now);
+  const MC = COPY.monthly || {};
+  const UI = MC.ui || {};
+  const min = Number(MC.trigger && MC.trigger.minRecords) || 3;
+  if (monthly.monthRecords(store.getState().timelines, ym).length < min) {
+    if (!o.silent) {
+      showMonthlyModal({
+        title: UI.insTitle || '暂时无法生成月度复盘',
+        body: '<p>' + esc(UI.insBody || '记录还不够多，再多记录一些心情，再来生成月度复盘') + '</p>',
+        buttons: [{ text: UI.insBtn || '知道了', cls: 'primary small' }],
+      });
+    }
+    return null;
+  }
+  if (monthlyDone(ym) && !o.force) return null; // 本月已经弹过（自动入口不该重复打扰）
+  const rev = monthly.buildMonthlyReview(store.getState().timelines, { now });
+  if (!rev) return null;
+  const view = monthlyCardView(rev);
+  const saved = store.addTimeline(view);
+  // 🔴 addTimeline 会把 id 盖成时间戳；复盘卡要用业务 id（emo_month_202610），
+  //    否则回看时按 id 找得到、导出与去重却对不上号。
+  saved.id = rev.card_id;
+  store.setState({ timeline: saved, route: '#/timeline' });
+  const openIt = () => { try { go('#/timeline'); } catch (e) {} };
+  showMonthlyModal({
+    title: UI.autoTitle || '你的月度情绪复盘已生成✨',
+    body: '<p>' + esc(rev.target_month) + '　记录 ' + rev.record_count + ' 条</p>' +
+      (rev.insight_text ? '<p class="monthly-card__insight">' + esc(rev.insight_text) + '</p>' : ''),
+    buttons: [
+      { text: UI.autoSecondary || '稍后再看', cls: 'ghost', act: null },
+      { text: UI.autoPrimary || '查看复盘', cls: 'primary small', act: openIt },
+    ],
+  });
+  monthlyMark(ym);
+  return rev;
+}
+
+/** 每月 1 号启动：自动生成一次复盘并弹窗（不是每天弹） */
+function autoMonthlyReview() {
+  try {
+    if (!monthly.shouldAutoReview(new Date())) return;
+    const ym = monthly.monthKey(new Date());
+    if (monthlyDone(ym)) return;
+    generateMonthlyReview({ force: true });
+  } catch (e) { /* 复盘是锦上添花，任何异常都不许拖住启动 */ }
+}
+
+function bindMonthly() {
+  const btn = document.getElementById('setMonthly');
+  if (!btn) return;
+  btn.addEventListener('click', () => { generateMonthlyReview({ force: true }); });
+}
 function bindTimeline(p) {
   const tl0 = currentTimeline(p);
 
@@ -2008,6 +2135,11 @@ function pageSettings() {
       <p class="set-sub">独立开关。开启后，情绪变化、接收与高危时会有极轻的水墨 / 气泡合成音（默认关闭，需手动开启；不依赖任何音频素材文件）。</p>
     </div>
     <div class="set-block">
+      <div class="set-title">月度情绪复盘</div>
+      <p class="set-sub">每个月 1 号会自动为你汇总上个月的心情记录，生成一张月度复盘卡。现在也可以自己看一眼本月。</p>
+      <button class="primary small" id="setMonthly" type="button">生成本月情绪复盘</button>
+    </div>
+    <div class="set-block">
       <div class="set-title">数据安全</div>
       <p class="set-sub">录音只用于这一次转写：音频会发到墨小溟自己的服务端，由专业云端识别转成文字，转写完成后不做留存。转写出的文字会经加密通道发送给大模型（第三方 AI 服务）进行处理，用于生成这一次的分析、追问与卡片。墨小溟不做账号与身份绑定，不要求你提供姓名、手机号或地址。卡片、草稿与设置只存在本机浏览器，可随时一键删除。</p>
     </div>
@@ -2027,13 +2159,26 @@ function pageSettings() {
     </div>
     <div class="privacy-box">
       <div class="privacy__title">${esc((COPY.privacyFull || {}).title || '隐私说明')}</div>
-      ${['data_store', 'audio', 'memory', 'crisis'].map((k) => {
-        const t = (COPY.privacyFull || {})[k];
-        return t ? `<p class="privacy__line" data-privacy="${k}">${esc(t)}</p>` : '';
+      <p class="privacy__line privacy__meta" data-privacy="updated">${esc((COPY.privacyFull || {}).updated || '')}</p>
+      ${((COPY.privacyFull || {}).sections || []).map((s) => {
+        if (!s || !s.t) return '';
+        return `<div class="privacy__sec" data-privacy="${esc(s.k || '')}">
+          <div class="privacy__h">${esc(s.h || '')}</div>
+          <p class="privacy__line">${esc(s.t)}</p>
+        </div>`;
       }).join('')}
+      ${(privacyLink((COPY.privacyFull || {}).link))}
     </div>
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.6.1')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.6.2')}</p>
   </section>`;
+}
+
+/* 隐私说明里的反馈入口：必须是**真实可达**的地址。
+ * 文档 §7 写的是「App 内帮助通道」，但 App 里没有这个入口 —— 写进去就是个空头承诺，
+ * 对隐私说明来说，空头入口比不留入口更伤信任（同「死开关比没开关更糟」）。 */
+function privacyLink(link) {
+  if (!link || !link.href) return '';
+  return `<a class="privacy__link" href="${esc(link.href)}" target="_blank" rel="noopener noreferrer">${esc(link.label || link.href)}</a>`;
 }
 
 function bindSettings() {
@@ -2041,6 +2186,8 @@ function bindSettings() {
   // 无论开关状态录音都不会被保存在任何地方。对一个主打"敢说真话"的产品，
   // 一个不起作用的隐私开关比没有开关更糟，所以这里换成真正生效的控制：
   // 关掉就不再上传录音（endCapture 会读这个设置）。
+  // v1.6.2 月度情绪复盘：设置页手动入口（挂在 bindSettings，和其余设置开关一起绑）
+  try { bindMonthly(); } catch (e) { /* 复盘按钮挂了不该连累其他设置项 */ }
   const cb = document.getElementById('setCloudAsr');
   if (cb) cb.addEventListener('change', () => store.setSetting('cloudAsr', cb.checked));
   const mem = document.getElementById('setMemory');
@@ -2187,7 +2334,7 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.6.1')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.6.2')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -2196,7 +2343,7 @@ function pageChangelog() {
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.6.1')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.6.2')}</p>
   </section>`;
 }
 
@@ -3462,6 +3609,8 @@ export function boot() {
   // ① 把「这次到底能不能用语音」提前问清楚，而不是等用户说了半天才发现不行；
   // ② 服务端会顺手预热百度 access_token，让第一次识别少一次取 token 的往返（约 0.3-0.8s）。
   asr.probeCloud().catch(() => {});
+  // v1.6.2 月度情绪复盘：每月 1 号自动生成一次（1 号已过不再补弹，由手动入口兜住）
+  autoMonthlyReview();
   // v0.7.0：启动版本检测（打开 App 第一时间知道有新版）+ 回到前台再检测一次
   update.initUpdate();
   // v1.1.10：全局硬件返回键（物理键 + 系统侧滑手势）+ 离线浮条
@@ -3483,4 +3632,5 @@ export function boot() {
 
 // 供自测与调试使用
 export const __test__ = { findForbidden, COPY, api, asr, rec, CAP, store, extractPartialSummary,
-  handleHardwareBack, gentleConfirm, updateOfflineBar, BACK_PARENT, _isBusy, _parentOf, initSwipeBack, ipSM, render, currentIpDesc: () => currentIpDesc };
+  handleHardwareBack, gentleConfirm, updateOfflineBar, BACK_PARENT, _isBusy, _parentOf, initSwipeBack, ipSM, render, currentIpDesc: () => currentIpDesc,
+  monthly, generateMonthlyReview, monthlyCardView, showMonthlyModal, autoMonthlyReview };

@@ -4,6 +4,14 @@
 import { cp, mkdir, rm, readdir, readFile, writeFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+
+// 清单→JS 的发生器与本地自测服务共用同一个（scripts/version-manifest-js.cjs）：
+// 两处各拼一份迟早会漂移，而"脚本清单与 version.json 不是同一份"正是最难的静默失效。
+// 注意：createRequire(import.meta.url) 的相对路径是**相对本文件所在目录**，
+// 这里本文件就在 scripts/ 下 ⇒ 写 './scripts/...' 会解析成 scripts/scripts/... 并 MODULE_NOT_FOUND。
+const { buildManifestJs } = createRequire(import.meta.url)('./version-manifest-js.cjs');
+
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const src = path.join(root, '..'); // 墨小溟App/
@@ -70,6 +78,12 @@ try {
   if (!manifest.latest_version) throw new Error('latest_version 缺失');
   await writeFile(path.join(out, 'version.json'), JSON.stringify(manifest, null, 2) + '\n');
   console.log(`[build:web] ✓ www/version.json（latest_version=${manifest.latest_version}）`);
+  // 脚本清单通道：跨域场景（APK 里读 /version.json 会被 CORS 拦）唯一能通的路。
+  // 见 scripts/version-manifest-js.cjs 顶部的真机取证说明。
+  const manifestJs = buildManifestJs(manifest);
+  await writeFile(path.join(out, 'version-latest.js'), manifestJs);
+  console.log(`[build:web] ✓ www/version-latest.js（脚本清单通道，${manifestJs.length} 字节）`);
+
 } catch (e) {
   console.error('[build:web] ✗ 无法生成 www/version.json：' + (e && e.message));
   console.error('   → 更新检测会静默失效（用户永远看不到「有新版本」）。先修 server/version.json。');

@@ -38,11 +38,11 @@ const SNOOZE_KEY = 'xiaoting:update_snooze_day'; // 当天"稍后再说"过的�
  * 🔴 与 APP_VERSION 必须同步：自测里有一条断言卡死这条（两者必须相等），
  *   否则「发版忘改常量」又会变成下一个静默故障。
  */
-export const LATEST_VERSION = '1.6.1';
+export const LATEST_VERSION = '1.6.2';
 
 /** 兜底安装包地址：必须是**版本化文件名**，不能用 xiaoting-latest.apk 别名
  *  （别名指向"站点上最新的那一版"，站点没发布时它反而是旧版 ⇒ 会让人装回旧包）。 */
-const FALLBACK_APK_URL = 'https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.1-release.apk';
+const FALLBACK_APK_URL = 'https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.2-release.apk';
 
 /**
  * 版本清单的两个候选路径，按顺序试（v1.1.4 修）。
@@ -59,6 +59,25 @@ const FALLBACK_APK_URL = 'https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.
  *   顺序是有意的：有后端时优先用后端（以后端为准），没后端就落到静态清单。
  */
 const LATEST_PATHS = ['/api/version/latest', '/version.json'];
+
+/** 清单的**脚本形态**（v1.6.2）：同一份清单再发一份 `window.__VERSION_MANIFEST__ = {...}`。
+ *
+ * 🔴 这条通道是被真机截图逼出来的，不是"顺手多加一个候选"：
+ *   APK 里页面跑在 Capacitor 的 `https://localhost`，取清单只能拼成跨域绝对地址
+ *   `https://xiaoting.app.workbuddy.host/version.json`。实测线上该响应的头：
+ *     HTTP/1.1 200 + Content-Type: application/json
+ *   ——**没有 Access-Control-Allow-Origin**（带 Origin 头复测过，两次都如此）。
+ *   于是浏览器把 fetch 判成 CORS 失败 ⇒ 两个 JSON 候选（/api/version/latest 恒 404、
+ *   /version.json 被 CORS 拒）全挂 ⇒ 落硬编码兜底 ⇒ `latest === LATEST_VERSION === APP_VERSION`
+ *   ⇒ `cmpVersion === 0` ⇒ `hasNew = false` ⇒ **更新弹窗一次都不会弹**。
+ *   用户截图里那句「暂时没连上更新服务，按本地记录你已是最新 v1.4.6」就是这条链路的输出。
+ *
+ *   `<script src>` 是经典脚本标签，从诞生起就允许跨源执行，不受 CORS 的"读回来"限制。
+ *   所以只要清单能以 JS 赋值脚本的形式发布，跨域读清单这条路就通了 ——
+ *   既不用求托管方给 ACAO，也不必为一次版本检测去换托管平台。
+ *   生成规则见 scripts/version-manifest-js.cjs（build-web.mjs 与 server.cjs 共用同一实现）。
+ */
+const SCRIPT_MANIFEST_PATH = '/version-latest.js';
 
 // v1.4.6 · 清单第三条路：Cloudflare Pages 域名（与站点**不同源、不同 CDN、不同缓存桶**）。
 // 背景（v1.4.4 真机截图实证）：发版后 workbuddy 网关的缓存收敛窗口可达小时级，
@@ -189,6 +208,47 @@ async function fetchJson(url) {
 }
 
 /**
+ * 用 <script src> 把一个地址当脚本加载（只取执行副作用，不读响应体）。
+ *
+ * 🔴 必须自己带超时 + 区分 onload/onerror：脚本标签不会因为目标 404 而 reject promise，
+ *    它只在网络层失败时触发 onerror，加载不成功时干脆什么都不发生。
+ *    没有兜底的话这条通道会一直挂着，把整个 fetchManifest 拖到超时。
+ *
+ * 🔴 加载前必须先把 `window.__VERSION_MANIFEST__` 清空：这个变量挂在 window 上，
+ *    上一次成功留下的值会一直留着 —— 不清空的话，"这次通道失败"会被读成"上一次那份旧清单"，
+ *    版本号变成旧的 ⇒ 弹窗又变成永远不弹，而且一个错都不报（最坏的静默失效）。
+ */
+function loadScript(url) {
+  return new Promise((resolve, reject) => {
+    const prev = (typeof window !== 'undefined') ? window.__VERSION_MANIFEST__ : undefined;
+    if (typeof window !== 'undefined') window.__VERSION_MANIFEST__ = null;
+    const s = document.createElement('script');
+    let settled = false;
+    const bust = url + (url.includes('?') ? '&' : '?') + 'cb=' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+    const timer = setTimeout(() => finish(new Error('script_timeout')), 6000);
+    function finish(err) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { if (s.parentNode) s.parentNode.removeChild(s); } catch (e) { /* ignore */ }
+      // 出错时把上一个值放回去，别污染别处对同一个变量的读取
+      if (err && typeof window !== 'undefined') window.__VERSION_MANIFEST__ = prev;
+      if (err) reject(err);
+      else resolve();
+    }
+    s.onload = () => finish(null);
+    s.onerror = () => finish(new Error('script_error'));
+    s.async = true;
+    s.src = bust;
+    try {
+      (document.head || document.documentElement).appendChild(s);
+    } catch (e) {
+      finish(new Error('script_inject_failed'));
+    }
+  });
+}
+
+/**
  * 依次试候选路径（v1.4.6 起改为**并行全拿、取版本号最大者**）。
  *
  * 🔴 为什么不能"第一个成功就返回"：旧缓存也是**合法结果**（200 + 合法 JSON，只是 latest 停在旧值）。
@@ -201,7 +261,21 @@ async function fetchManifest(paths) {
   const cands = [];
   if (LATEST_FALLBACK_ENABLED) cands.push({ label: 'pages.dev', url: LATEST_FALLBACK_ORIGIN + '/version.json' });
   for (const p of paths) cands.push({ label: p, url: /^https?:\/\//.test(p) ? p : apiBase() + p });
-  const settled = await Promise.allSettled(cands.map(async ({ label, url }) => {
+  // v1.6.2：跨域场景（APK）里 JSON 通道会被 CORS 拒，脚本通道是唯一能通的那个。
+  // 放同一批并行取，所以"取最大者"对它也一样成立。
+  cands.push({ label: 'version-latest.js', url: apiBase() + SCRIPT_MANIFEST_PATH, script: true });
+  const settled = await Promise.allSettled(cands.map(async ({ label, url, script }) => {
+    if (script) {
+      // 🔴 脚本通道是唯一"结果写在共享变量上"的候选：window.__VERSION_MANIFEST__ 是全局的、
+      //    三条通道并行跑，任何一个成功都会写它。所以只有它读这个变量，用完立刻清空。
+      await loadScript(url);
+      const data = (typeof window !== 'undefined') ? window.__VERSION_MANIFEST__ : null;
+      window.__VERSION_MANIFEST__ = null;
+      if (!data || typeof data !== 'object' || !(data.latest_version || data.history)) throw new Error('empty_script_manifest');
+      return { label, data };
+    }
+    // JSON 通道用**自己 fetchJson 解析出来的那份**，绝不改去读 window 变量 ——
+    // 否则并行时会被脚本通道的清单顶掉：实测踩过（更新历史里的 history 被顶成空 ⇒ 更新日志页 0 条）。
     const data = await fetchJson(url);
     if (!(data && typeof data === 'object' && (data.latest_version || data.history))) throw new Error('bad_shape');
     return { label, data };
@@ -566,6 +640,13 @@ export async function installApkInApp(url, version = '') {
     return { ok: true, size: bytes.byteLength };
   } catch (e) {
     const detail = String((e && e.message) || e);
+    // v1.6.2：APK 里下载安装包同样是跨域（页面在 https://localhost，包在托管域），
+    // 托管又不给 ACAO ⇒ fetch 必然 CORS 失败。这不是"安装器坏了"，
+    // 如实标成 cors_blocked，诊断报告和降级文案才有意义（降级走 location.href，仍然装得上）。
+    if (/failed to fetch|typeerror/i.test(detail) && absUrl(url) !== url) {
+      diag.note('update', 'installer_cors_blocked', { ok: false, detail: detail.slice(0, 160), url: String(url || '').slice(0, 120) });
+      return { ok: false, reason: 'cors_blocked', detail };
+    }
     diag.note('update', 'installer_failed', { ok: false, detail: detail.slice(0, 160) });
     return { ok: false, reason: 'installer_failed', detail };
   }
@@ -727,7 +808,12 @@ export function describeCheckResult(r) {
       // v1.4.6：兜底路径不再谎称「线上」。硬编码是打包时的常量，永远不可能是"未来的新版"，
       // 但它也**证明不了**当前没有新版 —— 必须把"这是本地判断"说出口，引导用户网络好时再查。
       if (r.source === 'hardcoded') {
-        return { ok: true, text: `暂时没连上更新服务，按本地记录你已是最新 v${cur}；网络正常时再点一次核对` };
+        // 🔴 v1.6.2：这句老文案把故障美化成了结论，必须改掉。
+        //   它写「按本地记录你已是最新 v1.4.6」，而那一刻线上已经是 1.6.1 ——
+        //   用户和排查的人都以为这话是服务器说的，Actual 是**本地常量**说了句"我不知道"，
+        //   被翻译成"你已经是最新"。硬编码兜底证明不了有新版，也证明不了没新版；
+        //   如实说「无法确认」，才对得起用户的信任。
+        return { ok: true, text: `暂时读不到更新服务，无法确认有没有新版本（当前 v${cur}）；联网后再点一次「检查更新」` };
       }
       return { ok: true, text: `已是最新版本 v${cur}（线上 v${latest || cur}）` };
     case 'shown':
