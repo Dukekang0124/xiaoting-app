@@ -513,7 +513,8 @@ export const api = {
     // v1.3.0 记忆地基：跨会话结构化记忆召回，注入主分析提示（受 memory_on 总开关控制）。
     let memoryContext = '';
     try {
-      const on = (store.getState().user.settings.memory_on) !== false;
+      // v1.6.19 P1-2：严格全等 —— 字段缺失按「关」处理（旧 `!== false` 会把"没有这个字段"误判成"用户同意了"）
+      const on = (store.getState().user.settings.memory_on) === true;
       if (on) {
         const units = await memory.loadMemory();
         const top = memory.recallTopN(units, { transcript, emotion: [], limit: 3 });

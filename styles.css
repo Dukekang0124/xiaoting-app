@@ -957,6 +957,11 @@ body.swiping #view{touch-action:none}
 /* v1.6.18：不带勾选框的说明条（没有对应长期开关的两条：别说教是默认 / 安静模式怎么进） */
 .welcome-note{position:relative;margin:8px 0 0;padding:0 0 0 14px;font-size:12px;line-height:1.6;color:var(--ink-soft,var(--ink));opacity:.82}
 .welcome-note::before{content:"";position:absolute;left:2px;top:7px;width:5px;height:5px;border-radius:50%;background:var(--primary);opacity:.6}
+/* v1.6.19 P2-2：引导第 3 屏底部的安全边界小字（⚠️ 非心理医生声明）+ 该屏的补充段落 */
+.welcome-note--alert{margin-top:10px;padding:8px 10px;border-radius:10px;background:rgba(184,169,232,.12);
+  border-left:2px solid var(--primary);font-size:11.5px;line-height:1.65;text-align:left;opacity:.92}
+.welcome-note--alert::before{display:none}
+.welcome-lines--extra{margin-top:6px;opacity:.86}
 
 /* ---------- v0.7.0 关于墨小溟 / 更新历史 ---------- */
 .changelog__ip{text-align:center;margin:6px 0 2px}
@@ -1104,6 +1109,17 @@ body.is-offline .talkbtn[data-ai-gated]{background:#F3EEF9;border-color:var(--li
 .tl-del{color:var(--ink-3)}
 /* 时间线列表（回看入口） */
 .tl-note{font-size:13px;color:var(--ink-3);margin:0 4px 12px}
+/* ---------- v1.6.19 P1-1 时间线按日期筛选 ---------- */
+.tl-filter{margin:0 0 12px;padding:12px;border-radius:16px;background:var(--surface);border:1px solid var(--line)}
+.tl-filter__dates{display:flex;align-items:center;gap:8px}
+.tl-filter__f{flex:1;display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-3)}
+.tl-filter__f input[type="date"]{flex:1;min-width:0;font:inherit;font-size:12.5px;color:var(--ink);
+  background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:6px 8px}
+.tl-filter__quick{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.tl-chip{font:inherit;font-size:12.5px;color:var(--ink-2);background:var(--bg);border:1px solid var(--line);
+  border-radius:999px;padding:5px 12px;cursor:pointer}
+.tl-chip--on{background:var(--primary);border-color:var(--primary);color:#fff}
+.tl-filter__sum{margin:9px 0 0;font-size:11.5px;color:var(--ink-3)}
 .tl-list{display:flex;flex-direction:column;gap:10px}
 .tlrow{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px 14px;text-decoration:none;color:inherit}
 .tlrow__ico{flex:0 0 38px;height:38px;border-radius:12px;background:rgba(184,169,232,.16);display:flex;align-items:center;justify-content:center}

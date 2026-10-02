@@ -2525,15 +2525,82 @@ const MOCK_SDK = `(function(){
   check('G2·安静陪伴的死配置已清除（只判代码形态，注释里讲历史不算）',
     !/setSetting\(['"]quiet_pref['"]/.test(appSrc18)
     && !/setQuietMode\(!!picked/.test(appSrc18));
-  const prefBlock = (appSrc18.match(/const PREF_ITEMS = \[[\s\S]*?\]\.filter/) || [''])[0];
-  check('G2·引导只把"有真开关可写"的两项做成勾选框（quiet / noSermon 不再假装是开关）',
-    prefBlock.includes("'memory'") && prefBlock.includes("'short'")
-    && !prefBlock.includes("'quiet'") && !prefBlock.includes("'noSermon'"));
-  check('G2·没有长期开关的两条改成如实告知（prefsNotes 渲染成说明条）',
-    /prefsNotes/.test(appSrc18) && /welcome-note/.test(appSrc18));
+  // v1.6.19 P2-4 起 PREF_ITEMS 改成按 available 动态生成（不再是硬编码数组），判据跟着换：
+  // 勾选框只可能来自 available===true 的项 —— 没有真开关可写的项必须是 false。
+  check('G2·勾选框只给"有真开关可写"的项（quiet / noSermon / tts 都标 available:false）',
+    /v\.available === true && v\.label/.test(appSrc18)
+    && /noSermon:\s*\{[\s\S]{0,100}available:\s*false/.test(await readSrc('js/prompts.js'))
+    && /tts:\s*\{[\s\S]{0,160}available:\s*false/.test(await readSrc('js/prompts.js')));
+  // v1.6.19 P2-4 起，说明条文案来源从独立的 prefsNotes 数组改成 prefs 里各项的 note 字段
+  // （底层保留完整 5 项定义、前端按 available 渲染），判据跟着换。
+  check('G2·没有长期开关的项改成如实告知（prefs.note → 说明条渲染）',
+    /PREF_NOTES/.test(appSrc18) && /welcome-note/.test(appSrc18)
+    && /v\.note \|\| v\.label/.test(appSrc18));
   check('G2·设置页有「回复短一点」开关并绑定 setSetting（勾了之后有地方改回来）',
     /id="setReplyShort"/.test(appSrc18)
     && /setReplyShort'\)[\s\S]{0,140}setSetting\('reply_short', rshort\.checked\)/.test(appSrc18));
+
+  // ③l v1.6.19：外部修复包（P1×2 + P2×4）+ 配套模块 3.1~3.6 对账补差。
+  //    判据一律落在「消费方/渲染方」：写了不调、配了不渲、改了没人读，都算失败。
+  const appSrc19 = await readSrc('js/app.js');
+  const proSrc19 = await readSrc('js/prompts.js');
+  const apiSrc19 = await readSrc('js/api.js');
+  const idxSrc19 = await readSrc('index.html');
+
+  // ---- P1-1 时间线按日期筛选 ----
+  check('P1-1·时间线页有筛选栏（起止日期 + 今日/本周/本月/全部）',
+    /tl-filter/.test(appSrc19) && /id="tlStart"/.test(appSrc19) && /id="tlEnd"/.test(appSrc19)
+    && ['today', 'week', 'month', 'reset'].every((k) => appSrc19.includes(`data-tl-preset="${k}"`)));
+  check('P1-1·筛选走本地过滤，且条件写在模块级变量（切页不丢）',
+    /function tlInRange/.test(appSrc19) && /let tlFilter = \{ start: '', end: '' \};/.test(appSrc19));
+  check('P1-1·筛完为空用方案指定文案，而不是「还没有记录」',
+    appSrc19.includes('这个时间段还没有情绪记录，你可以开始倾诉啦'));
+  check('P1-1·timelines 路由挂上了 bind（不挂 = 控件点不动）',
+    /timelines:\s*\{ render: pageTimelines, bind: bindTimelines/.test(appSrc19));
+
+  // ---- P1-2 老用户一次性迁移 + memory_on 严格判据 ----
+  check('P1-2·存在一次性迁移标记 + 迁移流程 + 弹窗',
+    /MEMORY_MIGRATED_KEY/.test(appSrc19) && /function maybeMemoryMigration/.test(appSrc19)
+    && /function showMemoryMigrationDialog/.test(appSrc19));
+  check('P1-2·迁移在 boot 里真被调用（写了不调 = 没做）', /maybeMemoryMigration\(\)/.test(appSrc19));
+  check('P1-2·memory_on 判据全仓改为严格 === true（旧 !== false 清零）',
+    !/memory_on\)\s*!==\s*false/.test(appSrc19) && !/memory_on\)\s*!==\s*false/.test(apiSrc19)
+    && !/memory_on\s*!==\s*false/.test(appSrc19)
+    && /memory_on\)\s*===\s*true/.test(apiSrc19));
+  check('P1-2·弹窗两个按钮都在（继续开启记忆 / 关闭长期记忆）',
+    /miKeep/.test(appSrc19) && /miOff/.test(appSrc19));
+  check('P1-2·选择开启时写入本次确认时间戳', /memory_confirmed_at/.test(appSrc19));
+
+  // ---- P2-1 黑名单补词 ----
+  check('P2-1·黑名单补上「想开就好」「想开就好了」',
+    proSrc19.includes("'想开就好'") && proSrc19.includes("'想开就好了'"));
+  check('P2-1·替换表与新增词一一对应（缺一条 sanitize 就漏改）',
+    /想开就好:\s*'/.test(proSrc19) && /想开就好了:\s*'/.test(proSrc19));
+
+  // ---- P2-2 第 3 屏追加（不替换） ----
+  check('P2-2·第 3 屏保留原边界声明并追加方案指定的安全小字',
+    proSrc19.includes('我不是心理医生')
+    && proSrc19.includes('⚠️ 墨小溟是情绪陪伴倾听者，不是心理医生，无法替代专业心理诊疗'));
+  check('P2-2·第 3 屏补充「安静陪伴模式」用法（方案第 3 步的内容）',
+    /extra:/.test(proSrc19) && proSrc19.includes('安静陪伴模式'));
+  check('P2-2·引导渲染真的会画 extra / note（配了不渲 = 白配）',
+    /s\.extra \?/.test(appSrc19) && /s\.note \?/.test(appSrc19));
+
+  // ---- P2-3 按钮文案 ----
+  check('P2-3·引导按钮文案统一为「下一步」「跳过全部」（旧文案清零）',
+    /next:\s*'下一步'/.test(proSrc19) && /skip:\s*'跳过全部'/.test(proSrc19)
+    && !/'下一屏'/.test(proSrc19) && !/'先跳过'/.test(proSrc19));
+
+  // ---- P2-4 偏好配置完整保留 + 按需渲染 ----
+  check('P2-4·偏好底层保留完整 5 项定义（memory/short/noSermon/quiet/tts）',
+    ['memory', 'short', 'noSermon', 'quiet', 'tts']
+      .every((k) => new RegExp(`${k}:\\s*\\{`).test(proSrc19)));
+  check('P2-4·前端按 available 渲染，TTS 暂不渲染（留定义不删）',
+    /v\.available === true/.test(appSrc19) && /tts:\s*\{[\s\S]{0,140}available:\s*false/.test(proSrc19));
+
+  // ---- 配套 3.3 离线文案 ----
+  check('3.3·离线提示改用方案指定文案',
+    idxSrc19.includes('当前网络不可用，你可以查看过往情绪记录，联网后继续倾诉'));
 
   // ③f v1.6.15：假承诺清理。这两个键此前全仓只有定义处、0 读 0 UI；
   // 「云端记录将同步清除」是一个根本不存在的云端（产品不设账号）。全绿但说谎的话，比不写更糟。

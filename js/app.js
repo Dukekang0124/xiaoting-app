@@ -728,7 +728,7 @@ async function onEndVent() {
   // 所以退化到本地规则引擎 analyzeMain 派生基础分析——绝不空手，也绝不依赖模型。
   // 失败静默：记忆是增强项，绝不能因为 IndexedDB 写不进而卡住主流程或弹错。
   try {
-    if ((st.user.settings.memory_on) !== false) {
+    if ((st.user.settings.memory_on) === true) {
       const transcript = log.map((m) => m.text).join('\n');
       const { analyzeMain } = await import('./ai.js');
       const analysis = (st.draft && st.draft.analysis) || analyzeMain(transcript);
@@ -961,7 +961,7 @@ async function runAnalysisAndContinue() {
   // 这是分析 JSON 唯一可靠可得的点——后续卡片保存会清空 draft，
   // 且无论用户是否走完「卡片 / 结束倾诉」，这一次倾诉的核心洞察都被记下。受 memory_on 控制。
   try {
-    if ((store.getState().user.settings.memory_on) !== false) {
+    if ((store.getState().user.settings.memory_on) === true) {
       const d2 = store.getState().draft;
       memory.saveSessionWithMemory({
         session: { id: (d2 && d2.recordId) || ('sess_' + Date.now().toString(36)) },
@@ -1805,16 +1805,52 @@ function bindTimeline(p) {
 
 /* ---------------- 页面：时间线列表（已保存的复盘卡回看入口） ---------------- */
 
+/* ==================== v1.6.19 P1-1：时间线「按日期筛选」 ====================
+ * 🔴 本项目**没有后端** —— 数据和用户都只在这台设备上（localStorage / IndexedDB），
+ *    所以方案里的 `timeline_query{start_date,end_date,page,page_size}` 接口入参**不适用**：
+ *    这里用本地过滤实现同样的行为，不假装有一个会分页的后端。
+ *    记录量级也构不成分页需求。
+ * 筛选条件写在**模块级变量**里 ⇒ 切走再回来不丢（方案要求"筛选条件跨页面保留"）。 */
+let tlFilter = { start: '', end: '' };
+
+/** 本地日期（YYYY-MM-DD）。注意不能用 toISOString()：那是 UTC，东八区晚上会差一天。 */
+function todayISO() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** ISO 日期整体平移 N 天（用于「本周」起点）。 */
+function shiftISO(iso, days) {
+  const d = new Date(`${iso}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** 这条时间线是否落在筛选区间内（含端点）。无筛选时全部通过。 */
+function tlInRange(t, f) {
+  if (!f || (!f.start && !f.end)) return true;
+  const d = String((t && t.saved_at) || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return false; // 时间戳缺失/畸形：有筛选时视为不在区间
+  if (f.start && d < f.start) return false;
+  if (f.end && d > f.end) return false;
+  return true;
+}
+
 function pageTimelines() {
-  const list = store.getState().timelines || [];
-  if (!list.length) {
+  const all = store.getState().timelines || [];
+  const list = all.filter((t) => tlInRange(t, tlFilter));
+  const filtering = !!(tlFilter.start || tlFilter.end);
+  // 「一条都没存过」和「被筛选筛没了」是两回事：前者给引导，后者给筛选空态 + 一键看全部
+  if (!all.length) {
     return `<section class="timelines"><div class="page-head">
         <a class="ghost" href="#/me">返回</a><div class="page-title">情绪时间线</div><span style="width:48px"></span>
       </div>
       <div class="empty-state">${mascot('idle', 120)}<p>还没有保存过时间线。<br/>倾诉完点「结束倾诉」，就能存下这一次的起伏。</p>
       <a class="primary small" href="#/say">去说一次</a></div></section>`;
   }
-  const rows = list.map((t) => {
+  const rows = list.length ? list.map((t) => {
     const emos = (t.nodes || []).map((n) => (n.emotions && n.emotions.length ? n.emotions.join('+') : '·'));
     const flow = t.type === 'no-emotion' ? '这次更多是陈述事件' : emos.join(' → ');
     return `<a class="tlrow" href="#/timeline?id=${esc(t.id)}">
@@ -1823,16 +1859,48 @@ function pageTimelines() {
         <span class="tlrow__sub">${esc(flow)}</span></span>
       <i class="tlrow__arrow">›</i>
     </a>`;
-  }).join('');
+  }).join('') : `<div class="empty-state"><p>这个时间段还没有情绪记录，你可以开始倾诉啦</p>
+      <button class="ghost-btn" type="button" data-tl-preset="reset">看全部记录</button></div>`;
   return `
   <section class="timelines">
     <div class="page-head">
       <a class="ghost" href="#/me">返回</a><div class="page-title">情绪时间线</div><span style="width:48px"></span>
     </div>
+    <div class="tl-filter">
+      <div class="tl-filter__dates">
+        <label class="tl-filter__f"><span>从</span><input type="date" id="tlStart" value="${esc(tlFilter.start)}" aria-label="起始日期"/></label>
+        <label class="tl-filter__f"><span>到</span><input type="date" id="tlEnd" value="${esc(tlFilter.end)}" aria-label="结束日期"/></label>
+      </div>
+      <div class="tl-filter__quick">
+        <button class="tl-chip${filtering ? '' : ' tl-chip--on'}" type="button" data-tl-preset="reset">全部</button>
+        <button class="tl-chip" type="button" data-tl-preset="today">今日</button>
+        <button class="tl-chip" type="button" data-tl-preset="week">本周</button>
+        <button class="tl-chip" type="button" data-tl-preset="month">本月</button>
+      </div>
+      ${filtering ? `<p class="tl-filter__sum">正在看 ${esc(tlFilter.start || '最早')} ~ ${esc(tlFilter.end || '今天')}，共 ${list.length} 条</p>` : ''}
+    </div>
     <p class="tl-note">这里只放你主动保存过的记录，全部存在这台设备上。</p>
     <nav class="tl-list">${rows}</nav>
     <p class="tl-disclaimer">${esc(TIMELINE_DISCLAIMER)}</p>
   </section>`;
+}
+
+/** 时间线列表的筛选交互（筛选条件写在模块级 tlFilter，切页面不丢）。 */
+function bindTimelines() {
+  const s = document.getElementById('tlStart');
+  const e = document.getElementById('tlEnd');
+  if (s) s.addEventListener('change', () => { tlFilter.start = s.value || ''; render(); });
+  if (e) e.addEventListener('change', () => { tlFilter.end = e.value || ''; render(); });
+  document.querySelectorAll('[data-tl-preset]').forEach((btn) => btn.addEventListener('click', () => {
+    const k = btn.getAttribute('data-tl-preset');
+    const today = todayISO();
+    if (k === 'reset') tlFilter = { start: '', end: '' };
+    else if (k === 'today') tlFilter = { start: today, end: today };
+    // 周一作为一周起点（getDay()：周日=0，所以要 +6 再取模）
+    else if (k === 'week') tlFilter = { start: shiftISO(today, -(((new Date(`${today}T00:00:00`).getDay() + 6) % 7))), end: today };
+    else if (k === 'month') tlFilter = { start: `${today.slice(0, 8)}01`, end: today };
+    render();
+  }));
 }
 
 /* ---------------- 时间线卡片导出为图片（零依赖：SVG → canvas → PNG） ---------------- */
@@ -2171,7 +2239,7 @@ function pageMe() {
       </a>
       <label class="switch">
         <span>${esc(M.memory.toggle)}</span>
-        <input type="checkbox" id="meMemory" ${st.memory_on !== false ? 'checked' : ''}/>
+        <input type="checkbox" id="meMemory" ${st.memory_on === true ? 'checked' : ''}/>
       </label>
       <p class="mblock__n">${esc(M.memory.toggleDesc)}</p>
       <button class="danger-link" id="meClearMemory" type="button">清空全部记忆</button>
@@ -2344,7 +2412,7 @@ function pageSettings() {
     <div class="set-block">
       <label class="switch">
         <span>允许墨小溟记住我说过的事</span>
-        <input type="checkbox" id="setMemory" ${(st.memory_on !== false) ? 'checked' : ''}/>
+        <input type="checkbox" id="setMemory" ${(st.memory_on === true) ? 'checked' : ''}/>
       </label>
       <p class="set-sub">开启后，墨小溟会记下你倾诉中出现的「人物 / 事件 / 心结」结构化摘要（不保存原话），下次开口时轻轻呼应。关闭后不再新增与召回，已存记忆可到「我的记忆」里管理或删除。</p>
     </div>
@@ -2408,7 +2476,7 @@ function pageSettings() {
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
     ${privacyBlockHtml(COPY.privacyFull)}
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.6.18')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.6.19')}</p>
   </section>`;
 }
 
@@ -2466,7 +2534,8 @@ function bindSettings() {
 let _memUnits = [];
 
 function pageMemory() {
-  const on = (store.getState().user.settings.memory_on) !== false;
+  // v1.6.19 P1-2：严格全等 —— 记忆总开关没显式开着，就按「未授权」渲染
+  const on = (store.getState().user.settings.memory_on) === true;
   return `
   <section class="memory">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">我的记忆</div><span style="width:48px"></span></div>
@@ -2557,7 +2626,9 @@ function openMemEdit(row, u) {
 async function bindMemory() {
   const list = document.getElementById('memList');
   if (!list) return;
-  if ((store.getState().user.settings.memory_on) === false) { list.innerHTML = ''; return; }
+  // v1.6.19 P1-2：判据统一为严格全等 —— 字段缺失/异常一律按「关」处理（旧 `=== false` 只在显式 false 时关，
+  // 遇到 null / undefined 会把记忆列表当成"开着"来渲染，与真实授权状态不符）。
+  if ((store.getState().user.settings.memory_on) !== true) { list.innerHTML = ''; return; }
   try { _memUnits = await memory.loadMemory(); } catch (e) { _memUnits = []; }
   renderMemList();
   const clear = document.getElementById('memClear');
@@ -2597,7 +2668,7 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.6.18')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.6.19')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -2610,7 +2681,7 @@ function pageChangelog() {
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.6.18')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.6.19')}</p>
   </section>`;
 }
 
@@ -3188,7 +3259,7 @@ const PAGES = {
   gentle: { render: pageGentle, bind: bindGentle, nav: false },
   confirm: { render: pageConfirm, bind: bindConfirm, nav: false },
   timeline: { render: pageTimeline, bind: bindTimeline, nav: false },
-  timelines: { render: pageTimelines, nav: false },
+  timelines: { render: pageTimelines, bind: bindTimelines, nav: false },
   cards: { render: pageCards, bind: bindCards, tab: 'cards', nav: true },
   card: { render: pageCardDetail, bind: bindCardDetail, nav: true },
   weekly: { render: pageWeekly, mount: mountWeekly, nav: true },
@@ -3786,7 +3857,7 @@ function setAiGate(offline) {
       //  恢复网络时不能无脑 enable，否则会把流程自己的禁用状态一起抹掉。
       el.dataset.aiWasDisabled = el.disabled ? '1' : '';
       el.disabled = true;
-      el.setAttribute('title', '现在断网了，连上再说；不方便的话，打字也行');
+      el.setAttribute('title', '当前网络不可用，联网后继续倾诉；不方便的话，打字也行');
     } else {
       el.disabled = el.dataset.aiWasDisabled === '1';
       el.removeAttribute('title');
@@ -3826,6 +3897,73 @@ function applyWelcomePrefs(picked) {
   } catch (e) { /* 偏好是增强项，写不进去也不许卡住引导收尾 */ }
 }
 
+/* ==================== v1.6.19 P1-2：老用户「长期记忆重新授权」一次性迁移 ==================== */
+
+/** 一次性迁移标记（本地）。写过 '1' 之后永不再弹 —— 迁移只问一次。 */
+const MEMORY_MIGRATED_KEY = 'moxiaoming:memory_migrated_v1';
+
+/**
+ * 为什么需要这一步：
+ * v1.6.17 之前 `memory_on` 默认是 **true** —— 老用户从头到尾没做过任何授权动作，长期记忆却一直开着。
+ * v1.6.18 把新装用户的默认值改成 false，但**已经装着的老用户** settings 里存着 true，
+ * 于是「默认关闭 + 首次主动授权」对他们完全没生效。
+ *
+ * 判据必须严格全等 `=== true`（方案 P1-2 第 3 条）：
+ * 旧的 `!== false` 会把「字段根本不存在」误判成「用户同意了」 —— 那正是这个漏洞本身。
+ */
+function maybeMemoryMigration(retry = 0) {
+  let done = '';
+  try { done = localStorage.getItem(MEMORY_MIGRATED_KEY) || ''; } catch (e) { return; }
+  if (done === '1') return; // 已迁移过，永不再问
+  const st = store.getState();
+  const on = !!(st && st.user && st.user.settings && st.user.settings.memory_on === true);
+  if (!on) {
+    // 压根没开着（新用户/已关用户）：直接补标记，不打扰
+    try { localStorage.setItem(MEMORY_MIGRATED_KEY, '1'); } catch (e) {}
+    return;
+  }
+  // 引导浮层还在（老用户刚清了 welcomed 标记这种极端情况）⇒ 别叠两层，稍后再来
+  if (document.querySelector('.welcome-overlay')) {
+    if (retry < 1) setTimeout(() => maybeMemoryMigration(retry + 1), 1500);
+    return;
+  }
+  showMemoryMigrationDialog();
+}
+
+/** 一次性授权确认窗：两个按钮，用户自己决定长期记忆留还是关。 */
+function showMemoryMigrationDialog() {
+  if (document.querySelector('.migrate-overlay')) return;
+  if (document.querySelector('.welcome-overlay')) return; // 不叠浮层
+  const ov = document.createElement('div');
+  ov.className = 'welcome-overlay migrate-overlay';
+  ov.setAttribute('role', 'dialog');
+  ov.setAttribute('aria-modal', 'true');
+  ov.innerHTML = `
+    <div class="welcome-card">
+      <div class="welcome-badge">版本更新</div>
+      <div class="welcome-title">长期情绪记忆，需要你重新确认一次授权。</div>
+      <div class="welcome-lines">开启记忆，墨小溟可以记住你的情绪偏好；随时可以在设置里关闭、或者一键清空记忆。</div>
+      <button class="primary" id="miKeep" type="button">继续开启记忆</button>
+      <button class="ghost-btn" id="miOff" type="button">关闭长期记忆</button>
+    </div>`;
+  document.body.appendChild(ov);
+  const finish = (keep) => {
+    if (!ov.isConnected) return;
+    try { localStorage.setItem(MEMORY_MIGRATED_KEY, '1'); } catch (e) {}
+    if (keep) {
+      store.setSetting('memory_on', true);
+      store.setSetting('memory_confirmed_at', new Date().toISOString()); // 记下本次确认时间
+    } else {
+      store.setSetting('memory_on', false); // 强制关：此后不再新增记忆
+    }
+    ov.remove();
+    render(); // 设置页的开关状态要跟着变（store.setState 不会自动重绘）
+    store.toast(keep ? '好，我记着。' : '好，我不记了。');
+  };
+  ov.querySelector('#miKeep').addEventListener('click', () => finish(true));
+  ov.querySelector('#miOff').addEventListener('click', () => finish(false));
+}
+
 /* v1.6.0 文档 §二：4 屏新手引导（首次打开触发，可跳过）
  * v1.6.17：补成 5 屏 —— 末屏（screen5）是「偏好与记忆授权」勾选项（G1/G2/G8）。
  * 原来只有 1 屏欢迎，文档要求 4 屏且**每屏可跳过**、走完弹问候气泡。
@@ -3850,13 +3988,16 @@ function showWelcome() {
   // 末屏勾选结果：全部默认 false。存的是「用户勾选了什么」，不是「用户关掉了什么」。
   const picked = Object.create(null); // { memory: true, short: true }
   const PF = OB.prefs || {};
-  // v1.6.18：只保留「有真开关可写」的两项。其余两条（别说教 / 安静陪伴）走 prefsNotes 纯告知 ——
-  // 产品当前没有对应的长期开关，做成勾选框就是「勾了不生效」的假开关。
-  const PREF_ITEMS = [
-    ['memory', PF.memory],
-    ['short', PF.short],
-  ].filter(([, label]) => !!label);
-  const PREF_NOTES = (OB.prefsNotes || []).filter(Boolean);
+  // v1.6.19 P2-4：底层保留**完整 5 项**偏好定义，前端按 availability 渲染 ——
+  //   available === true → 渲染成勾选框（背后有真开关可写）
+  //   其余              → 渲染成说明条（如实说明，绝不装成勾了不生效的假开关）
+  // 🔴 三期 TTS 能力上线时，只把配置里 tts.available 改成 true 就自动出现，不碰这段渲染逻辑。
+  const PREF_ITEMS = Object.entries(PF)
+    .filter(([, v]) => v && typeof v === 'object' && v.available === true && v.label)
+    .map(([k, v]) => [k, v.label]);
+  const PREF_NOTES = Object.values(PF)
+    .filter((v) => v && typeof v === 'object' && v.available !== true && (v.note || v.label))
+    .map((v) => v.note || v.label);
 
   const overlay = document.createElement('div');
   overlay.className = 'welcome-overlay welcome-overlay--steps';
@@ -3890,6 +4031,8 @@ function showWelcome() {
         <div class="welcome-badge">${esc(OB.done ? (i === 2 ? '重要提醒' : (last ? OB.done : COPY.welcome.badge)) : COPY.welcome.badge)}</div>
         <div class="welcome-title">${esc(s.title)}</div>
         <div class="welcome-lines">${esc(s.body)}</div>
+        ${s.extra ? `<p class="welcome-lines welcome-lines--extra">${esc(s.extra)}</p>` : ''}
+        ${s.note ? `<p class="welcome-note welcome-note--alert">${esc(s.note)}</p>` : ''}
         ${prefsHtml}
         <button class="primary" id="wNext" type="button">${esc(last || !OB.next ? OB.done : OB.next)}</button>
         <div class="welcome-btns">
@@ -3950,6 +4093,8 @@ export function boot() {
   // v1.3.3：异步取历史情绪偏向 → 生成首页问候（首帧先用时段问候兜底，取到后重渲染）
   initGreeting().then(() => { try { if ((parseHash().name || 'say') === 'say') render(); } catch (e) { /* ignore */ } });
   showWelcome();
+  // v1.6.19 P1-2：老用户升级后补一次「长期记忆重新授权」（只问一次；没开着就不打扰）
+  try { maybeMemoryMigration(); } catch (e) { /* 迁移失败不许拖垮启动 */ }
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
   }
