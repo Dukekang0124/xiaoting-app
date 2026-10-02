@@ -107,10 +107,41 @@ export function playTap(count) {
   return { key, cls, duration_ms: spec.duration_ms, sound: spec.sound };
 }
 
-/** 状态切换（情绪 / 场景）。高危锁定由 CSS 的 .mascot--danger 承担（禁活泼动效但留警示环）。 */
+/**
+ * 情绪状态切换（v1.6.13 **真落地**）。
+ *
+ * 🔴 改之前这里只有 `return { state }` —— 一个空壳，且全仓零调用。
+ *    而配置 emotion_motion_map 给七种情绪各声明了 ip_anim / particle：
+ *    既没有消费方、样式表里也没有对应 @keyframes ⇒ 整块配置是死的（改了不生效，比没有更糟）。
+ *    现在：真挂类、真写变量、关掉总开关或高危定格时真收手。
+ *
+ * 挂载点选 IP 的**外层包裹元素**（.say__mascot / .cf-mascot / .fu-mascot）：
+ * 外层承载情绪位移，内层继续跑待机浮沉 —— 两层嵌套 transform，互不覆盖。
+ * 状态色（.mascot--x）仍由 ip.js 的渲染负责，这里**不碰**，避免两处抢同一个类。
+ */
 export function setState(state) {
-  if (!enabled || !state) return null;
-  return { state };
+  if (typeof document === 'undefined') return null;
+  const em = (cfg && cfg.emotion_motion_map) || {};
+  const el = document.querySelector('.say__mascot')
+    || document.querySelector('.cf-mascot')
+    || document.querySelector('.fu-mascot')
+    || document.querySelector('.mascot');
+  if (!el) return null;
+  // 先摘掉上一次的情绪动画类：换情绪时不能留着旧位移，也不能两层叠加
+  Object.values(em).forEach((v) => { const a = (v || {}).ip_anim; if (a) el.classList.remove(a); });
+  const spec = state ? em[state] : null;
+  if (!spec) return null;
+  const lock = spec.lock_motion === true;               // danger：只定格，不做活泼位移
+  if (enabled && !lock && spec.ip_anim) {
+    void el.offsetWidth;                                // 强制重排，让同一动画能重头播
+    el.classList.add(spec.ip_anim);
+  }
+  try {
+    const r = document.documentElement;
+    r.style.setProperty('--mm-particle', String(spec.particle || 'none'));
+    r.dataset.particle = String(spec.particle || 'none');
+  } catch (e) { /* ignore */ }
+  return { state, ip_state: spec.ip_state, ip_anim: spec.ip_anim, particle: spec.particle, lock };
 }
 
 export function onChange(fn) { if (typeof fn === 'function') listeners.add(fn); }

@@ -2312,7 +2312,7 @@ function pageSettings() {
       }).join('')}
       ${(privacyLink((COPY.privacyFull || {}).link))}
     </div>
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.6.12')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.6.13')}</p>
   </section>`;
 }
 
@@ -2478,7 +2478,7 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.6.12')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.6.13')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -2487,7 +2487,7 @@ function pageChangelog() {
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.6.12')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.6.13')}</p>
   </section>`;
 }
 
@@ -3121,6 +3121,11 @@ function render() {
   }), s.user.settings.ipMotion !== false);
   currentIpDesc = desc;
   store.getState().ipState = desc.state;
+  // v1.6.13：情绪态 → 动效真联动。此前 motion.setState 是空壳、emotion_motion_map 全死配置，
+  // 七种情绪各自声明的位移/粒子从没生效过。这里把状态交给编排层（无匹配态时它会自行清掉旧动画）。
+  if (window.motion && typeof window.motion.setState === 'function') {
+    try { window.motion.setState(s.emotionKey || desc.state); } catch (e) { /* 动效是增强项，失败不影响主流程 */ }
+  }
   // §三.4 真正的回归计时器：只在「有情绪底色」时挂一次，到点自动清空洞色并重渲染。
   //   缺了它，isIdleTimeout 只在 render() 那一刻被求值一次 ⇒ 用户不动页面就永远停在情绪色（等于没实现）。
   scheduleIdleRevert();

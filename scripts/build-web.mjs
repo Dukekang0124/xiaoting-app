@@ -31,6 +31,8 @@ const EXCLUDE = new Set([
   'cloudflare',
   // _probe/：临时排障脚本（CF 探测等），用完即弃，不进包也不入库。
   '_probe',
+  // promo/：产品宣传片素材与成片（本地产物，不进包也不入库）
+  'promo',
   // docs/：产品文档（含导出脚本 scripts/export-product-doc.mjs 生成的 .md）。
   //   它是**给人读的文档**，不是 App 运行时要的东西 —— 进包只会白白增大体积，
   //   而且产品文档里有完整话术表，属于内部资料，不该跟着 APK 外发。

@@ -1,17 +1,18 @@
 {
-  "latest_version": "1.6.12",
+  "latest_version": "1.6.13",
   "force_update": false,
-  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.12-release.apk",
+  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.13-release.apk",
   "web_url": "https://xiaoting.app.workbuddy.host/#/say",
   "apk": {
-    "versionCode": 10612,
-    "version": "1.6.12",
-    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.12-release.apk",
-    "md5": "046335b2534f7ff9a40e78f1c6ccf85d",
-    "size": 4319491,
+    "versionCode": 10613,
+    "version": "1.6.13",
+    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.13-release.apk",
+    "md5": "",
+    "size": 0,
     "force": false
   },
   "release_notes": [
+    "墨小溟会更懂你的情绪起伏了（v1.6.13）：以前七种情绪在配置里各自声明了不同的「动效状态」（开心轻上浮、低落微微下沉、烦躁克制小幅晃、矛盾拉扯几乎静止、疲惫最慢呼吸、高危完全定格），但这些声明从来没有真正接到画面上——配置写的是死的，画面动的是另一套。这一版把它们真正接上了：说到开心时它会轻轻浮起，说到委屈时它会安静下沉，说到拉扯和反复时它会几乎停住、只留极慢的呼吸。波形与语气都变小的那种「被听懂」，这次是从底层真的通了。",
     "下载更新不会再「一切后台就断」了（v1.6.12）：以前更新包是在 App 自己里下的，你一按 Home、锁屏或切到别的 App，系统就会把下载挂起，进度白跑、还得从头再来。这一版把下载交给了手机**系统自带的下载服务**——它独立于墨小溟运行，切后台、锁屏、甚至把墨小溟划掉都照样下；下拉通知栏能看到**系统级的下载进度条**，网络恢复了会自动接着下。点「先放着」之后它会继续在后台下，下完系统通知会告诉你；回到墨小溟会自动弹「包已下好，立即安装」，点一下就进系统安装界面。",
     "追问回答不会再「按第二次没反应」了（v1.6.11）：上一版真机发现，在追问页按住说回答过一轮后，第二次按住经常完全没反应，说话像石沉大海。根因是上一次录音一旦中途出岔子（设备识别卡住、麦克风释放不干净），录音状态就卡住不重置，后面所有按压都被挡住。这一版给录音加了「看门狗 + 硬复位」：任何一步超时或出错都自动收回状态、彻底关掉麦克风，第二次按住照样能用。顺带修了一个更隐蔽的问题：偶尔输入框会冒出「字幕志愿者 杨茜茜」这类与你完全无关的句子 —— 那是云端识别对『没录到声音』的空音频产生的幻觉。现在太短的录音根本不会发出去，返回文本若命中已知「幻觉套话」也一律当没听清处理，绝不会再拿假句子污染你的记录。同时补全了录音诊断日志（录音开始 / 音频大小 / 请求地址 / 返回原文 / 资源已释放），真机排障一眼定位。",
     "换了张更暖的脸（v1.6.10）：桌面图标重画了。上一版是深紫底、安安静静的小墨鱼，不少人说看着有距离感、不像会想点开的样子。这次改成暖奶油白到浅紫的柔和渐变底，一只圆乎乎、大眼睛、带腮红、头顶两根发光小触角的墨小溟，更像深海里一个会听你说话的伙伴。形象仍然是墨鱼（不是章鱼、也不是水母）：宽圆的身体两侧有一圈小裙边一样的侧鳍，底下收着 8 只短触手。网页版的书签图标也一起换了。",
@@ -56,6 +57,17 @@
     "新增设置开关：IP 动效总开关 / IP 触碰互动 / 气泡文字 / 动画强度（柔和·标准）/ 水墨气泡轻音效（默认关，纯 Web Audio 合成、零素材）"
   ],
   "history": [
+    {
+      "version": "1.6.13",
+      "date": "2026-10-02",
+      "title": "情绪动效真联动（emotion_motion_map 死配置修复）",
+      "notes": [
+        "背景：收到外部《AI情绪陪伴系统最终落地开发方案》，要求「情绪→动效→音效→TTS 全联动」。对照代码审计后发现该方案约八成已实现，真正缺口是：配置 emotion_motion_map 里七种情绪声明的 ip_anim 在样式表里 0 命中（声明未实现），motion.setState 是空壳且零调用。",
+        "修复：styles.css 补齐 7 个 @keyframes（float_up_relax/sink_quiet/tight_swing_slow/tiny_shiver_slow/super_slow_idle/drift_sway_alternate/static_calm）；motion.setState 真实实现（挂外层包裹元素的动画类 + 写 --mm-particle + danger 锁定时收手 + 换情绪先摘旧类）；app.js 在写入 ipState 后调用 motion.setState(emotionKey||state)。",
+        "反向断言（_selftest/motion-sound-config.cjs）：新增 7 条「情绪 ip_anim 在样式表里真实存在」+ 3 条 setState 行为断言。",
+        "A/B 证据：旧代码 46 通过 / 9 失败（正是新增的 10 条），新代码 55/55。主回归 445/445。"
+      ]
+    },
     {
       "version": "1.6.12",
       "date": "2026-10-02",

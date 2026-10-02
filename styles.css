@@ -1367,3 +1367,26 @@ body.quiet-mode .talkbtn{opacity:.84}
 .monthly-card__btns{display:flex;gap:12px;align-items:center}
 .monthly-card__btns .ghost{flex:1;text-align:center;color:var(--ink-2);padding:11px 0}
 .monthly-card__btns .primary{flex:1;margin-top:0;padding:12px 0;font-size:15px}
+
+/* ==================== v1.6.13 情绪动效联动（emotion_motion_map.ip_anim 真落地） ====================
+   🔴 背景：moxiaoming_motion_sound_config.json 给七种情绪各声明了一个 ip_anim
+   （float_up_relax / sink_quiet / tight_swing_slow / tiny_shiver_slow / super_slow_idle /
+   drift_sway_alternate / static_calm），但样式表里从来没有对应的 @keyframes ⇒
+   「声明了却没实现」：改配置什么都不会发生（比没有更糟，因为它看起来是权威的）。
+   这里补齐七个动画，由 motion.setState() 挂到 IP 外层包裹元素上——
+   外层做情绪位移、内层仍跑待机浮沉，两层是嵌套 transform，互不覆盖。 */
+@keyframes float_up_relax { 0%,100%{transform:translateY(0) scale(1)} 50%{transform:translateY(-10px) scale(1.02)} }
+@keyframes sink_quiet { 0%,100%{transform:translateY(0) scale(1)} 50%{transform:translateY(10px) scale(.985)} }
+@keyframes tight_swing_slow { 0%,100%{transform:rotate(-1.6deg)} 50%{transform:rotate(1.6deg)} }
+@keyframes tiny_shiver_slow { 0%,100%{transform:translateX(-1.2px)} 50%{transform:translateX(1.2px)} }
+@keyframes super_slow_idle { 0%,100%{transform:translateY(-3px)} 50%{transform:translateY(3px)} }
+@keyframes drift_sway_alternate { 0%{transform:translateX(-7px)} 50%{transform:translateX(7px)} 100%{transform:translateX(-7px)} }
+@keyframes static_calm { 0%,100%{transform:none} }
+
+.float_up_relax { animation: float_up_relax 7s ease-in-out infinite; }
+.sink_quiet { animation: sink_quiet 8s ease-in-out infinite; }
+.tight_swing_slow { animation: tight_swing_slow 9s ease-in-out infinite; }
+.tiny_shiver_slow { animation: tiny_shiver_slow 3.2s ease-in-out infinite; }
+.super_slow_idle { animation: super_slow_idle 12s ease-in-out infinite; }
+.drift_sway_alternate { animation: drift_sway_alternate 10s ease-in-out infinite; }
+.static_calm { animation: none; }

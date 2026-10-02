@@ -65,6 +65,18 @@ function ok(name, cond, detail = '') {
       out.wire.offAfterClose = document.body.classList.contains('ip-motion-off');
       w && typeof w.setEnabled === 'function' && w.setEnabled(true);
       out.wire.onAfterOpen = document.body.classList.contains('ip-motion-off') === false;
+      // v1.6.13：情绪态真联动 —— setState 必须真把配置里的 ip_anim 挂到 IP 身上、真写 particle 变量
+      try {
+        const em = (cfg || {}).emotion_motion_map || {};
+        const key = Object.keys(em).find((k) => (em[k] || {}).ip_anim);
+        const ret = (w && typeof w.setState === 'function') ? w.setState(key) : null;
+        const el = document.querySelector('.say__mascot') || document.querySelector('.mascot');
+        out.wire.setState = {
+          key, ret,
+          onEl: !!(el && ret && ret.ip_anim && el.classList.contains(ret.ip_anim)),
+          particle: getComputedStyle(document.documentElement).getPropertyValue('--mm-particle').trim(),
+        };
+      } catch (e) { out.wire.setState = { err: String(e.message) }; }
     } catch (e) { out.wire = { err: String(e.message) }; }
     try {
       const res = await fetch('/moxiaoming_motion_sound_config.json', { cache: 'no-cache' });
@@ -157,6 +169,12 @@ function ok(name, cond, detail = '') {
     if (!v || !v.anim) continue;
     ok(`点击 ${k}.anim 在样式表里真实存在`, data.keyframes.includes(v.anim), v.anim);
   }
+  // ②b v1.6.13：情绪的 ip_anim 也必须是样式表里真实存在的动画名
+  //     （补这一条之前，七个 ip_anim 全在配置里"声明"，样式表里 0 命中 —— 死配置，改了不生效）
+  Object.entries(cfg.emotion_motion_map || {}).forEach(([k, v]) => {
+    if (v && v.ip_anim) ok(`情绪 ${k}.ip_anim 在样式表里真实存在`, data.keyframes.includes(v.ip_anim), v.ip_anim);
+  });
+
   // ③ 情绪状态：ip_state 必须是 mascot() 真能产出的 class
   (data.ipStateCheck || []).forEach((c) => {
     ok(`情绪状态 ${c.s} 是 IP 真实可渲染状态`, c.ok, c.ok ? '' : 'mascot() 产不出 mascot--' + c.s);
@@ -193,6 +211,11 @@ function ok(name, cond, detail = '') {
   ok('playTap 的 class 真加到了 IP 身上（不是只算出个名字）', w.tapOnMascot === true);
   ok('setEnabled(false) 真让 body 带 ip-motion-off', w.offAfterClose === true);
   ok('setEnabled(true) 后恢复', w.onAfterOpen === true);
+  // v1.6.13：情绪态真联动（曾为空壳 + 死配置，这两条在修复前必须失败）
+  const ws = w.setState || {};
+  ok('setState 对情绪态真跑出结果', !!ws.ret, JSON.stringify(ws.ret));
+  ok('setState 的动画类真加到 IP 身上（不是只算出个名字）', ws.onEl === true, JSON.stringify(ws));
+  ok('setState 真把 particle 写进 CSS 变量', !!ws.particle && ws.particle !== 'none', String(ws.particle));
 
   ok('页面无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '));
 
