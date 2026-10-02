@@ -30,6 +30,24 @@ def find_js(base):
     return ''
 
 
+def code_lines(src):
+    """🔴 只取代码行：把 // 行注释与 /* */ 块注释剔除后再匹配。
+    历史坑：update.js 注释里复述过「import('@capacitor/filesystem')」这段历史 bug 的字面量，
+    裸串匹配整文件会把自己写的注释判红（假判据）。"""
+    out = []
+    for line in src.replace('\r\n', '\n').split('\n'):
+        s = line.strip()
+        if s.startswith('//') or s.startswith('*') or s.startswith('/*'):
+            continue
+        out.append(line)
+    return '\n'.join(out)
+
+
+def has_native_bare_import(src):
+    """去注释后，按「真的在代码里」判有没有裸 import 原生插件。"""
+    return re.search(r"import\(\s*['\"]@capacitor/", code_lines(src)) is not None
+
+
 results = []
 
 
@@ -46,7 +64,10 @@ cw = find_js('js/copywriting.js')
 
 # ---------- 版本证据 ----------
 m = re.findall(r"window\.APP_VERSION\s*\|\|\s*'([\d.]+)'", app)
-chk('版本·app.js 兜底 = %s（×3）' % want, len(m) == 3 and all(x == want for x in m), str(m))
+# 兜底处数：app.js 里 window.APP_VERSION || 'x.y.z' 实际 4 处，判「≥3 且全等」，
+# 硬编码固定处数会在下次改动时自己变红（判据要跟得住实现）。
+chk('版本·app.js 兜底 = %s（实际 %d 处）' % (want, len(m)),
+    len(m) >= 3 and all(x == want for x in m), str(m))
 m2 = re.search(r"APP_VERSION\s*=\s*'([\d.]+)'", idx)
 chk('版本·index.html APP_VERSION = %s' % want, m2 and m2.group(1) == want, m2.group(1) if m2 else '未命中')
 m3 = re.search(r"LATEST_VERSION\s*=\s*'([\d.]+)'", upd)
@@ -70,7 +91,8 @@ chk('v1.7.0·弹窗不再只说「会自动刷新」（旧整句清零）',
 chk('v1.7.0·app.js 注册 PAGES.download', re.search(r'download:\s*\{\s*render:\s*pageDownload', app) is not None)
 chk('v1.7.0·下载页渲染 + 装包三步 + 校验值折叠块',
     'function pageDownload' in app and 'dlsteps' in app and 'dlMd5Wrap' in app)
-chk('v1.7.0·下载页按钮没地址时退到稳定别名（不留空头按钮）', 'apkHref' in app and 'apkSources' in app)
+chk('v1.7.0·下载链接退到稳定别名（app 用 install.apkHref，install 内三档带别名）',
+    'install.apkHref' in app and 'apkSources' in ins and 'apk/xiaoting-latest.apk' in ins)
 chk('v1.7.0·「我」页有下载入口行 + 装桌面按钮',
     'mrow--download' in app and 'meInstall' in app and 'meDlSub' in app)
 chk('v1.7.0·装桌面点了必须有回话（installAction 落地到 hint）', 'installAction' in app and 'meInstallHint' in app)
@@ -96,8 +118,8 @@ chk('不退化·v1.6.19 memory_on 严格全等', re.search(r"memory_on\)\s*===\s
 chk('不退化·v1.6.19 严格全等（store 侧）',
     'sanitizeSermon' in store and re.search(r"role\s*===\s*'ai'", store) is not None)
 chk('不退化·G8 memory_on 默认 false', re.search(r'memory_on\s*:\s*false', sm) is not None)
-chk('不退化·全仓不裸 import 原生插件', "import('@capacitor/" not in upd)
-chk('不退化·notify 不裸 import 原生插件', "import('@capacitor/" not in find_js('js/notify.js'))
+chk('不退化·update.js 代码里不裸 import 原生插件（注释复述不算）', not has_native_bare_import(upd))
+chk('不退化·notify.js 代码里不裸 import 原生插件', not has_native_bare_import(find_js('js/notify.js')))
 
 print('APK:', apk)
 print('包内前端资产 js 数:', len([n for n in names if re.match(r'(assets/public/|public/)?js/.*\.js$', n)]))
