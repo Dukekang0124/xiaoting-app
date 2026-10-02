@@ -104,11 +104,9 @@ const CUES = {
   bubble_intermittent: () => { bubble({ dur: 0.16, gain: 0.03, from: 400, to: 760, delay: 0 }); bubble({ dur: 0.16, gain: 0.03, from: 340, to: 620, delay: 0.5 }); },
   base_comfort_low: () => { tone({ freq: 174, dur: 1.6, gain: 0.035, type: 'sine' }); noise({ dur: 1.8, gain: 0.022, cutoff: 200 }); },
 
-  // —— 场景（方案 scene_effect）——
-  bubble_single_soft: () => { bubble({ dur: 0.26, gain: 0.038, from: 340, to: 680 }); },
-  water_card_pop: () => { noise({ dur: 0.5, gain: 0.03, cutoff: 420, sweepTo: 700 }); bubble({ dur: 0.18, from: 420, to: 820, delay: 0.1 }); },
-  underwater_loop_very_low: () => { noise({ dur: 4, gain: 0.016, cutoff: 180 }); },
-  water_long_heal_full: () => { noise({ dur: 3.4, gain: 0.034, cutoff: 240, sweepTo: 560 }); bubble({ dur: 0.6, from: 280, to: 520, delay: 0.6 }); },
+  // 🔴 v1.7.5（P3-1）：上面原来还有 4 个「场景专用音效」（scene_effect 配的 bubble_single_soft /
+  //    water_card_pop / underwater_loop_very_low / water_long_heal_full），而 scene_effect 整块
+  //    零读 ⇒ 这 4 个生成器也零引用，跟着一起删。想加场景音效直接在这张表里加、同时接线调用点。
 };
 
 let ambSrc = null, ambGain = null, muted = false;

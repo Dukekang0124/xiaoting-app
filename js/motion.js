@@ -112,7 +112,8 @@ export function playTap(count) {
  *
  * 🔴 改之前这里只有 `return { state }` —— 一个空壳，且全仓零调用。
  *    而配置 emotion_motion_map 给七种情绪各声明了 ip_anim / particle：
- *    既没有消费方、样式表里也没有对应 @keyframes ⇒ 整块配置是死的（改了不生效，比没有更糟）。
+ *    particle 那一半既没有消费方、样式表里也没有对应 @keyframes ⇒ 死配置（改了不生效，比没有更糟），
+ *    已在 v1.7.5 随 CSS 侧一并删掉；ip_anim 那半是真跑的（见下）。
  *    现在：真挂类、真写变量、关掉总开关或高危定格时真收手。
  *
  * 挂载点选 IP 的**外层包裹元素**（.say__mascot / .cf-mascot / .fu-mascot）：
@@ -169,12 +170,11 @@ function applyState(state) {
     void el.offsetWidth;                                // 强制重排，让同一动画能重头播
     el.classList.add(spec.ip_anim);
   }
-  try {
-    const r = document.documentElement;
-    r.style.setProperty('--mm-particle', String(spec.particle || 'none'));
-    r.dataset.particle = String(spec.particle || 'none');
-  } catch (e) { /* ignore */ }
-  const out = { applied: true, state, ip_state: spec.ip_state, ip_anim: spec.ip_anim, particle: spec.particle, lock };
+  // 🔴 v1.7.5（P2-1）：这里原来还会写 `--mm-particle` / `data-particle`，但 styles.css 里
+  //    0 处消费（没有 var() 引用、没有 [data-particle] 选择器）⇒ 写了就是白写，
+  //    配置里那套 particle_count/alpha/color 和七种情绪的 particle 字段同样零读。
+  //    死配置比没有更糟（改了不生效），按「宁缺勿假」整块删掉，不留悬空字段。
+  const out = { applied: true, state, ip_state: spec.ip_state, ip_anim: spec.ip_anim, lock };
   appliedState = state;
   return out;
 }

@@ -245,7 +245,6 @@ const motionSection = `
 | 触手 3-4 号 | **滞后 ${grp(2).delay_ms}ms** 跟随 |
 | 触手 5-6 号 | 小幅度呼吸（${grp(3).amp_px}px） |
 | 触手 7-8 号 | 几乎不动（${grp(4).amp_deg}° / ${grp(4).period_ms}ms，锚定） |
-| 氛围粒子 | ${(IDLE.particle_count || {}).min}–${(IDLE.particle_count || {}).max} 颗，透明度 ${(IDLE.particle_alpha || []).join('–')} |
 | 待机底噪 | \`${IDLE.bg_sound}\`，音量 ${IDLE.bg_sound_volume}（开始倾诉立即静音） |
 
 ### 点击交互（四档）
@@ -257,11 +256,16 @@ ${Object.entries(MSC.click_interact || {}).map(([k, v]) => {
   return `| ${label} | \`${v.anim}\` | ${v.duration_ms}ms | \`${v.sound}\` |`;
 }).join('\n')}
 
-### 情绪联动 & 场景特效
+### 情绪联动
 
-| 键 | ip_anim | particle | sound |
-| --- | --- | --- | --- |
-${Object.entries(MSC.emotion_motion_map || {}).map(([k, v]) => `| ${k} | \`${v.ip_anim}\` | \`${v.particle}\` | \`${v.sound}\` |`).join('\n')}
+| 键 | ip_anim | sound |
+| --- | --- | --- |
+${Object.entries(MSC.emotion_motion_map || {}).map(([k, v]) => `| ${k} | \`${v.ip_anim}\` | \`${v.sound}\` |`).join('\n')}
+
+> 🔴 原 \`particle\` 一栏（粒子数量/透明度/颜色 + 七种情绪的粒子名）已在 v1.7.5 删除：
+> 它曾在配置和 \`js/motion.js\` 里写得满满当当，\`styles.css\` 里却 **0 处消费**（没有 \`var()\`、没有选择器），
+> 属于「改了不生效」的死配置。同批删除的还有 \`scene_effect\` 四场景（\`ip_anim\`/\`card_anim\`/\`aura\` 全部零读）。
+> 原则是宁缺勿假——有真消费的才配占文档一行。
 
 ### 状态机规则
 
@@ -275,14 +279,13 @@ ${ul(MSC.state_machine && MSC.state_machine.rules)}
 | \`click_interact\` 四档动画 | ✅ 真在跑（\`@keyframes ip-tap1/2/3/ip-tap-over\`） |
 | 音效 \`CUES\` | ✅ 真在跑（\`js/ip-audio.js\`，点击/情绪/卡片各有 cue） |
 | \`switch_transition_ms\` 无硬切 | ✅ 真在跑（\`js/state-machine.js\` 过渡时长） |
-| \`emotion_motion_map.*.ip_anim\` | ⚠️ **声明未实现** —— \`styles.css\` 里没有对应 \`@keyframes\`，改它不生效 |
-| \`scene_effect.*.ip_anim\` / \`card_anim\` | ⚠️ **声明未实现**（同上） |
-| \`particle*\`（粒子数量/透明度/颜色） | ⚠️ **声明未实现** —— 无任何消费方 |
-| \`click_interact.*.particle\` | ⚠️ 声明未实现；\`*.*.sound\` 名亦未接线（点击走的是 \`ipAudio.cue('receive'/'calm')\`） |
-| \`js/motion.js setState()\` | ⚠️ 空实现（只 \`return {state}\`，不驱动 CSS）；高危静态由既有 \`.mascot--danger\` 承担 |
+| \`emotion_motion_map.*.ip_anim\` | ✅ 真在跑（v1.6.13 起 \`motion.setState()\` 真挂 class；v1.6.17 加 2.5s 情绪稳定窗） |
+| \`scene_effect.*\` 四场景 | ⚠️ 已于 v1.7.5 **整块删除** —— 零读零消费，留着只是假承诺 |
+| \`particle*\` / \`click_interact.*.particle\` | ⚠️ 已于 v1.7.5 **整块删除** —— 样式表里 0 消费，写了不生效 |
+| \`js/motion.js setState()\` | ✅ 真跑（v1.6.13 补齐实现，v1.6.17 起带防抖；高危定格不受稳定窗约束） |
 
-> 上面 4 条 ⚠️ 是**已知欠账**，不是文档疏漏：配置先行、实现待补。
-> 判别方式：\`grep -r "float_up_relax\\|purple_gold_light\\|particle_count" js/ styles.css\` 应当无消费方。
+> ⚠️ 这两条是**已关闭的欠账**，不是当前状态：当年它们确实是空壳/死配置，删掉比留着诚实。
+> 后续若真要上粒子或场景特效，正确姿势是**先写消费方（CSS 选择器 / 调用点）再回来补配置**，别反过来。
 `;
 
 /* ---------- 全文 ---------- */

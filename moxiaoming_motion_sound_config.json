@@ -9,7 +9,6 @@
     "default_volume": 0.08,
     "max_volume": 0.05,
     "sound_default_on": false,
-    "enable_particle": true,
     "enable_sound": true,
     "high_risk_disable_all_active_effect": true,
     "switch_transition_ms": [600, 1200],
@@ -28,34 +27,25 @@
       "group3": { "ids": [5, 6], "anim": "ip-wisp-tiny", "amp_px": 2, "delay_ms": 0 },
       "group4": { "ids": [7, 8], "anim": "ip-wisp-still", "amp_deg": 1, "delay_ms": -2000, "period_ms": 9000, "opacity": 0.7 }
     },
-    "particle_count": { "min": 4, "max": 6 },
-    "particle_alpha": [0.15, 0.3],
-    "particle_color": "#9d7cd8",
     "bg_sound": "underwater_low_white_noise",
     "bg_sound_volume": 0.08,
     "bg_sound_mute_on_speak": true
   },
   "click_interact": {
     "max_count_for_tap3": 3,
-    "tap1": { "anim": "ip-tap1", "duration_ms": 800, "curve": "ease-in-out", "particle": 2, "sound": "bubble_soft_1" },
-    "tap2": { "anim": "ip-tap2", "duration_ms": 1200, "curve": "ease-in-out", "particle": "light_ink_fog", "sound": "water_soft_short" },
-    "tap3": { "anim": "ip-tap3", "duration_ms": 1500, "curve": "ease-in-out", "particle": "aura_soft_diffuse", "sound": "water_long_heal" },
-    "tap_more": { "anim": "ip-tap-over", "duration_ms": 1000, "curve": "ease-in-out", "particle": "random_light_float", "sound": "bubble_series_tiny" }
+    "tap1": { "anim": "ip-tap1", "duration_ms": 800, "curve": "ease-in-out", "sound": "bubble_soft_1" },
+    "tap2": { "anim": "ip-tap2", "duration_ms": 1200, "curve": "ease-in-out", "sound": "water_soft_short" },
+    "tap3": { "anim": "ip-tap3", "duration_ms": 1500, "curve": "ease-in-out", "sound": "water_long_heal" },
+    "tap_more": { "anim": "ip-tap-over", "duration_ms": 1000, "curve": "ease-in-out", "sound": "bubble_series_tiny" }
   },
   "emotion_motion_map": {
-    "joy": { "ip_state": "joy", "ip_anim": "float_up_relax", "particle": "purple_gold_light", "sound": "bubble_happy_light" },
-    "sad": { "ip_state": "sad", "ip_anim": "sink_quiet", "particle": "light_down_fall", "sound": "water_deep_calm" },
-    "angry": { "ip_state": "angry", "ip_anim": "tight_swing_slow", "particle": "gray_ink_fog", "sound": "water_stable_short" },
-    "anxious": { "ip_state": "anxious", "ip_anim": "tiny_shiver_slow", "particle": "slow_ripple_fine", "sound": "water_tiny_steady" },
-    "tired": { "ip_state": "tired", "ip_anim": "super_slow_idle", "particle": "none", "sound": "whisper_noise_low" },
-    "mixed": { "ip_state": "mixed", "ip_anim": "drift_sway_alternate", "particle": "dual_color_blend", "sound": "bubble_intermittent" },
-    "danger": { "ip_state": "danger", "ip_anim": "static_calm", "particle": "none", "sound": "base_comfort_low", "lock_motion": true }
-  },
-  "scene_effect": {
-    "home_greet_pop": { "ip_anim": "tentacle_greet", "sound": "bubble_single_soft" },
-    "card_create": { "ip_anim": "point_to_card", "card_anim": "slide_up_fade", "sound": "water_card_pop" },
-    "quiet_mode": { "ip_anim": "ultra_slow_idle", "sound": "underwater_loop_very_low", "float_cycle_ms": 12000 },
-    "monthly_review": { "ip_anim": "spread_full_rotate_half", "aura": "purple_gradient_bloom", "sound": "water_long_heal_full" }
+    "joy": { "ip_state": "joy", "ip_anim": "float_up_relax", "sound": "bubble_happy_light" },
+    "sad": { "ip_state": "sad", "ip_anim": "sink_quiet", "sound": "water_deep_calm" },
+    "angry": { "ip_state": "angry", "ip_anim": "tight_swing_slow", "sound": "water_stable_short" },
+    "anxious": { "ip_state": "anxious", "ip_anim": "tiny_shiver_slow", "sound": "water_tiny_steady" },
+    "tired": { "ip_state": "tired", "ip_anim": "super_slow_idle", "sound": "whisper_noise_low" },
+    "mixed": { "ip_state": "mixed", "ip_anim": "drift_sway_alternate", "sound": "bubble_intermittent" },
+    "danger": { "ip_state": "danger", "ip_anim": "static_calm", "sound": "base_comfort_low", "lock_motion": true }
   },
   "state_machine": {
     "default": "idle_standby",

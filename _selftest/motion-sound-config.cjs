@@ -78,7 +78,6 @@ function ok(name, cond, detail = '') {
         out.wire.setState = {
           key, ret,
           onEl: !!(el && ret && ret.ip_anim && el.classList.contains(ret.ip_anim)),
-          particle: getComputedStyle(document.documentElement).getPropertyValue('--mm-particle').trim(),
         };
       } catch (e) { out.wire.setState = { err: String(e.message) }; }
     } catch (e) { out.wire = { err: String(e.message) }; }
@@ -187,7 +186,6 @@ function ok(name, cond, detail = '') {
   const cueRefs = [];
   Object.values(ci).forEach((v) => v && v.sound && cueRefs.push([v.sound, 'click_interact']));
   Object.values(cfg.emotion_motion_map || {}).forEach((v) => v && v.sound && cueRefs.push([v.sound, 'emotion']));
-  Object.values(cfg.scene_effect || {}).forEach((v) => v && v.sound && cueRefs.push([v.sound, 'scene_effect']));
   for (const [name, from] of cueRefs) {
     ok(`音效 ${name}（${from}）在声音表里真实存在`, data.cues.includes(name));
   }
@@ -219,7 +217,25 @@ function ok(name, cond, detail = '') {
   const ws = w.setState || {};
   ok('setState 对情绪态真跑出结果', !!ws.ret, JSON.stringify(ws.ret));
   ok('setState 的动画类真加到 IP 身上（不是只算出个名字）', ws.onEl === true, JSON.stringify(ws));
-  ok('setState 真把 particle 写进 CSS 变量', !!ws.particle && ws.particle !== 'none', String(ws.particle));
+
+  // ⑦b 死配置清除（P2-1 / P3-1，v1.7.5）：原来这一层有 5 条断言在验「死配置能用」，
+  //    那是在给假能力发通行证（配置写得再满，样式表里 0 消费 = 改了不生效）。
+  //    现在反向验：这些死字段/死音效必须**彻底不在了**，而不是留个空壳继续维护。
+  const cssSrc = fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8');
+  const motionSrc = fs.readFileSync(path.join(ROOT, 'js', 'motion.js'), 'utf8');
+  const DEAD_CUES = ['bubble_single_soft', 'water_card_pop', 'underwater_loop_very_low', 'water_long_heal_full'];
+  ok('配置里不再有 scene_effect 死块', cfg.scene_effect === undefined, '顶层键=' + Object.keys(cfg).join('/'));
+  ok('配置里不再有 particle* 死字段', JSON.stringify(cfg).indexOf('particle') < 0);
+  ok('样式表里 particle 消费者归零（原粒子变量无任何 var() 引用 / 无选择器）',
+     cssSrc.indexOf('particle') < 0);
+  // 🔴 这里**不能**用裸 token 判（`src.indexOf('--mm-particle') < 0`）——“检查死配置时把死配置名写进注释”
+  //    是常规操作，裸 token 一撞注释就假红（本仓 C8 那句「注释复述不算」是同一个坑）。
+  //    改打**代码形态**：只有真的又写 CSS 变量 / 又写 dataset 才会命中，注释里复述名字不算。
+  const particleWrite = /setProperty\(\s*['"`]?--mm-particle/.test(motionSrc) || /dataset\.\s*particle\s*=/.test(motionSrc);
+  ok('motion.js 不再往根节点写粒子 CSS 变量 / dataset（打代码形态，注释复述不算）',
+     particleWrite === false);
+  ok('声音表里清掉了 scene_effect 专用音效（4 个零引用生成器）',
+     DEAD_CUES.every((n) => data.cues.indexOf(n) < 0), DEAD_CUES.filter((n) => data.cues.indexOf(n) >= 0).join(','));
 
   ok('页面无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '));
 
