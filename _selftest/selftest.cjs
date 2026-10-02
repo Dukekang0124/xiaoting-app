@@ -2555,6 +2555,32 @@ const MOCK_SDK = `(function(){
   check('模块三·防呆气泡文案含安心语义', /听|急/.test(I8.text || ''), I8.text);
   check('模块三·防呆气泡（等待>10s 联动）默认隐藏、激活可见', I8.off < 0.1 && I8.on > 0.9, JSON.stringify(I8));
 
+  /* ================= C7. 追问页多轮语音·死锁与幻觉（v1.6.11） ================= */
+  sec('C7. 追问页多轮语音（v1.6.11）');
+  // ① 幻觉过滤：真机出现的「字幕志愿者 杨茜茜」必须被判为幻觉；正常长句不得误杀
+  const H1 = await page.evaluate(async () => {
+    const m = await import('/js/asr.js');
+    return {
+      hasFn: typeof m.isLikelyHallucination === 'function',
+      sub: m.isLikelyHallucination ? m.isLikelyHallucination('字幕志愿者 杨茜茜') : null,
+      thanks: m.isLikelyHallucination ? m.isLikelyHallucination('请不吝点赞 订阅 转发') : null,
+      real: m.isLikelyHallucination ? m.isLikelyHallucination('我今天真的很累，什么都不想做，只想躺着') : null,
+    };
+  });
+  check('[ASR] 幻觉过滤函数存在', H1.hasFn === true, JSON.stringify(H1));
+  check('[ASR] 「字幕志愿者 杨茜茜」判为幻觉（不发）', H1.sub === true, JSON.stringify(H1));
+  check('[ASR] 「请不吝点赞 订阅」判为幻觉', H1.thanks === true, JSON.stringify(H1));
+  check('[ASR] 正常长倾诉不误杀', H1.real === false, JSON.stringify(H1));
+
+  // ② 结构断言：时长门槛 + 追问页硬复位/看门狗/指针捕获 + native 超时 都在源码里
+  const srcAsr = readC5('js/asr.js');
+  const srcApp = readC5('js/app.js');
+  const srcCfg = readC5('js/config.js');
+  check('[ASR] 具备解码时长门槛（minAudioMs，挡静音）', srcAsr.includes('minAudioMs') && srcCfg.includes('minAudioMs'));
+  check('[ASR] 追问页具备硬复位+看门狗（fuHardReset + startWatchdog）', srcApp.includes('fuHardReset') && srcApp.includes('startWatchdog'));
+  check('[ASR] 追问页松手用 setPointerCapture（抗丢事件）', srcApp.includes('setPointerCapture'));
+  check('[ASR] native.done 带超时（不再无限等待卡死）', srcApp.includes('fuRec.native.done') && /Promise\.race\(\[/.test(srcApp));
+
   await browser.close();
 
   // 断言总数基线自检：数量对不上就是「有人悄悄删/加了断言」，宁可红一条也不要静默漂移。

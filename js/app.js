@@ -116,6 +116,29 @@ const rec = {
 /** 柔和提示（v1.1.2）：原来是黑条系统警告，真机上很吓人；现在走柔和气泡样式 */
 function softSay(msg) { store.toast(msg, 3200); }
 
+/** 首页录音硬复位（v1.6.11）：任何路径下都能把 rec 清回可再次录音的干净态，
+ *  用于「上一次录音因异常/挂起没复位」时自愈，避免第二次按住永久无反应。 */
+function hardResetRec(reason) {
+  rec.active = false;
+  try { document.body.classList.remove('recording'); } catch (e) { /* ignore */ }
+  if (window.ipAudio) { try { window.ipAudio.setMuted(false); } catch (e) { /* ignore */ } }
+  if (rec.iv) clearInterval(rec.iv);
+  if (rec.hintIv) clearInterval(rec.hintIv);
+  if (rec.maxTimer) clearTimeout(rec.maxTimer);
+  rec.iv = rec.hintIv = rec.maxTimer = null;
+  if (rec.volIv) { try { cancelAnimationFrame(rec.volIv); } catch (e) {} rec.volIv = 0; }
+  if (rec.volumeProbe) { try { rec.volumeProbe.stop(); } catch (e) {} rec.volumeProbe = null; }
+  try { if (rec.sr) rec.sr.stop(); } catch (e) { /* ignore */ }
+  try { if (rec.native) rec.native.stop(); } catch (e) { /* ignore */ }
+  try { if (rec.media && rec.media.state !== 'inactive') rec.media.stop(); } catch (e) { /* ignore */ }
+  try { if (rec.stream) rec.stream.getTracks().forEach((t) => t.stop()); } catch (e) { /* ignore */ }
+  rec.sr = null; rec.media = null; rec.stream = null; rec.native = null; rec.chunks = [];
+  const btn = document.getElementById('talkbtn'); if (btn) btn.classList.remove('talkbtn--live');
+  const label = document.getElementById('talkLabel'); if (label) label.textContent = '按住说';
+  try { document.documentElement.style.setProperty('--ip-vol', '0'); } catch (e) { /* ignore */ }
+  if (reason) console.warn('[ASR] 首页录音硬复位: ' + reason);
+}
+
 /** 等 MediaRecorder 把最后一块数据交出来（onstop 之后 chunks 才是完整的） */
 function waitForBlob(media) {
   return new Promise((resolve) => {
@@ -195,7 +218,11 @@ function volumeTick() {
 function setLiveText(s) { const el = document.getElementById('liveText'); if (el) el.textContent = s; }
 
 async function beginCapture() {
-  if (rec.active) return;
+  if (rec.active) {
+    // v1.6.11 自愈：上一次若卡住（active=true 却没有活着的录音），硬复位后继续，避免永久死锁
+    if (!rec.media) { console.warn('[ASR] beginCapture 重入且无活录音，硬复位'); hardResetRec('reentrant'); }
+    else return;
+  }
   rec.mode = 'web';
   rec.native = null;
 
@@ -222,6 +249,7 @@ async function beginCapture() {
   }
   rec.active = true;
   rec.transcript = ''; rec.srText = ''; rec.chunks = []; rec.t0 = Date.now();
+  console.log('[ASR] 录音开始（首页）');
   document.body.classList.add('recording');
   if (window.ipAudio) window.ipAudio.setMuted(true); // 倾诉开始：待机环境音立刻让位（方案 §2.6）
   const btn = document.getElementById('talkbtn');
@@ -358,12 +386,15 @@ async function endCapture() {
     detail: `模式=${rec.mode} 录音字节=${(blob && blob.size) || 0} 时长=${((Date.now() - (rec.t0 || Date.now())) / 1000).toFixed(1)}s` +
       (srText ? ` 内置字幕="${srText.slice(0, 30)}"` : ''),
   });
+  console.log('[ASR] 音频大小: ' + ((blob && blob.size) || 0) + ' bytes（首页 模式=' + rec.mode + '）');
 
   // 原生模式：向设备收尾，拿它转写好的文字
   let nativeRes = null;
   if (rec.mode === 'native' && rec.native) {
     try { rec.native.stop(); } catch (e) { /* ignore */ }
-    nativeRes = await rec.native.done;
+    // v1.6.11：native.done 可能永不结算 ⇒ 加 3s 超时，绝不卡在释放麦克风之前
+    try { nativeRes = await Promise.race([rec.native.done, new Promise((r) => setTimeout(() => r(null), 3000))]); }
+    catch (e) { nativeRes = null; }
     rec.native = null;
   }
   try { rec.stream && rec.stream.getTracks().forEach((t) => t.stop()); } catch (e) { /* ignore */ } // 再关音轨
@@ -1023,7 +1054,9 @@ function pageFollowup() {
  * IP 联动：录音 listening（触角随音量起伏）→ 识别中 thinking → 结束恢复本页派生态。
  * IP 用「局部替换 SVG」而不是全局 render——追问页 textarea 里已有内容，整页重渲染会把话冲掉。 */
 const fuRec = { active: false, mode: 'web', media: null, stream: null, chunks: [], mime: '', t0: 0,
-  native: null, probe: null, volIv: 0, timerIv: 0, nativeFailCode: '' };
+  native: null, probe: null, volIv: 0, timerIv: 0, nativeFailCode: '', startWatchdog: null };
+// v1.6.11：启动看门狗阈值 —— 超过它还没拿到 MediaRecorder 就判启动失败并硬复位
+const FU_START_TIMEOUT_MS = 3500;
 
 function fuMascotSwap(state) {
   const box = document.getElementById('fuMascot');
@@ -1054,13 +1087,32 @@ function fuUiReset(label) {
 }
 
 function fuStopStreams() {
+  if (fuRec.startWatchdog) { clearTimeout(fuRec.startWatchdog); fuRec.startWatchdog = null; }
   if (fuRec.timerIv) { clearInterval(fuRec.timerIv); fuRec.timerIv = 0; }
   if (fuRec.volIv) { try { cancelAnimationFrame(fuRec.volIv); } catch (e) { /* ignore */ } fuRec.volIv = 0; }
   try { document.documentElement.style.setProperty('--ip-vol', '0'); } catch (e) { /* ignore */ }
   if (fuRec.probe) { try { fuRec.probe.stop(); } catch (e) { /* ignore */ } fuRec.probe = null; }
   try { if (fuRec.native) fuRec.native.stop(); } catch (e) { /* ignore */ }
+  // 🔴 v1.6.11：麦克风必须彻底释放（MediaRecorder.stop + track.stop）。
+  //    只停其一，第二次按下时浏览器/WebView 可能拒绝再次授权 ⇒ 表现为「完全没反应」。
+  try { if (fuRec.media && fuRec.media.state !== 'inactive') fuRec.media.stop(); } catch (e) { /* ignore */ }
   try { if (fuRec.stream) fuRec.stream.getTracks().forEach((t) => t.stop()); } catch (e) { /* ignore */ }
   fuRec.stream = null;
+  console.log('[ASR] 录音资源已释放（追问页）');
+}
+
+/**
+ * 追问页录音「硬复位」（v1.6.11）：把状态彻底清干净，任何路径下都可调用。
+ * 这是「第二次按住完全没反应」的根治手段 —— 上一次若因异常/挂起没复位，active 卡在 true，
+ * 后续所有按下都被 `if (fuRec.active) return` 静默吞掉。这里保证回到可再次录音的干净态。
+ */
+function fuHardReset(reason) {
+  fuRec.active = false;
+  fuStopStreams();
+  fuRec.media = null; fuRec.chunks = []; fuRec.native = null; fuRec.mode = 'web';
+  fuMascotRestore(); fuUiReset('按住说');
+  try { document.documentElement.style.setProperty('--ip-vol', '0'); } catch (e) { /* ignore */ }
+  if (reason) console.warn('[ASR] 追问页录音硬复位: ' + reason);
 }
 
 /** 同步中止（跳过 / 离开页面时用）：立刻停音轨与计时器并复位 UI，不做任何识别 */
@@ -1075,11 +1127,20 @@ function fuAbort() {
 }
 
 async function fuBeginCapture() {
-  if (fuRec.active) return;
   const btn = document.getElementById('fuTalk');
   const lb = document.getElementById('fuTalkLabel');
   const next = document.getElementById('fuNext');
-  if (!CAP.canRecord) { fuHint('这个环境拿不到麦克风，直接打字告诉我也可以'); return; }
+  // 🔴 v1.6.11 卡死自愈：若上一次因异常/挂起没复位（active 仍为 true 但没有活着的录音），
+  //    先硬复位再继续 —— 否则这一按会被下面的 return 吞掉，就是用户说的「第二次完全没反应」。
+  if (fuRec.active) {
+    console.warn('[ASR] fuBeginCapture 被重入（active=true），执行硬复位后继续');
+    fuHardReset('reentrant');
+  }
+  if (!CAP.canRecord) {
+    if (btn) btn.classList.remove('talkbtn--press');
+    fuHint('这个环境拿不到麦克风，直接打字告诉我也可以');
+    return;
+  }
   fuRec.active = true;
   fuRec.mode = 'web'; fuRec.native = null; fuRec.chunks = []; fuRec.mime = ''; fuRec.nativeFailCode = '';
   fuRec.t0 = Date.now();
@@ -1090,36 +1151,56 @@ async function fuBeginCapture() {
   fuMascotSwap('listening');        // 状态机联动：倾听
   const tEl = document.getElementById('fuTalkTimer');
   fuRec.timerIv = setInterval(() => { if (tEl) tEl.textContent = ((Date.now() - fuRec.t0) / 1000).toFixed(1) + 's'; }, 100);
-  // 模式选择与首页同款判据；native 模式也并行录一份 Web 音频（v1.4.4 的云端回落原料）
-  if (nativeAsr.nativeSpeechPresent() && (await nativeAsr.nativeSpeechAvailable())) {
-    const perm = await nativeAsr.nativeSpeechPermission();
-    if (perm === 'denied') {
-      fuRec.active = false; fuStopStreams(); fuMascotRestore(); fuUiReset('按住说');
-      fuHint('需要麦克风权限才能说话，可以直接打字回答');
-      return;
+  console.log('[ASR] 录音开始（追问页）');
+  // 看门狗：启动链路里任何一步 await 挂起，都要在超时后放行/复位，绝不让 active 永久卡住
+  fuRec.startWatchdog = setTimeout(() => {
+    if (fuRec.active && !fuRec.media) {
+      fuHardReset('start_timeout');
+      fuHint('刚才没启动起来，再按住说一次试试');
     }
-    fuRec.mode = 'native';
-    fuRec.native = nativeAsr.nativeListen({ lang: 'zh-CN', onPartial: (t) => fuHint(t ? `「${t}」` : '') });
-    asr.logEvent('fu_native_start', {});
-  }
+  }, FU_START_TIMEOUT_MS);
   try {
+    // 模式选择与首页同款判据；native 模式也并行录一份 Web 音频（v1.4.4 的云端回落原料）
+    // 原生探测一律 catch —— 任何异常都不能让它把 active 卡住
+    let nativeOk = false;
+    try { nativeOk = nativeAsr.nativeSpeechPresent() && (await nativeAsr.nativeSpeechAvailable()); } catch (e) { nativeOk = false; }
+    if (!fuRec.active) return;                       // 启动期间用户已松手/取消
+    if (nativeOk) {
+      let perm = 'unknown';
+      try { perm = await nativeAsr.nativeSpeechPermission(); } catch (e) { perm = 'unknown'; }
+      if (perm === 'denied') {
+        fuHardReset('native_denied');
+        fuHint('需要麦克风权限才能说话，可以直接打字回答');
+        return;
+      }
+      fuRec.mode = 'native';
+      fuRec.native = nativeAsr.nativeListen({ lang: 'zh-CN', onPartial: (t) => fuHint(t ? `「${t}」` : '') });
+      asr.logEvent('fu_native_start', {});
+    }
+    if (!fuRec.active) return;                       // 再次确认未被取消
     fuRec.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    if (!fuRec.active) { try { fuRec.stream.getTracks().forEach((t) => t.stop()); } catch (e) {} fuRec.stream = null; return; }
     fuRec.mime = asr.pickMime();
     fuRec.media = fuRec.mime ? new MediaRecorder(fuRec.stream, { mimeType: fuRec.mime }) : new MediaRecorder(fuRec.stream);
     fuRec.media.ondataavailable = (e) => { if (e.data && e.data.size) fuRec.chunks.push(e.data); };
     fuRec.media.start();
     fuRec.probe = voice.createVolumeProbe(fuRec.stream);
     fuVolTick();
+    if (fuRec.startWatchdog) { clearTimeout(fuRec.startWatchdog); fuRec.startWatchdog = null; }
     diag.note('mic', 'fu_open', { ok: true, detail: `追问页录音就绪 模式=${fuRec.mode} 容器=${fuRec.mime || '默认'}` });
   } catch (e) {
+    fuHardReset('start_failed');
     if (fuRec.mode !== 'native') {
-      fuRec.active = false; fuStopStreams(); fuMascotRestore(); fuUiReset('按住说');
-      fuHint('麦克风没拿到权限，直接打字告诉我也可以');
       asr.logEvent('fu_mic_fail', { name: String((e && e.name) || 'unknown') });
-      return;
+      fuHint('麦克风没拿到权限，直接打字告诉我也可以');
+    } else {
+      // native 模式下并行录音失败不致命：设备识别还有机会，只是云端回落会缺原料
+      diag.note('mic', 'fu_parallel', { ok: false, detail: `追问页并行录音不可用：${String((e && e.message) || e).slice(0, 60)}` });
+      // 但 native 链路还在跑，重新进入倾听态与计时
+      fuRec.active = true; fuMascotSwap('listening');
+      if (lb) lb.textContent = '松手结束';
+      if (next) next.disabled = true;
     }
-    // native 模式下并行录音失败不致命：设备识别还有机会，只是云端回落会缺原料
-    diag.note('mic', 'fu_parallel', { ok: false, detail: `追问页并行录音不可用：${String((e && e.message) || e).slice(0, 60)}` });
   }
 }
 
@@ -1128,23 +1209,36 @@ async function fuFinishCapture(cancelled) {
   fuRec.active = false;
   const input = document.getElementById('fuInput');
   const durMs = Date.now() - fuRec.t0;
+  const lb = document.getElementById('fuTalkLabel');
+
+  // 🔴 v1.6.11：收尾必须先无条件释放麦克风。native.done 可能永不结算 ⇒ 加 3s 超时兜底，
+  //    绝不能让整个收尾卡在这条 await 上（真机上就表现为「第二次按住没反应」）。
   let nativeRes = null;
   if (fuRec.mode === 'native' && fuRec.native) {
-    try { nativeRes = await fuRec.native.done; } catch (e) { nativeRes = null; }
+    try {
+      nativeRes = await Promise.race([
+        fuRec.native.done,
+        new Promise((r) => setTimeout(() => r(null), 3000)),
+      ]);
+    } catch (e) { nativeRes = null; }
     fuRec.native = null;
   }
   const media = fuRec.media;
   fuRec.media = null;
-  const blob = media ? await new Promise((resolve) => {
-    let done = false;
-    const finish = () => { if (done) return; done = true;
-      try { resolve(fuRec.chunks.length ? new Blob(fuRec.chunks, { type: fuRec.mime || 'audio/webm' }) : null); } catch (e) { resolve(null); } };
-    media.onstop = finish;
-    try { if (media.state !== 'inactive') media.stop(); else finish(); } catch (e) { finish(); }
-    setTimeout(finish, 1500);
-  }) : null;
+  let blob = null;
+  try {
+    blob = media ? await new Promise((resolve) => {
+      let done = false;
+      const finish = () => { if (done) return; done = true;
+        try { resolve(fuRec.chunks.length ? new Blob(fuRec.chunks, { type: fuRec.mime || 'audio/webm' }) : null); } catch (e) { resolve(null); } };
+      media.onstop = finish;
+      try { if (media.state !== 'inactive') media.stop(); else finish(); } catch (e) { finish(); }
+      setTimeout(finish, 1500);
+    }) : null;
+  } catch (e) { blob = null; }
   fuStopStreams();
   fuRec.chunks = [];
+  console.log('[ASR] 音频大小: ' + ((blob && blob.size) || 0) + ' bytes（追问页 时长 ' + Math.round(durMs) + 'ms）');
 
   if (cancelled) {
     fuMascotRestore(); fuUiReset('按住说');
@@ -1155,29 +1249,34 @@ async function fuFinishCapture(cancelled) {
 
   // 状态机联动：识别中 → thinking
   fuMascotSwap('thinking');
-  const lb = document.getElementById('fuTalkLabel');
   if (lb) lb.textContent = '识别中…';
 
   let text = '';
-  const cloudAllowed = store.getState().user.settings.cloudAsr !== false;
-  if (nativeRes && nativeRes.ok && nativeRes.text) {
-    text = nativeRes.text;
-    diag.note('asr', 'fu_native', { ok: true, detail: `追问页设备识别 ${text.length} 字` });
-  } else {
-    if (nativeRes && !nativeRes.ok) fuRec.nativeFailCode = nativeRes.code || 'native_failed';
-    if (blob && blob.size > 0 && cloudAllowed && (await asr.probeCloud()) !== 'unavailable') {
-      const r = await asr.recognize(blob);
-      if (r.ok) {
-        text = r.text;
-        asr.logEvent('asr_ok', { engine: 'fu_cloud_fallback', ms: r.ms || 0, totalMs: r.totalMs || 0, chars: text.length });
-        diag.note('asr', 'fu_cloud_fallback', { ok: true, detail: `追问页云端识别 ${text.length} 字${fuRec.nativeFailCode ? `（设备识别失败 ${fuRec.nativeFailCode} 后回落）` : ''}` });
-      } else {
-        asr.logEvent('asr_fail', { engine: 'fu_cloud', code: r.code || '', totalMs: r.totalMs || 0 });
+  try {
+    const cloudAllowed = store.getState().user.settings.cloudAsr !== false;
+    if (nativeRes && nativeRes.ok && nativeRes.text) {
+      text = nativeRes.text;
+      diag.note('asr', 'fu_native', { ok: true, detail: `追问页设备识别 ${text.length} 字` });
+    } else {
+      if (nativeRes && !nativeRes.ok) fuRec.nativeFailCode = nativeRes.code || 'native_failed';
+      if (blob && blob.size > 0 && cloudAllowed && (await asr.probeCloud()) !== 'unavailable') {
+        const r = await asr.recognize(blob);
+        if (r.ok) {
+          text = r.text;
+          asr.logEvent('asr_ok', { engine: 'fu_cloud_fallback', ms: r.ms || 0, totalMs: r.totalMs || 0, chars: text.length });
+          diag.note('asr', 'fu_cloud_fallback', { ok: true, detail: `追问页云端识别 ${text.length} 字${fuRec.nativeFailCode ? `（设备识别失败 ${fuRec.nativeFailCode} 后回落）` : ''}` });
+        } else {
+          asr.logEvent('asr_fail', { engine: 'fu_cloud', code: r.code || '', totalMs: r.totalMs || 0 });
+          fuRec.nativeFailCode = r.code || fuRec.nativeFailCode;
+        }
       }
     }
+  } catch (e) {
+    console.warn('[ASR] 追问页识别异常，已兜底为未识别: ' + String((e && e.message) || e));
+    text = '';
+  } finally {
+    fuMascotRestore(); fuUiReset('按住说');   // 回归本页派生态（empathy）；异常路径也必须复位
   }
-
-  fuMascotRestore(); fuUiReset('按住说');   // 回归本页派生态（empathy）
 
   if (text) {
     if (input) { input.value = text; input.dispatchEvent(new Event('input', { bubbles: true })); }
@@ -1199,18 +1298,35 @@ function bindFollowup() {
   if (skip) skip.addEventListener('click', guardSkip);
   if (skipTop) skipTop.addEventListener('click', guardSkip);
   // v1.4.5 · 追问页「按住说」：松手 → 识别 → 填入输入框（可改再回答）
+  // v1.6.11 加固：① setPointerCapture —— 松手事件必定落在按钮上（不会因手抖丢事件）；
+  //              ② 取消判定改看「松手时手指在不在按钮内」（24px 容差），比 pointerleave 抗手抖；
+  //              ③ 300ms 防抖 —— 上一次刚结束的误触忽略，避免把状态机搞乱。
   const fuTalk = document.getElementById('fuTalk');
   if (fuTalk) {
-    fuTalk.addEventListener('pointerdown', (e) => { e.preventDefault(); fuTalk.classList.add('talkbtn--press'); fuBeginCapture(); });
-    const release = (e) => { e.preventDefault(); fuTalk.classList.remove('talkbtn--press'); fuFinishCapture(false); };
-    fuTalk.addEventListener('pointerup', release);
-    fuTalk.addEventListener('pointercancel', release);
-    // 滑出按钮区 = 取消：不提交、明确反馈。首页"滑出也提交"是因为首页没有文字兜底通道；
-    // 追问页有，滑出多半是误触，把识别结果灌进输入框反而打扰
-    fuTalk.addEventListener('pointerleave', () => {
-      fuTalk.classList.remove('talkbtn--press');
-      if (fuRec.active) { fuTalk.classList.add('talkbtn--cancel'); fuFinishCapture(true); }
+    let lastEndAt = 0;
+    fuTalk.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      if (Date.now() - lastEndAt < 300) return;
+      try { fuTalk.setPointerCapture(e.pointerId); } catch (err) { /* 老浏览器忽略 */ }
+      fuTalk.classList.remove('talkbtn--cancel');
+      fuTalk.classList.add('talkbtn--press');
+      fuBeginCapture();
     });
+    const end = (e) => {
+      e.preventDefault();
+      lastEndAt = Date.now();
+      fuTalk.classList.remove('talkbtn--press');
+      if (!fuRec.active) return;
+      const r = fuTalk.getBoundingClientRect();
+      const pad = 24;
+      const inside = e.clientX >= r.left - pad && e.clientX <= r.right + pad
+        && e.clientY >= r.top - pad && e.clientY <= r.bottom + pad;
+      if (e.type === 'pointercancel' || !inside) { fuTalk.classList.add('talkbtn--cancel'); fuFinishCapture(true); }
+      else fuFinishCapture(false);
+      try { if (fuTalk.hasPointerCapture(e.pointerId)) fuTalk.releasePointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+    };
+    fuTalk.addEventListener('pointerup', end);
+    fuTalk.addEventListener('pointercancel', end);
     fuTalk.addEventListener('click', (e) => e.preventDefault()); // 点一下不算说话
   }
   // 追问后超 20 秒未回复 ⇒ 长时间静默兜底，不再追问（§4.6）
@@ -2196,7 +2312,7 @@ function pageSettings() {
       }).join('')}
       ${(privacyLink((COPY.privacyFull || {}).link))}
     </div>
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.6.10')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.6.11')}</p>
   </section>`;
 }
 
@@ -2362,7 +2478,7 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.6.10')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.6.11')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -2371,7 +2487,7 @@ function pageChangelog() {
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.6.10')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.6.11')}</p>
   </section>`;
 }
 

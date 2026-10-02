@@ -217,6 +217,22 @@ export function blobToWav16kBase64(blob) {
     .then((b64) => { cleanup(); return b64; }, (e) => { cleanup(); throw e; });
 }
 
+/* ==================== 幻觉过滤（v1.6.11） ==================== */
+//
+// 真机实测：把静音 / 近空音频交给 Whisper，它会「幻觉」出与用户所说完全无关的文本，
+// 典型的是字幕组署名（如「字幕志愿者 杨茜茜」）或口播套话（「请不吝点赞、订阅」）。
+// 这不是用户说的话，绝不能填进输入框污染情绪分析 —— 必须当「没听清」处理。
+// 前端兜两层：① 时长太短直接不发（见 recognize 的 minAudioMs）；② 返回文本命中已知幻觉模式 ⇒ 判空。
+const HALLUCINATION_RE = /(字幕|志愿者|翻译|校对|听写|请不吝|点赞|订阅|关注|转发|打赏|充电|一键三连|明镜与点点|感谢(您)?观看|谢谢观看|由.{0,8}提供|字幕由|小助理|下期再见|MING\s*PAO|Subtitle|Subscribe|Amara\.org|Transcription)/i;
+
+/** 判断一段 ASR 结果是否为「静音幻觉」。真情绪倾诉通常较长；幻觉多为短句套话。 */
+export function isLikelyHallucination(text) {
+  const t = String(text || '').replace(/\s+/g, '');
+  if (!t) return true;
+  if (t.length > 40) return false;          // 长句不判，避免误杀真实长倾诉
+  return HALLUCINATION_RE.test(t);
+}
+
 /* ==================== 云端识别 ==================== */
 
 /**
@@ -237,6 +253,15 @@ export async function recognize(blob, { lang = ASR.lang, signal } = {}) {
   }
   if (!b64 || b64.length < ASR.minB64Len) {
     diag.end(dseq, { ok: false, code: 'too_short', ms: Date.now() - t0, detail: `编码后 ${(b64 || '').length} 字符 < 下限 ${ASR.minB64Len}` });
+    return { ok: false, code: 'too_short', hint: '太短了，好像没听到声音' };
+  }
+  // v1.6.11：按解码后的**真实时长**判空（比只看 base64 长度准得多）——
+  //   16k / 16bit / 单声道 WAV：samples = (bytes - 44) / 2，越短越可能是静音。
+  const _samples = Math.max(0, Math.floor((b64.length * 3 / 4 - 44) / 2));
+  const _audioMs = Math.round(_samples / 16000 * 1000);
+  console.log('[ASR] 音频时长 ' + _audioMs + 'ms, base64 ' + b64.length + ' chars');
+  if (_audioMs < ASR.minAudioMs) {
+    diag.end(dseq, { ok: false, code: 'too_short', ms: Date.now() - t0, detail: `解码时长 ${_audioMs}ms < 下限 ${ASR.minAudioMs}ms（判为没录到）` });
     return { ok: false, code: 'too_short', hint: '太短了，好像没听到声音' };
   }
   if (b64.length > ASR.maxB64Len) {
@@ -261,6 +286,12 @@ export async function recognize(blob, { lang = ASR.lang, signal } = {}) {
     usedAttempts = attempt;
     const one = await attemptRecognizeOnce(ep, b64, lang, reqHeaders, signal, attempt);
     if (one.kind === 'ok') {
+      // v1.6.11：静音幻觉拦截 —— 命中即判空，绝不让假文本进输入框
+      if (isLikelyHallucination(one.text)) {
+        console.warn('[ASR] 命中幻觉黑名单，判空：' + one.text);
+        diag.end(dseq, { ok: false, code: 'asr_empty', ms: Date.now() - t0, detail: `疑似 Whisper 幻觉（"${one.text.slice(0, 24)}"）⇒ 判空不发` });
+        return { ok: false, code: 'asr_empty', hint: '没听到说话声，靠近一点再说一次', totalMs: Date.now() - t0 };
+      }
       diag.end(dseq, {
         ok: true, ms: Date.now() - t0,
         detail: `识别成功（第 ${attempt} 次）engine=${one.engine} 服务端耗时=${one.serverMs}ms 文本="${one.text.slice(0, 40)}"`,
@@ -309,6 +340,7 @@ async function attemptRecognizeOnce(ep, b64, lang, headers, signal, attempt) {
     try { signal.addEventListener('abort', () => ctrl.abort()); } catch (e) { /* ignore */ }
   }
   const t1 = Date.now();
+  console.log('[ASR] 请求 Worker 地址: ' + ep + ' 第 ' + attempt + '/' + CLOUD_ASR.maxAttempts + ' 次，speech_base64_len=' + b64.length);
   diag.note('asr', 'request', {
     detail: `POST ${ep} 第 ${attempt}/${CLOUD_ASR.maxAttempts} 次 speech_base64_len=${b64.length} lang=${lang}`,
   });
@@ -329,6 +361,7 @@ async function attemptRecognizeOnce(ep, b64, lang, headers, signal, attempt) {
   // 先取文本再解析：Pages 对未匹配路径会回落 index.html 并返回 200，
   // 直接 res.json() 会把 HTML 吞成一个解析异常，看不出到底是哪个环节坏了。
   const raw = await res.text().catch(() => '');
+  console.log('[ASR] 返回的原始 JSON: ' + raw.slice(0, 300));
   let j = null;
   try { j = JSON.parse(raw); } catch (e) { j = null; }
 
