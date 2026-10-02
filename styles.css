@@ -954,6 +954,9 @@ body.swiping #view{touch-action:none}
 .welcome-pref input[type="checkbox"]:checked::after{content:"";position:absolute;left:5px;top:5px;width:6px;height:6px;
   border-radius:50%;background:#fff}
 .welcome-pref span{font-size:13px;line-height:1.55;color:var(--ink);display:block}
+/* v1.6.18：不带勾选框的说明条（没有对应长期开关的两条：别说教是默认 / 安静模式怎么进） */
+.welcome-note{position:relative;margin:8px 0 0;padding:0 0 0 14px;font-size:12px;line-height:1.6;color:var(--ink-soft,var(--ink));opacity:.82}
+.welcome-note::before{content:"";position:absolute;left:2px;top:7px;width:5px;height:5px;border-radius:50%;background:var(--primary);opacity:.6}
 
 /* ---------- v0.7.0 关于墨小溟 / 更新历史 ---------- */
 .changelog__ip{text-align:center;margin:6px 0 2px}

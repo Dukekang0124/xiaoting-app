@@ -2349,6 +2349,13 @@ function pageSettings() {
       <p class="set-sub">开启后，墨小溟会记下你倾诉中出现的「人物 / 事件 / 心结」结构化摘要（不保存原话），下次开口时轻轻呼应。关闭后不再新增与召回，已存记忆可到「我的记忆」里管理或删除。</p>
     </div>
     <div class="set-block">
+      <label class="switch">
+        <span>回复短一点，别长篇大论</span>
+        <input type="checkbox" id="setReplyShort" ${st.reply_short === true ? 'checked' : ''}/>
+      </label>
+      <p class="set-sub">开启后墨小溟每次回应压在两句话以内：先说听见了什么，再把话头递回给你。不想读长段的时候用（新手引导里也能勾）。</p>
+    </div>
+    <div class="set-block">
       <div class="set-title">IP 情绪动效</div>
       <label class="switch">
         <span>开启 IP 情绪动效</span>
@@ -2401,7 +2408,7 @@ function pageSettings() {
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
     ${privacyBlockHtml(COPY.privacyFull)}
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.6.17')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.6.18')}</p>
   </section>`;
 }
 
@@ -2424,6 +2431,9 @@ function bindSettings() {
   if (cb) cb.addEventListener('change', () => store.setSetting('cloudAsr', cb.checked));
   const mem = document.getElementById('setMemory');
   if (mem) mem.addEventListener('change', () => store.setSetting('memory_on', mem.checked));
+  // v1.6.18：「回复短一点」偏好（引导第 5 屏同一开关，这里给它一个能改回来的地方）
+  const rshort = document.getElementById('setReplyShort');
+  if (rshort) rshort.addEventListener('change', () => store.setSetting('reply_short', rshort.checked));
   // v1.3.0 IP 情绪动效三个开关
   const ipMotion = document.getElementById('setIpMotion');
   if (ipMotion) ipMotion.addEventListener('change', () => { store.setSetting('ipMotion', ipMotion.checked); document.body.classList.toggle('ip-motion-off', !ipMotion.checked); if (window.motion) window.motion.setEnabled(ipMotion.checked); });
@@ -2587,7 +2597,7 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.6.17')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.6.18')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -2600,7 +2610,7 @@ function pageChangelog() {
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.6.17')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.6.18')}</p>
   </section>`;
 }
 
@@ -3806,9 +3816,13 @@ const WELCOME_KEY = 'moxiaoming:welcomed_v1';
  */
 function applyWelcomePrefs(picked) {
   try {
+    // v1.6.18：只落有真开关的两条。
+    // 🔴 「安静陪伴模式」不在这里 —— 它的真身是首页长按墨小溟进出的**临时手势模式**
+    //    （store.quietMode，进一轮倾诉即退出），产品没有"长期安静"开关。
+    //    v1.6.17 曾写 user.settings.quiet_pref，但全仓无人读 ⇒ 勾了完全没效果（死配置）。
+    //    现在它在引导里只是说明文字（教用户怎么长按进），不写任何设置。
     if ('memory' in picked) store.setSetting('memory_on', !!picked.memory);
     if ('short' in picked) store.setSetting('reply_short', !!picked.short);
-    if ('quiet' in picked) store.setSetting('quiet_pref', !!picked.quiet);
   } catch (e) { /* 偏好是增强项，写不进去也不许卡住引导收尾 */ }
 }
 
@@ -3834,14 +3848,15 @@ function showWelcome() {
   if (screens.length < 5) return; // 文案不齐就别弹（半截引导比不引导更糟）
   let i = 0;
   // 末屏勾选结果：全部默认 false。存的是「用户勾选了什么」，不是「用户关掉了什么」。
-  const picked = Object.create(null); // { memory: true, short: true, quiet: true, noSermon: true }
+  const picked = Object.create(null); // { memory: true, short: true }
   const PF = OB.prefs || {};
+  // v1.6.18：只保留「有真开关可写」的两项。其余两条（别说教 / 安静陪伴）走 prefsNotes 纯告知 ——
+  // 产品当前没有对应的长期开关，做成勾选框就是「勾了不生效」的假开关。
   const PREF_ITEMS = [
     ['memory', PF.memory],
-    ['noSermon', PF.noSermon],
     ['short', PF.short],
-    ['quiet', PF.quiet],
   ].filter(([, label]) => !!label);
+  const PREF_NOTES = (OB.prefsNotes || []).filter(Boolean);
 
   const overlay = document.createElement('div');
   overlay.className = 'welcome-overlay welcome-overlay--steps';
@@ -3866,6 +3881,7 @@ function showWelcome() {
               <input type="checkbox" data-pref="${esc(k)}"${picked[k] ? ' checked' : ''} />
               <span>${esc(label)}</span>
             </label>`).join('')}
+          ${PREF_NOTES.map((n) => `<p class="welcome-note">${esc(n)}</p>`).join('')}
         </div>` : '';
     overlay.innerHTML = `
       <div class="welcome-card">

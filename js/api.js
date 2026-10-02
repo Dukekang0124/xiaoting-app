@@ -21,11 +21,29 @@ import { callJson, isStructural, debug as llmDebug, stats as llmStats } from './
 import {
   SYSTEM, MODEL_CONFIG, buildSafetyPrompt, buildMainPrompt, buildFollowupPrompt,
   buildCardPrompt, buildWeeklyPrompt, buildTimelinePrompt, scrubForbidden, findForbidden, CARD_LIB, CARD_LAYER, TIMELINE_EMOTIONS,
+  withPrefsHint,
 } from './prompts.js';
 import { AI } from './config.js';
 import * as store from './store.js';
 import * as diag from './diag.js';
 import * as memory from './memory.js';
+
+/**
+ * v1.6.18（G2 补完）：把用户偏好注入 system 提示。
+ *
+ * 目前只有一条偏好走这条路 —— 「回复短一点」（`user.settings.reply_short`，
+ * 由新手引导第 5 屏或设置页写入）。v1.6.17 只写不读（死配置 ⇒ 勾了没效果），
+ * 这里接到真实链路。读取失败一律原样返回，偏好不能拖垮主流程。
+ */
+function sysWithPrefs(system) {
+  try {
+    const s = store.getState();
+    const short = !!(s && s.user && s.user.settings && s.user.settings.reply_short === true);
+    return withPrefsHint(system, { short });
+  } catch (e) {
+    return system;
+  }
+}
 
 /* ==================== 词表（与 Prompt 里给定的一致，用来校验模型输出） ==================== */
 
@@ -504,7 +522,7 @@ export const api = {
     } catch (e) { /* 降级：无记忆上下文，不影响主流程 */ }
     const raw = await ask({
       stage: 'main',
-      system: SYSTEM.main,
+      system: sysWithPrefs(SYSTEM.main),
       user: buildMainPrompt(transcript, voiceFeatures, memoryContext),
       temperature: MODEL_CONFIG.main.temperature,
       maxTokens: MODEL_CONFIG.main.maxTokens,
@@ -531,7 +549,7 @@ export const api = {
     }
     const raw = await ask({
       stage: 'followup',
-      system: SYSTEM.followup,
+      system: sysWithPrefs(SYSTEM.followup),
       user: buildFollowupPrompt({ analysis, asked, userAnswer }),
       temperature: MODEL_CONFIG.followup.temperature,
       maxTokens: MODEL_CONFIG.followup.maxTokens,
@@ -546,7 +564,7 @@ export const api = {
   async cardGenerate({ analysis = null, followup = [], extra = '', transcript = '' } = {}) {
     const raw = await ask({
       stage: 'card',
-      system: SYSTEM.card,
+      system: sysWithPrefs(SYSTEM.card),
       user: buildCardPrompt({ analysis, followup, extra }),
       temperature: MODEL_CONFIG.card.temperature,
       maxTokens: MODEL_CONFIG.card.maxTokens,

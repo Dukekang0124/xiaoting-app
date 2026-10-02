@@ -2496,6 +2496,45 @@ const MOCK_SDK = `(function(){
     /setAiGate\(offline\)/.test(await readSrc('js/app.js'))
     && /if \(offline\) \{\s*\n\s*\/\/ 记下/.test(await readSrc('js/app.js')));
 
+  // ③k v1.6.18：G2 补完 —— 偏好开关「写了必须有人读」。
+  //    v1.6.17 引导第 5 屏有 4 个勾选项，其中两个是死配置（reply_short / quiet_pref 全仓 0 读）
+  //    ⇒ 用户勾了完全没效果。这比没有更糟：它让人以为事情已经办好了。
+  //    本批判据一律判「代码形态」而不是裸串 —— 注释里说明这段历史是允许的。
+  const appSrc18 = await readSrc('js/app.js');
+  const apiSrc18 = await readSrc('js/api.js');
+  check('G2·「回复短一点」接上真链路（main / followup / card 三条都过 sysWithPrefs）',
+    (apiSrc18.match(/sysWithPrefs\(SYSTEM\./g) || []).length === 3);
+  check('G2·写进去的设置真被读（api.js 读 user.settings.reply_short === true）',
+    /settings\.reply_short === true/.test(apiSrc18));
+  const prefHint = await page.evaluate(async () => {
+    const pr = await import('/js/prompts.js');
+    const base = pr.SYSTEM.main;
+    return {
+      base,
+      short: pr.withPrefsHint(base, { short: true }),
+      off: pr.withPrefsHint(base, { short: false }),
+      none: pr.withPrefsHint(base),
+      hasConst: typeof pr.SHORT_REPLY_HINT === 'string' && pr.SHORT_REPLY_HINT.length > 20,
+    };
+  });
+  check('G2·偏好开着时 system 尾部真的多出长度约束（运行时验，不看源码写没写）',
+    prefHint.hasConst && prefHint.short.length > prefHint.off.length
+    && prefHint.short.includes('回复短一点'));
+  check('G2·偏好关着 / 读不到时 system 原样不动（绝不因为偏好缺失就悄悄改提示）',
+    prefHint.off === prefHint.base && prefHint.none === prefHint.base);
+  check('G2·安静陪伴的死配置已清除（只判代码形态，注释里讲历史不算）',
+    !/setSetting\(['"]quiet_pref['"]/.test(appSrc18)
+    && !/setQuietMode\(!!picked/.test(appSrc18));
+  const prefBlock = (appSrc18.match(/const PREF_ITEMS = \[[\s\S]*?\]\.filter/) || [''])[0];
+  check('G2·引导只把"有真开关可写"的两项做成勾选框（quiet / noSermon 不再假装是开关）',
+    prefBlock.includes("'memory'") && prefBlock.includes("'short'")
+    && !prefBlock.includes("'quiet'") && !prefBlock.includes("'noSermon'"));
+  check('G2·没有长期开关的两条改成如实告知（prefsNotes 渲染成说明条）',
+    /prefsNotes/.test(appSrc18) && /welcome-note/.test(appSrc18));
+  check('G2·设置页有「回复短一点」开关并绑定 setSetting（勾了之后有地方改回来）',
+    /id="setReplyShort"/.test(appSrc18)
+    && /setReplyShort'\)[\s\S]{0,140}setSetting\('reply_short', rshort\.checked\)/.test(appSrc18));
+
   // ③f v1.6.15：假承诺清理。这两个键此前全仓只有定义处、0 读 0 UI；
   // 「云端记录将同步清除」是一个根本不存在的云端（产品不设账号）。全绿但说谎的话，比不写更糟。
   const smSrc = await readSrc('js/state-machine.js');
