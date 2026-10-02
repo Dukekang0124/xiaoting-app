@@ -2280,7 +2280,7 @@ function pageMe() {
       <p class="mblock__d">${esc(M.download.desc)}</p>
       <a class="mrow mrow--download" href="#/download">
         <span class="mrow__ico">${ICON.download}</span>
-        <span class="mrow__txt">${esc(M.download.row)}<span class="mrow__sub" id="meDlSub">当前版本 v${esc(window.APP_VERSION || '1.7.2')}</span></span>
+        <span class="mrow__txt">${esc(M.download.row)}<span class="mrow__sub" id="meDlSub">当前版本 v${esc(window.APP_VERSION || '1.7.3')}</span></span>
         <i class="mrow__arrow">›</i>
       </a>
       <button class="ghost me-install" id="meInstall" type="button">${esc(M.download.installBtn)}</button>
@@ -2540,7 +2540,7 @@ function pageSettings() {
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
     ${privacyBlockHtml(COPY.privacyFull)}
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.7.2')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.7.3')}</p>
   </section>`;
 }
 
@@ -2596,14 +2596,18 @@ function bindSettings() {
   // v1.7.1 进页面就真探测一次 ⇒ 用户每次开设置页都被白扣一次模型调用，报出来的还是「还没开口」。
   // v1.7.2：首屏只取不探测的 status()（如实报「还没实测过」），点「重新检测通道」才真跑一次整条链路。
   // 按钮说「重新检测通道」，就真去测通道 —— 按钮名和行为必须一件事。
-  const aiTxt = document.getElementById('aiChannelText');
+  let aiTxt = document.getElementById('aiChannelText');
   const aiBtn = document.getElementById('aiChannelRetest');
+  // 🔴 每次都重新 getElementById：渲染后若又 render() 过一次，DOM 换成了新节点，
+  //    闭包里那个旧 aiTxt 已经脱离文档 —— 探测明明成功了，文字却 painter 进空气里，屏幕上纹丝不动。
   function paintAiChannel(s) {
-    if (!aiTxt || !s) return null;
-    aiTxt.textContent = aiChannelText(s);
-    aiTxt.dataset.channel = s.channel || 'unknown';
-    aiTxt.dataset.model = s.model || '';
-    aiTxt.dataset.provider = s.provider || '';
+    const el = document.getElementById('aiChannelText');
+    if (!el || !s) return null;
+    aiTxt = el;
+    el.textContent = aiChannelText(s);
+    el.dataset.channel = s.channel || 'unknown';
+    el.dataset.model = s.model || '';
+    el.dataset.provider = s.provider || '';
     return s;
   }
   async function fillAiChannel() {
@@ -2612,13 +2616,23 @@ function bindSettings() {
     catch (e) { return null; }
   }
   if (aiBtn) aiBtn.addEventListener('click', async () => {
-    aiBtn.disabled = true;
-    const old = aiBtn.textContent;
-    aiBtn.textContent = '检测中…';
-    try { paintAiChannel(await api.aiProbe()); } catch (e) { /* 本层不抛，status 自会如实报 */ }
-    aiBtn.disabled = false;
-    aiBtn.textContent = old;
-    store.toast('通道已重新检测');
+    const btn = aiBtn;
+    const old = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '检测中…';
+    let s = null;
+    try {
+      // 🔴 探测是网络调用，一卡住 UI 就永远停在「检测中…」了 —— 到点就把按钮放回来，
+      //    没结论就如实说没跑完，别让用户对着一个转圈的按钮干等。
+      s = await Promise.race([
+        api.aiProbe().catch(() => null),
+        new Promise((r) => setTimeout(() => r(null), 15000)),
+      ]);
+    } catch (e) { s = null; }
+    paintAiChannel(s);
+    btn.disabled = false;
+    btn.textContent = old;
+    store.toast(s ? '通道已重新检测' : '这次没跑完，再点一次');
   });
   fillAiChannel();
 }
@@ -2891,7 +2905,7 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.7.2')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.7.3')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -2904,7 +2918,7 @@ function pageChangelog() {
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.7.2')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.7.3')}</p>
   </section>`;
 }
 

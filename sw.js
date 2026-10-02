@@ -1,7 +1,7 @@
 // 墨小溟 · Service Worker（离线缓存）
 // 版本号位置 2/5：改版本须与 index.html 的 APP_VERSION、manifest、package.json、js/app.js 兜底同步
 // （见作品集 00-文档写作与版本约定 §2.2）
-const CACHE = 'xiaoting-v1.7.2';
+const CACHE = 'xiaoting-v1.7.3';
 const ASSETS = [
   './',
   './index.html',
