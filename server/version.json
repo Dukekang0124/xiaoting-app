@@ -1,17 +1,18 @@
 {
-  "latest_version": "1.6.9",
+  "latest_version": "1.6.10",
   "force_update": false,
-  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.9-release.apk",
+  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.10-release.apk",
   "web_url": "https://xiaoting.app.workbuddy.host/#/say",
   "apk": {
-    "versionCode": 10609,
-    "version": "1.6.9",
-    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.9-release.apk",
-    "md5": "c3d873d55b1fce255fe75825f1147fb2",
-    "size": 3811410,
+    "versionCode": 10610,
+    "version": "1.6.10",
+    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.10-release.apk",
+    "md5": "",
+    "size": 0,
     "force": false
   },
   "release_notes": [
+    "换了张更暖的脸（v1.6.10）：桌面图标重画了。上一版是深紫底、安安静静的小墨鱼，不少人说看着有距离感、不像会想点开的样子。这次改成暖奶油白到浅紫的柔和渐变底，一只圆乎乎、大眼睛、带腮红、头顶两根发光小触角的墨小溟，更像深海里一个会听你说话的伙伴。形象仍然是墨鱼（不是章鱼、也不是水母）：宽圆的身体两侧有一圈小裙边一样的侧鳍，底下收着 8 只短触手。网页版的书签图标也一起换了。",
     "更新弹窗修好了（v1.6.9）：下载更新的包不会再\"丢\"。下载完成就记下来，App 万一被系统退到桌面或杀掉，下次打开会自动问你\"安装包已下好了，要不要现在装\"——不用重新下、也不用去通知栏翻文件。装的那一下系统会接管、墨小溟暂时退到后台是正常现象，装完自动回来。",
     "App 图标重绘（v1.6.8）：旧图标头顶那两根\"触角\"其实是水母的特征，墨鱼没有 —— 这次去掉了。背景从大片白色换成深紫径向渐变的深海光晕，墨鱼主体放大、质感改成半通透磨砂紫、8 条短腕末端带柔光。启动屏的白底也一起换成了深紫。",
     "两处按方案补齐（v1.6.7）：① 高危时首页问候改用安全引导文案，不再用普通时段问候；② 点击墨小溟的音效改按方案里指定的四档名字触发，不再固定两种。两处都已配自动断言守住。",
@@ -53,6 +54,19 @@
     "新增设置开关：IP 动效总开关 / IP 触碰互动 / 气泡文字 / 动画强度（柔和·标准）/ 水墨气泡轻音效（默认关，纯 Web Audio 合成、零素材）"
   ],
   "history": [
+    {
+      "version": "1.6.10",
+      "date": "2026-10-02",
+      "title": "App 图标重绘（B 版暖色可爱墨小溟）",
+      "notes": [
+        "第三份需求：重做 App 图标。康哥否掉深紫底版本（水母形态/蓝圈撞色/塑料高光/留白大），选定 B 版暖色可爱方向。",
+        "形象锁定 AI 出图（一次达标）：暖奶油白#FFF8F0→浅紫#B8A9E8 柔和渐变底，宽圆盾形身体+两侧裙边侧鳍（墨鱼特征）+8 只短胖触手收拢+头顶两根发光小触角+清澈大眼+治愈微笑。",
+        "落地：主图去平台水印（buddy-image-processing erase）→ matting 抠出透明前景 → PIL 生成 mipmap 五档（ic_launcher/round=整图，foreground=透明墨鱼 64% 安全区）。",
+        "Android 自适应图标：values 背景色 #3A2E54→#FFF8F0，新增 drawable 暖色渐变 + 覆盖 anydpi-v26 的 ic_launcher(_round).xml 指向 @drawable（保住渐变）。",
+        "PWA 图标：icons/icon.svg → icon-192.png/icon-512.png，同步 manifest/index.html/sw.js。",
+        "selftest 第 1093 行图标断言 #3A2E54→#FFF8F0。"
+      ]
+    },
     {
       "version": "1.6.9",
       "date": "2026-10-02",

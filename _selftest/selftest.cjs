@@ -1089,8 +1089,8 @@ const MOCK_SDK = `(function(){
   check('[图标] 自适应前景最大 432px（xxxhdpi）',
     fsC5.existsSync(pathC5.join(rootC5, 'android-assets/res/mipmap-xxxhdpi/ic_launcher_foreground.png'))
     && fsC5.statSync(pathC5.join(rootC5, 'android-assets/res/mipmap-xxxhdpi/ic_launcher_foreground.png')).size > 1000);
-  // v1.6.8 图标方案：去白底，换深海紫径向渐变（icons/icon.svg 同步改）。断言基线随设计更新。
-  check('[图标] 自适应背景=深海紫 #3A2E54', readC5('android-assets/res/values/ic_launcher_background.xml').includes('#3A2E54'));
+  // v1.6.10 图标方案（B 版暖色可爱）：暖奶油白 #FFF8F0 打底，自适应背景走暖色渐变 drawable。断言基线随设计更新。
+  check('[图标] 自适应背景=暖奶油白 #FFF8F0', readC5('android-assets/res/values/ic_launcher_background.xml').includes('#FFF8F0'));
 
   // ② CI：图标替换步骤 + 原生权限 + 明文兜底开关
   const yml = readC5('.github/workflows/apk.yml');
