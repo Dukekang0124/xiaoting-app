@@ -3239,6 +3239,93 @@ const MOCK_SDK = `(function(){
   check('C8·设置页挂了 #aiChannelText 与「重新检测通道」按钮',
     /id="aiChannelText"/.test(srcAppC8) && /id="aiChannelRetest"/.test(srcAppC8) && /aiChannelRetest/.test(srcAppC8));
 
+  /* ================= C9. 月度复盘窗可关（P2-3，v1.7.5） =================
+     .monthly-overlay 是 inset:0 / z-index:82 的全屏遮罩。原来**只能**点卡片上的按钮才关得掉：
+     点遮罩空白处没反应、Esc 没反应。老用户在每月 1 号打开 App，首屏被整块盖住，
+     而移动端没有物理 Esc ⇒ 只能盯着两个按钮点。这里直调 __test__.showMonthlyModal 验三种关法。
+     🔴 判据「修复前必失败」：旧代码三个 after* 全是 1（关不掉）。 */
+  sec('C9. 月度复盘窗可关（P2-3）');
+
+  const MM = await (async () => {
+    await page.goto(BASE + '/#/settings', { waitUntil: 'domcontentloaded' });
+    return page.evaluate(async () => {
+      const T = (await import('/js/app.js')).__test__;
+      const open = () => {
+        document.querySelectorAll('.monthly-overlay').forEach((n) => n.remove());
+        T.showMonthlyModal({
+          title: 't', body: '<p>b</p>',
+          buttons: [{ text: '稍后再看', cls: 'ghost' }, { text: '查看复盘', cls: 'primary small' }],
+        });
+        return document.querySelector('.monthly-overlay');
+      };
+      const out = {};
+      const ov0 = open();
+      out.opened = !!ov0;
+      // 🔴 前置事实「这是个会挡住整屏的窗」的验法，两步都是坑，记下来：
+      //    ① 别用 elementFromPoint 打视口中心——居中的 .monthly-card 会把它占掉，
+      //       「中心点 === overlay」永远 false，判据假红；
+      //    ② 也别打四角——页面上还开着新手引导 .welcome-overlay 时，角上命中的是引导层，
+      //       同样假红（判据依赖「页面上没别的浮层」，太脆）。
+      //    直接看遮罩自己的 rect：inset:0 ⇒ 它必须铺满整个视口。这条跟页面上有没有别的浮层无关。
+      const rr = ov0 && ov0.getBoundingClientRect();
+      out.overlayCoversViewport = !!(rr && rr.left <= 0 && rr.top <= 0
+        && rr.width >= innerWidth - 1 && rr.height >= innerHeight - 1);
+      // ① 点遮罩空白处（target === overlay）
+      if (ov0) ov0.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      out.afterBackdrop = document.querySelectorAll('.monthly-overlay').length;
+      // ② Esc
+      const ov1 = open();
+      if (ov1) document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      out.afterEsc = document.querySelectorAll('.monthly-overlay').length;
+      // ③ 点卡片内部**不该**关 —— 别把「点遮罩关」做成「点哪儿都关」
+      const ov2 = open();
+      const card = ov2 && ov2.querySelector('.monthly-card');
+      if (card) card.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      out.afterCard = document.querySelectorAll('.monthly-overlay').length;
+      // ④ Esc 关闭 ≠ 点了「查看复盘」：别图省事把 Esc 实现成「触发第一个按钮」
+      //    （那会让用户按一下 Esc 就被拖去复盘页，比关不掉更吓人）。
+      out.actRan = false;
+      const ov3 = open();
+      if (ov3 && ov3.querySelector('[data-mi="1"]')) {
+        ov3.querySelector('[data-mi="1"]').addEventListener('click', () => { out.actRan = true; }, { once: true });
+      }
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      out.escClosedIt = document.querySelectorAll('.monthly-overlay').length === 0;
+      out.escDidNotRunAct = out.actRan === false;
+
+      // ⑤ 按钮点击仍要跑 act（没把「关闭」做成「什么都不干」）
+      out.clickActRan = false;
+      const ov4 = open();
+      const btn = ov4 && ov4.querySelector('[data-mi="1"]');
+      if (btn) {
+        btn.addEventListener('click', () => { out.clickActRan = true; }, { once: true });
+        btn.click();
+      }
+      out.afterBtn = document.querySelectorAll('.monthly-overlay').length;
+      return out;
+    });
+  })();
+
+  check('C9·弹窗确实打开且是个铺满视口的全屏遮罩（前置事实，不是空断言）',
+    MM.opened && MM.overlayCoversViewport === true, JSON.stringify(MM));
+  check('C9·点遮罩空白处即可关掉（修复前：关不掉）', MM.afterBackdrop === 0, JSON.stringify(MM));
+  check('C9·按 Esc 即可关掉（移动端靠这个；修复前：关不掉）', MM.afterEsc === 0, JSON.stringify(MM));
+  check('C9·点卡片内部不会误关（不是「点哪儿都关」）', MM.afterCard === 1, JSON.stringify(MM));
+  check('C9·Esc 关掉不算点了「查看复盘」（别把 Esc 图省事实现成触发按钮）',
+    MM.escClosedIt === true && MM.escDidNotRunAct === true, JSON.stringify(MM));
+  check('C9·按钮点击照旧跑它的 act，且点了就关（没把「关闭」做成什么都不干）',
+    MM.clickActRan === true && MM.afterBtn === 0, JSON.stringify(MM));
+  // 静态闸门：精确截 showMonthlyModal 函数体（别用字符窗口，会把下一个函数算进来）
+  {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8').replace(/\r\n/g, '\n');
+    const i = src.indexOf('function showMonthlyModal(');
+    const body = i < 0 ? '' : src.slice(i, src.indexOf('\nfunction ', i + 20));
+    check('C9·showMonthlyModal 里有 document 级 keydown（Esc 是真监听，不是只写个 key 判断）',
+      /document\.addEventListener\('keydown'/.test(body));
+    check('C9·松手时把 keydown 监听摘掉（removeEventListener 与 addEventListener 成对）',
+      /document\.removeEventListener\('keydown'/.test(body));
+  }
+
   await browser.close();
 
   // 断言总数基线自检：数量对不上就是「有人悄悄删/加了断言」，宁可红一条也不要静默漂移。

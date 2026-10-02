@@ -1673,10 +1673,26 @@ function showMonthlyModal(opt) {
       `<div class="monthly-card__btns">${btns}</div>` +
     `</div>`;
   document.body.appendChild(overlay);
+
+  // 🔴 P2-3（v1.7.5）：这个遮罩是 `inset:0` 全屏，原来**只能**点卡片上的按钮才关得掉。
+  //    老用户在每月 1 号打开 App，首屏被整块盖住 ⇒ 只能对着两个按钮点，点遮罩空白处一点反应没有
+  //    （移动端没有 Esc 可 fallback）。加上「点遮罩关」+「Esc 关」，跟系统弹窗一个规矩。
+  const onKey = (ev) => {
+    if (ev.key === 'Escape' || ev.key === 'Esc') { ev.preventDefault(); dismiss(); }
+  };
+  /** 统一的关闭出口。Esc 监听必须跟遮罩一起摘掉，否则关掉的弹窗还留着监听，
+   *  下次别的弹窗会莫名其妙被 Esc 关掉（同一个 document 上的裸监听最容易这么漏）。 */
+  const dismiss = () => {
+    document.removeEventListener('keydown', onKey);
+    if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+  };
+  overlay.addEventListener('pointerdown', (ev) => { if (ev.target === overlay) dismiss(); });
+  document.addEventListener('keydown', onKey);
+
   overlay.querySelectorAll('[data-mi]').forEach((el) => {
     el.addEventListener('click', () => {
       const b = (o.buttons || [])[Number(el.getAttribute('data-mi'))] || {};
-      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      dismiss();
       if (typeof b.act === 'function') b.act();
     });
   });
