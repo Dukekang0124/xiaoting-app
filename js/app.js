@@ -2300,19 +2300,8 @@ function pageSettings() {
       <div class="set-title">重要声明</div>
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
-    <div class="privacy-box">
-      <div class="privacy__title">${esc((COPY.privacyFull || {}).title || '隐私说明')}</div>
-      <p class="privacy__line privacy__meta" data-privacy="updated">${esc((COPY.privacyFull || {}).updated || '')}</p>
-      ${((COPY.privacyFull || {}).sections || []).map((s) => {
-        if (!s || !s.t) return '';
-        return `<div class="privacy__sec" data-privacy="${esc(s.k || '')}">
-          <div class="privacy__h">${esc(s.h || '')}</div>
-          <p class="privacy__line">${esc(s.t)}</p>
-        </div>`;
-      }).join('')}
-      ${(privacyLink((COPY.privacyFull || {}).link))}
-    </div>
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.6.14')}</p>
+    ${privacyBlockHtml(COPY.privacyFull)}
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.6.15')}</p>
   </section>`;
 }
 
@@ -2473,21 +2462,45 @@ async function bindMemory() {
 
 /* ---------------- 页面：关于墨小溟 / 更新历史 ---------------- */
 
+/**
+ * 「用户协议 / 隐私政策」正文块（v1.6.15）
+ * 【为什么抽出来】「我」页入口写的是「用户协议 / 隐私政策」，但正文此前只存在于**设置页**，
+ * 点进 changelog 只能看到「关于墨小溟 + 更新历史」——入口承诺的东西在目标页接不住。
+ * 现在 changelog 页与设置页同用这一份真文案（prompts.js 的 privacyFull），两处永不再分叉。
+ */
+function privacyBlockHtml(p) {
+  const o = p || {};
+  const secs = (o.sections || []).map((s) => {
+    if (!s || !s.t) return '';
+    return `<div class="privacy__sec" data-privacy="${esc(s.k || '')}"><div class="privacy__h">${esc(s.h || '')}</div><p class="privacy__line">${esc(s.t)}</p></div>`;
+  }).join('');
+  return `<div class="privacy-box">
+      <div class="privacy__title">${esc(o.title || '隐私说明')}</div>
+      <p class="privacy__line privacy__meta" data-privacy="updated">${esc(o.updated || '')}</p>
+      ${secs}
+      ${privacyLink(o.link)}
+    </div>`;
+}
+
 function pageChangelog() {
   return `
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.6.14')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.6.15')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
     <div class="disclaimer-box">${esc(COPY.about.disclaimer)}</div>
+    <div class="changelog__legal">
+      <div class="set-title">用户协议 / 隐私政策</div>
+      ${privacyBlockHtml(COPY.privacyFull)}
+    </div>
     <div class="changelog__list" id="clList"><p class="set-sub">正在加载更新历史…</p></div>
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.6.14')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.6.15')}</p>
   </section>`;
 }
 
@@ -3762,6 +3775,15 @@ export function boot() {
   autoMonthlyReview();
   // v0.7.0：启动版本检测（打开 App 第一时间知道有新版）+ 回到前台再检测一次
   update.initUpdate();
+  // v1.6.15：轻提醒「重启补挂」。
+  // 【为什么补这一刀】notify.sync 原先全仓只有一个调用点 —— 「我」页那个开关的 change 事件。
+  // 于是：用户拨开 → 挂上了；但冷启动/重开 App 后，已存下来的 notify_on=true 不会再挂一次，
+  // 开关却依然显示「开」。这正是 notify.js 第 3~5 行注释里要根治的那种「假开关」。
+  // 网关/系统清理了这条常驻 schedule 时，用户会被静默退回「没提醒」状态而毫不知情。
+  try {
+    const _st = store.getState().user.settings || {};
+    if (_st.notify_on === true) notify.sync(true).catch(() => {});
+  } catch (e) { /* 补挂失败不许影响启动 */ }
   // v1.1.10：全局硬件返回键（物理键 + 系统侧滑手势）+ 离线浮条
   registerBackHandler();
   // v1.2.1 攻坚：左滑返回手势（触摸层，与物理键共用父级映射）

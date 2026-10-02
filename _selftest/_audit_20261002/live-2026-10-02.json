@@ -1,0 +1,252 @@
+{
+  "base": "https://xiaoting.app.workbuddy.host",
+  "live": true,
+  "routes": [
+    {
+      "hash": "#/say",
+      "child": 1,
+      "len": 84,
+      "ok": true,
+      "pageErrors": [],
+      "consoleErrors": [],
+      "bad": []
+    },
+    {
+      "hash": "#/record",
+      "child": 1,
+      "len": 36,
+      "ok": true,
+      "pageErrors": [],
+      "consoleErrors": [],
+      "bad": []
+    },
+    {
+      "hash": "#/record?mode=text",
+      "child": 1,
+      "len": 36,
+      "ok": true,
+      "pageErrors": [],
+      "consoleErrors": [],
+      "bad": []
+    },
+    {
+      "hash": "#/followup",
+      "child": 1,
+      "len": 48,
+      "ok": true,
+      "pageErrors": [],
+      "consoleErrors": [],
+      "bad": []
+    },
+    {
+      "hash": "#/gentle",
+      "child": 1,
+      "len": 72,
+      "ok": true,
+      "pageErrors": [],
+      "consoleErrors": [],
+      "bad": []
+    },
+    {
+      "hash": "#/confirm",
+      "child": 1,
+      "len": 116,
+      "ok": true,
+      "pageErrors": [],
+      "consoleErrors": [],
+      "bad": []
+    },
+    {
+      "hash": "#/timeline",
+      "child": 1,
+      "len": 37,
+      "ok": true,
+      "pageErrors": [],
+      "consoleErrors": [],
+      "bad": []
+    },
+    {
+      "hash": "#/timelines",
+      "child": 1,
+      "len": 49,
+      "ok": true,
+      "pageErrors": [],
+      "consoleErrors": [],
+      "bad": []
+    },
+    {
+      "hash": "#/cards",
+      "child": 1,
+      "len": 45,
+      "ok": true,
+      "pageErrors": [],
+      "consoleErrors": [],
+      "bad": []
+    },
+    {
+      "hash": "#/weekly",
+      "child": 1,
+      "len": 220,
+      "ok": true,
+      "pageErrors": [],
+      "consoleErrors": [],
+      "bad": []
+    },
+    {
+      "hash": "#/me",
+      "child": 1,
+      "len": 742,
+      "ok": true,
+      "pageErrors": [],
+      "consoleErrors": [],
+      "bad": []
+    },
+    {
+      "hash": "#/memory",
+      "child": 1,
+      "len": 101,
+      "ok": true,
+      "pageErrors": [],
+      "consoleErrors": [],
+      "bad": []
+    },
+    {
+      "hash": "#/settings",
+      "child": 1,
+      "len": 1796,
+      "ok": true,
+      "pageErrors": [],
+      "consoleErrors": [],
+      "bad": []
+    },
+    {
+      "hash": "#/changelog",
+      "child": 1,
+      "len": 26325,
+      "ok": false,
+      "pageErrors": [],
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 404 ()",
+        "[更新检测] 请求失败 {url: /api/version/history?cb=muqiege6zcw3k, http: 404}"
+      ],
+      "bad": [
+        "404 /api/version/history?cb=muqiege6zcw3k"
+      ]
+    },
+    {
+      "hash": "#/risk",
+      "child": 1,
+      "len": 221,
+      "ok": true,
+      "pageErrors": [],
+      "consoleErrors": [],
+      "bad": []
+    },
+    {
+      "hash": "#/diag",
+      "child": 1,
+      "len": 1013,
+      "ok": true,
+      "pageErrors": [],
+      "consoleErrors": [],
+      "bad": []
+    },
+    {
+      "hash": "#/cards",
+      "afterFlow": true,
+      "len": 37,
+      "ok": true,
+      "pageErrors": []
+    },
+    {
+      "hash": "#/card/",
+      "afterFlow": true,
+      "len": 15,
+      "ok": true,
+      "pageErrors": []
+    },
+    {
+      "hash": "#/timeline",
+      "afterFlow": true,
+      "len": 37,
+      "ok": true,
+      "pageErrors": []
+    },
+    {
+      "hash": "#/timelines",
+      "afterFlow": true,
+      "len": 49,
+      "ok": true,
+      "pageErrors": []
+    },
+    {
+      "hash": "#/weekly",
+      "afterFlow": true,
+      "len": 9,
+      "ok": false,
+      "pageErrors": []
+    },
+    {
+      "hash": "#/memory",
+      "afterFlow": true,
+      "len": 407,
+      "ok": true,
+      "pageErrors": []
+    }
+  ],
+  "static": {
+    "bad": [
+      "404 /api/version/latest?cb=muqieaho4np1a"
+    ],
+    "boot": {
+      "appVersion": "1.6.14",
+      "viewLen": 84,
+      "iconHref": "https://xiaoting.app.workbuddy.host/icons/icon-512.png"
+    }
+  },
+  "flow": {
+    "path": [
+      "#/analyzing",
+      "#/followup",
+      "#/confirm"
+    ]
+  },
+  "checks": [
+    {
+      "name": "L1-1 首屏渲染",
+      "pass": true,
+      "detail": "APP_VERSION=1.6.14，首屏文本 84 字"
+    },
+    {
+      "name": "L1-2 资源无 4xx5xx",
+      "pass": false,
+      "detail": "4xx/5xx: [\"404 /api/version/latest?cb=muqieaho4np1a\"]"
+    },
+    {
+      "name": "L3-1 卡片详情能打开",
+      "pass": true,
+      "detail": "#/card/c_muqieunhf9vf 详情文本 382 字"
+    },
+    {
+      "name": "L3-2 时间线导出可下载",
+      "pass": false,
+      "detail": "未捕获下载"
+    },
+    {
+      "name": "L4-1 SW 注册",
+      "pass": true,
+      "detail": "registrations=1, ready=ready, scope=https://xiaoting.app.workbuddy.host/"
+    },
+    {
+      "name": "L4-2 断网重载可用",
+      "pass": true,
+      "detail": "离线重载文本 736 字，controller=true"
+    },
+    {
+      "name": "L5-1 检查更新弹出卡片",
+      "pass": false,
+      "detail": "无弹窗"
+    }
+  ],
+  "started": "2026-10-02T05:14:56.205Z"
+}

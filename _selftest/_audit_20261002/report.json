@@ -1,0 +1,378 @@
+{
+  "base": "http://127.0.0.1:4173",
+  "started": "2026-10-02T05:11:05.414Z",
+  "pages": [
+    {
+      "route": "say",
+      "hash": "#/say",
+      "hasView": true,
+      "childCount": 1,
+      "textLen": 83,
+      "head": "10月2日 · 周五 下午好，想到什么，都可以讲。 按住说 0.0s 不用刻意表达，如实说出感受就好。 不方便说？打",
+      "realHash": "#/say",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "badResponses": [],
+      "ok": true
+    },
+    {
+      "route": "record",
+      "hash": "#/record",
+      "hasView": true,
+      "childCount": 1,
+      "textLen": 36,
+      "head": "取消 打字说 我在听 不用急着说清楚。 用示例填一句 说完了 改用语音说",
+      "realHash": "#/record",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "badResponses": [],
+      "ok": true
+    },
+    {
+      "route": "record-text",
+      "hash": "#/record?mode=text",
+      "hasView": true,
+      "childCount": 1,
+      "textLen": 36,
+      "head": "取消 打字说 我在听 不用急着说清楚。 用示例填一句 说完了 改用语音说",
+      "realHash": "#/record?mode=text",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "badResponses": [],
+      "ok": true
+    },
+    {
+      "route": "analyzing",
+      "hash": "#/analyzing",
+      "hasView": true,
+      "childCount": 1,
+      "textLen": 83,
+      "head": "10月2日 · 周五 下午好，想到什么，都可以讲。 按住说 0.0s 不用刻意表达，如实说出感受就好。 不方便说？打",
+      "realHash": "#/say",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "badResponses": [],
+      "ok": true
+    },
+    {
+      "route": "followup",
+      "hash": "#/followup",
+      "hasView": true,
+      "childCount": 1,
+      "textLen": 48,
+      "head": "跳过 第 1 / 3 个问题 我想多问一句。 再多说一点？ 按住说 0.0s 回答 跳过这个问题",
+      "realHash": "#/followup",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "badResponses": [],
+      "ok": true
+    },
+    {
+      "route": "gentle",
+      "hash": "#/gentle",
+      "hasView": true,
+      "childCount": 1,
+      "textLen": 72,
+      "head": "我想先确认一下 你刚刚说的这些，听起来有点沉。我想先陪你停一停——你愿意多说一点吗？ 我愿意多说一点 我没事，继续说",
+      "realHash": "#/gentle",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "badResponses": [],
+      "ok": true
+    },
+    {
+      "route": "confirm",
+      "hash": "#/confirm",
+      "hasView": true,
+      "childCount": 1,
+      "textLen": 116,
+      "head": "返回 墨小溟留了张卡片 我听到的是这些，你看对不对？ · 情绪卡片 先收下卡片 继续倾诉 不强制你做任何动作。也可以",
+      "realHash": "#/confirm",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "badResponses": [],
+      "ok": true
+    },
+    {
+      "route": "timeline",
+      "hash": "#/timeline",
+      "hasView": true,
+      "childCount": 1,
+      "textLen": 37,
+      "head": "情绪时间线 还没有可以回看的这一次倾诉。 先回首页说一次吧。 去说一次",
+      "realHash": "#/timeline",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "badResponses": [],
+      "ok": true
+    },
+    {
+      "route": "timelines",
+      "hash": "#/timelines",
+      "hasView": true,
+      "childCount": 1,
+      "textLen": 49,
+      "head": "返回 情绪时间线 还没有保存过时间线。 倾诉完点「结束倾诉」，就能存下这一次的起伏。 去说一次",
+      "realHash": "#/timelines",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "badResponses": [],
+      "ok": true
+    },
+    {
+      "route": "cards",
+      "hash": "#/cards",
+      "hasView": true,
+      "childCount": 1,
+      "textLen": 45,
+      "head": "卡片 你的情绪卡片会出现在这里。 先回首页说一次吧。 以后这里会是一张卡片 去说一次",
+      "realHash": "#/cards",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "badResponses": [],
+      "ok": true
+    },
+    {
+      "route": "card",
+      "hash": "#/card/c_demo",
+      "hasView": true,
+      "childCount": 1,
+      "textLen": 15,
+      "head": "这张卡片找不到了 回到卡片列表",
+      "realHash": "#/card/c_demo",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "badResponses": [],
+      "ok": true
+    },
+    {
+      "route": "weekly",
+      "hash": "#/weekly",
+      "hasView": true,
+      "childCount": 1,
+      "textLen": 225,
+      "head": "本周情绪体检 2026-09-27 ~ 2026-10-03 · 共 0 张卡片 本周概览 这周你还没有留下记录 不",
+      "realHash": "#/weekly",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "badResponses": [],
+      "ok": true
+    },
+    {
+      "route": "me",
+      "hash": "#/me",
+      "hasView": true,
+      "childCount": 1,
+      "textLen": 742,
+      "head": "你的深海空间 在这里，管理你的情绪记录与陪伴设置 你的情绪碎片 所有倾诉生成的情绪卡片，都收纳在这里。 查看全部",
+      "realHash": "#/me",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "badResponses": [],
+      "ok": true
+    },
+    {
+      "route": "memory",
+      "hash": "#/memory",
+      "hasView": true,
+      "childCount": 1,
+      "textLen": 101,
+      "head": "返回 我的记忆 墨小溟只记下你说过的「人物 / 事件 / 心结」结构化摘要，不保存原话，存在本机、可随时编辑或删除。下",
+      "realHash": "#/memory",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "badResponses": [],
+      "ok": true
+    },
+    {
+      "route": "settings",
+      "hash": "#/settings",
+      "hasView": true,
+      "childCount": 1,
+      "textLen": 1796,
+      "head": "返回 设置与隐私 允许把录音发给云端转写 开启后，录音会上传到墨小溟的服务端、由专业云端识别转成文字，转写完成后不会留",
+      "realHash": "#/settings",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "badResponses": [],
+      "ok": true
+    },
+    {
+      "route": "changelog",
+      "hash": "#/changelog",
+      "hasView": true,
+      "childCount": 1,
+      "textLen": 26325,
+      "head": "返回 关于墨小溟 当前版本 v1.6.14 我是墨小溟，一只住在深海的紫色小墨鱼。心里翻涌的情绪，就像我吐出的墨。开心、",
+      "realHash": "#/changelog",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "badResponses": [],
+      "ok": true
+    },
+    {
+      "route": "risk",
+      "hash": "#/risk",
+      "hasView": true,
+      "childCount": 1,
+      "textLen": 238,
+      "head": "我感受到你正承受很重的痛苦 这样的感受一定很难熬。我可以听你诉说，但我没办法替代专业的心理工作者。如果条件允许，建议你",
+      "realHash": "#/risk",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "badResponses": [],
+      "ok": true
+    },
+    {
+      "route": "diag",
+      "hash": "#/diag",
+      "hasView": true,
+      "childCount": 1,
+      "textLen": 985,
+      "head": "返回 链路诊断 这一页记录真实发生过的每一步，不是模拟，也不是占位。 环境 应用版本 1.6.14 平台 Web 页",
+      "realHash": "#/diag",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "badResponses": [],
+      "ok": true
+    },
+    {
+      "route": "root",
+      "hash": "#/",
+      "hasView": true,
+      "childCount": 1,
+      "textLen": 83,
+      "head": "10月2日 · 周五 下午好，想到什么，都可以讲。 按住说 0.0s 不用刻意表达，如实说出感受就好。 不方便说？打",
+      "realHash": "#/",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "badResponses": [],
+      "ok": true
+    }
+  ],
+  "buttons": [
+    {
+      "route": "me",
+      "el": "meExport",
+      "download": "墨小溟-情绪记录-2026-10-02.json"
+    },
+    {
+      "route": "changelog",
+      "el": "clDl",
+      "download": "xiaoting-latest.apk"
+    },
+    {
+      "route": "diag",
+      "el": "diagExport",
+      "download": "墨小溟-链路诊断-2026-10-02051301.txt"
+    }
+  ],
+  "flows": [
+    {
+      "steps": [
+        "#/analyzing"
+      ],
+      "end": "#/analyzing",
+      "endText": "正在接住你的情绪\n我在听……\n我在认真听，别急～"
+    }
+  ],
+  "checks": [
+    {
+      "name": "C1 changelog 页含协议/隐私正文",
+      "pass": false,
+      "detail": "页面文本 26325 字，命中协议关键词=false"
+    },
+    {
+      "name": "C2 设置页确有隐私说明",
+      "pass": true,
+      "detail": "设置页文本 1803 字，含「隐私」=true，含云端/转写=true"
+    },
+    {
+      "name": "C3 导出按钮文案",
+      "pass": true,
+      "detail": "「」"
+    },
+    {
+      "name": "C4 轻提醒开关在 Web 端有降级说明",
+      "pass": false,
+      "detail": "开关存在=true checked=false；UI 文案「允许轻提醒 允许轻提醒」"
+    },
+    {
+      "name": "C5 轻提醒时段的数据源",
+      "pass": false,
+      "detail": "state.user 字段=[]，state 顶层数组=[]；notify.js 读 user.timeline/cards/records"
+    },
+    {
+      "name": "D1 IP 动效关闭 → body.ip-motion-off 生效",
+      "pass": true,
+      "detail": "className: \"has-nav\" → \"has-nav ip-motion-off\""
+    },
+    {
+      "name": "D2 reload 后设置保持且仍生效",
+      "pass": true,
+      "detail": "reload 后 ipMotion=false className=\"has-nav ip-motion-off\""
+    },
+    {
+      "name": "E1 首页→打字页",
+      "pass": true,
+      "detail": "hash=#/record?mode=text"
+    },
+    {
+      "name": "E2 示例填充",
+      "pass": true,
+      "detail": "输入框字数=31"
+    },
+    {
+      "name": "E3 提交后进入流程",
+      "pass": true,
+      "detail": "hash=#/analyzing"
+    },
+    {
+      "name": "E4 流程可推进到终态",
+      "pass": false,
+      "detail": "路径: #/analyzing，终点 #/analyzing"
+    },
+    {
+      "name": "F meExport",
+      "pass": true,
+      "detail": "下载 墨小溟-情绪记录-2026-10-02.json"
+    },
+    {
+      "name": "F meClearCards",
+      "pass": false,
+      "detail": "未捕获下载事件（可能是浏览器内下载被拦）"
+    },
+    {
+      "name": "F meClearMemory",
+      "pass": false,
+      "detail": "未捕获下载事件（可能是浏览器内下载被拦）"
+    },
+    {
+      "name": "F wipe",
+      "pass": true,
+      "detail": "存在（危险项，浏览器内不点）"
+    }
+  ],
+  "errors": [
+    {
+      "route": "record-text",
+      "el": "recDone",
+      "kind": "button",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "badResponses": [],
+      "hash0": "#/record?mode=text",
+      "hash1": "#/analyzing"
+    },
+    {
+      "route": "settings",
+      "el": "标准",
+      "kind": "button",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "badResponses": [],
+      "hash0": "#/settings",
+      "hash1": "#/followup"
+    }
+  ]
+}

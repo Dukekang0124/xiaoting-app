@@ -2282,6 +2282,47 @@ const MOCK_SDK = `(function(){
   check('update·唤不起来时如实返回失败（不谎报「安装界面已打开」）',
     /openApkWithInstaller/.test(updSrc) && /installer_failed/.test(updSrc));
 
+  // ③c v1.6.15：Web 端（公开站=纯静态托管、无 Node 后端）不要再打 /api/version/*。
+  //    那条是 WebView 本地资产服务的通道，Web 端打它必然 404 —— 每次「检查更新」白撞一次
+  //    404 + 控制台一行红。本地自测照不出来（本地 server.cjs 有这条路由，返回 200）。
+  check('update·Web 端跳过 /api/version/* 候选（公开站无 Node 后端，必 404）',
+    /p\.startsWith\('\/api\/'\)\s*&&\s*!isNativeApp\(\)/.test(updSrc));
+
+  // ③d v1.6.15：「我」页入口承诺「用户协议 / 隐私政策」，正文必须在**同一个页面**接得住。
+  //    此前正文只挂在设置页，点进 changelog 只能看到「关于墨小溟 + 更新历史」。
+  check('changelog 页含协议正文（入口承诺的「用户协议 / 隐私政策」必须落在同页）',
+    /用户协议 \/ 隐私政策/.test(appSrc) && /privacyBlockHtml\(/.test(appSrc)
+    && /function privacyBlockHtml/.test(appSrc) && /clList/.test(appSrc));
+
+  // ③e v1.6.15：轻提醒的「习惯时段」数据源。notify.js 此前读 user.timeline/cards/records
+  //    —— 这三个字段在 store 里根本不存在（user 只有 id/nickname/createdAt/settings）
+  //    ⇒ 永远空数组 ⇒ preferredHour 恒回落 21 点，文案承诺落空。
+  const notifySrc = await readSrc('js/notify.js');
+  check('notify·时段数据源读真实存在的 state.timelines/cards（不再读不存在的 user.*）',
+    /s\.timelines\s*&&\s*s\.timelines\.length/.test(notifySrc)
+    && !/u\.timeline\s*\|\|/.test(notifySrc));
+  // 冷启动补挂：sync 若只在 change 事件里调，重开 App 后开关显示"开"但提醒没挂（假开关）
+  check('notify·冷启动按 notify_on 补挂（不能只在开关 change 里调一次）',
+    /notify_on === true\) notify\.sync\(true\)/.test(appSrc));
+
+  // ③f v1.6.15：假承诺清理。这两个键此前全仓只有定义处、0 读 0 UI；
+  // 「云端记录将同步清除」是一个根本不存在的云端（产品不设账号）。全绿但说谎的话，比不写更糟。
+  const smSrc = await readSrc('js/state-machine.js');
+  const cwSrc = await readSrc('js/copywriting.js');
+  // 判据用「键定义」而不是裸字符串：这两个词允许出现在说明性注释里，
+  // 但绝不能再作为默认值键存在（裸串断言会把自己的注释判成失败，那是坏判据不是真缺陷）。
+  check('死配置已清：autoDeleteAudio / ttsHint 不再作为默认值键存在',
+    !/\bautoDeleteAudio\s*:/.test(smSrc) && !/\bttsHint\s*:/.test(smSrc));
+  // 同理：只判 confirm: 那一行内不许再出现这句谎话（注释里引用它是可以的）
+  check('wipe 文案不再谎报「云端记录将同步清除」（产品无账号、无云端）',
+    !/confirm:\s*'[^\n]*云端记录将同步清除/.test(cwSrc) && /本来就只存在这台设备上/.test(cwSrc));
+
+  // ③g v1.6.15：全仓零调用的"接口壳子"清理（aiDebug 保留 —— 两个探针在用，不是死代码）
+  const apiSrc = await readSrc('js/api.js');
+  check('死接口已清：recordUpload / cardList / cardGet 零调用',
+    !/\brecordUpload\s*\(/.test(apiSrc) && !/\bcardList\s*\(/.test(apiSrc) && !/\bcardGet\s*\(/.test(apiSrc)
+    && /\baiDebug\s*\(/.test(apiSrc)); // aiDebug 保留：verify-live / verify-local-on-live 两个探针在调它
+
   // H3. 非强制弹窗 UI（?fake_version=9.9.9 让"线上最新"高于当前，自动弹出）
   const ctx3 = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'zh-CN', isMobile: true, hasTouch: true });
   await ctx3.addInitScript(() => {

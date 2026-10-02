@@ -39,11 +39,11 @@ const SNOOZE_KEY = 'xiaoting:update_snooze_day'; // 当天"稍后再说"过的�
  * 🔴 与 APP_VERSION 必须同步：自测里有一条断言卡死这条（两者必须相等），
  *   否则「发版忘改常量」又会变成下一个静默故障。
  */
-export const LATEST_VERSION = '1.6.14';
+export const LATEST_VERSION = '1.6.15';
 
 /** 兜底安装包地址：必须是**版本化文件名**，不能用 xiaoting-latest.apk 别名
  *  （别名指向"站点上最新的那一版"，站点没发布时它反而是旧版 ⇒ 会让人装回旧包）。 */
-const FALLBACK_APK_URL = 'https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.14-release.apk';
+const FALLBACK_APK_URL = 'https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.15-release.apk';
 
 /**
  * 版本清单的两个候选路径，按顺序试（v1.1.4 修）。
@@ -261,7 +261,14 @@ function loadScript(url) {
 async function fetchManifest(paths) {
   const cands = [];
   if (LATEST_FALLBACK_ENABLED) cands.push({ label: 'pages.dev', url: LATEST_FALLBACK_ORIGIN + '/version.json' });
-  for (const p of paths) cands.push({ label: p, url: /^https?:\/\//.test(p) ? p : apiBase() + p });
+  for (const p of paths) {
+    // v1.6.15：`/api/version/*` 打的是 **WebView 本地资产服务**，只有原生壳里才有。
+    // 公开站是纯静态托管、没有 Node 后端，Web 端打它**必然 404** —— 每次「检查更新」都会
+    // 白撞一次 404 + 控制台一行红，还多一个 RTT。本地 447 条自测全绿也照不出来，
+    // 因为本地 server.cjs 是有 /api/version/* 的（200）。故 Web 端直接不排这个候选。
+    if (p.startsWith('/api/') && !isNativeApp()) continue;
+    cands.push({ label: p, url: /^https?:\/\//.test(p) ? p : apiBase() + p });
+  }
   // v1.6.2：跨域场景（APK）里 JSON 通道会被 CORS 拒，脚本通道是唯一能通的那个。
   // 放同一批并行取，所以"取最大者"对它也一样成立。
   cands.push({ label: 'version-latest.js', url: apiBase() + SCRIPT_MANIFEST_PATH, script: true });
@@ -717,7 +724,7 @@ function bytesToBase64(u8) {
 }
 
 /**
- * 唤起系统安装器（v1.6.14 修正参数名）。
+ * 唤起系统安装器（v1.6.14 修正参数名；v1.6.15 收敛为单入口）。
  *
  * 🔴 真机根因：`@capacitor-community/file-opener` 的入参契约是 **`filePath`**
  *    （见其 `FileOpenerOptions` 与 `FileOpenerPlugin.java:24 getString("filePath")`），

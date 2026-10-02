@@ -304,7 +304,11 @@ export const IP_SETTINGS_DEFAULT = {
 
 /** 非 IP 类设置默认值（与 IP 设置合并成完整 settings；同样只在这里定义一次） */
 export const BASE_SETTINGS_DEFAULT = {
-  autoDeleteAudio: true, ttsHint: true, cloudAsr: true, memory_on: true, notify_on: false,
+  // v1.6.15：删掉 autoDeleteAudio / ttsHint —— 这两个键此前全仓只有这一处定义，
+  // 0 处读取、0 处 UI（autoDeleteAudio 对应的开关早在 v0.5.0 就删了）。留着只是两个
+  // 「存了但没人接」的钩子：哪天出现一个按 Object.keys(settings) 遍历的通用配置面板，
+  // 它们就会以「能显示、拨了没反应」的形态复活。宁缺勿假。
+  cloudAsr: true, memory_on: true, notify_on: false,
 };
 
 /** 总开关门禁：关掉 → 强制回退到中性 idle 静态（色彩/动画/特效全停） */

@@ -51,7 +51,7 @@ export function preferredHour(records) {
   const list = Array.isArray(records) ? records : [];
   const buckets = new Array(24).fill(0);
   for (const r of list) {
-    const t = r && (r.createdAt || r.savedAt || r.ts);
+    const t = r && (r.createdAt || r.savedAt || r.ts || r.saved_at || r.create_time || r.created_at);
     if (!t) continue;
     const d = new Date(Number(t));
     if (!Number.isFinite(d.getTime())) continue;
@@ -65,11 +65,19 @@ export function preferredHour(records) {
   return bestHour >= 0 ? bestHour : 21;
 }
 
-/** 取当前用户的历史记录（不同 store 版本字段名不同，逐一兼容）。 */
+/**
+ * 取当前用户的历史记录（不同 store 版本字段名不同，逐一兼容）。
+ *
+ * 🔴 v1.6.15 修复：这里以前读的是 `user.timeline / user.cards / user.records` —— 这三个字段
+ * 在 store 里根本不存在（`user` 只有 id / nickname / createdAt / settings），永远拿到空数组
+ * ⇒ `preferredHour()` 恒回落默认 21 点 ⇒ 文案承诺的「在你习惯的时段」实际从来没生效过。
+ * 真实数据在 state 顶层：`timelines`（情绪时间线）/ `cards`（情绪卡片）。
+ */
 function historyRecords() {
   const s = getState() || {};
-  const u = s.user || {};
-  return u.timeline || u.cards || u.records || [];
+  if (s.timelines && s.timelines.length) return s.timelines;
+  if (s.cards && s.cards.length) return s.cards;
+  return [];
 }
 
 const REMINDER_BODY = [

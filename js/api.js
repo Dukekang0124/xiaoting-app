@@ -430,11 +430,6 @@ function diagJson(stage, data, extra = '') {
 /* ==================== 对外接口 ==================== */
 
 export const api = {
-  /** POST /api/record/upload —— MVP 不落库音频本体，仅登记转写文本；音频在服务端转写完成后不保留 */
-  async recordUpload({ audio = null, mime = '', transcript = '' } = {}) {
-    return { record_id: 'r_' + Date.now().toString(36), transcript: str(transcript) };
-  },
-
   /**
    * POST /api/safety —— 安全识别（每次输入后先跑）
    *
@@ -587,15 +582,8 @@ export const api = {
     return store.addTimeline(tl);
   },
 
-  /** GET /api/card/list */
-  async cardList() {
-    return store.getState().cards;
-  },
-
-  /** GET /api/card/:id */
-  async cardGet(id) {
-    return store.getCard(id);
-  },
+  // v1.6.15：删掉 cardList / cardGet（全仓零调用）。卡片列表在 UI 里直接读 store 渲染，
+  // 这两个「看起来是接口、实际没人打」的壳子只会误导后来人。
 
   /** GET /api/report/weekly */
   async reportWeekly() {
