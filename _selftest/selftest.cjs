@@ -1144,6 +1144,41 @@ const MOCK_SDK = `(function(){
   check('[原生基址] probeCloud 请求的是配置里的云端绝对地址（非 https://localhost 相对路径）',
     capturedUrl === Z5.cloudOrigin + '/api/health' && /^https:\/\//.test(capturedUrl), capturedUrl);
 
+  // ⑥ 探测必须自带超时（v1.7.4 修）：裸 fetch 在网络挂起（半开连接/慢 DNS）时会永久 pending，
+  //    而 app.js:436 与 :461 两处都是 `await asr.probeCloud()` 才决定走不走云端 ——
+  //    探不到就等于把整条识别链停死，用户看到的是「按住说完，什么都没发生」。
+  //    🔴 唯一能让"裸 fetch"现形的打法：route 永不 resolve（修复前这条必红）。
+  const ctxPTO = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+  await ctxPTO.addInitScript(() => {
+    try { localStorage.setItem('monthly:done_' + (new Date().getFullYear() * 100 + (new Date().getMonth() + 1)), '1'); } catch (e) {} });
+  const pagePTO = await ctxPTO.newPage();
+  await ctxPTO.route('**/api/health*', () => { /* 故意不 respond，让请求一直 pending = 弱网/半开连接 */ });
+  await pagePTO.goto(BASE + '/#/say', { waitUntil: 'domcontentloaded' });
+  await pagePTO.waitForTimeout(300);
+  const ZTOut = await pagePTO.evaluate(async () => {
+    const asr = await import('/js/asr.js');
+    const t0 = Date.now();
+    // 🔴 page.evaluate 自己没有超时 ⇒ 页面内必须自带兜底，否则旧版会把整个自测卡死
+    const st = await Promise.race([
+      asr.probeCloud(true).catch(() => 'error'),
+      new Promise((r) => setTimeout(() => r('__HANG__'), 12000)),
+    ]);
+    return { st, ms: Date.now() - t0 };
+  });
+  check('[探测超时] 网络挂起时 probeCloud 必须自己收尾并判 unavailable（不能永久 await）',
+    ZTOut.st === 'unavailable' && ZTOut.ms < 12000, JSON.stringify(ZTOut));
+  await ctxPTO.close();
+
+  // 静态闸门：函数体里真的挂了 signal（不是靠外层超时兜）。精确截 probeCloud 函数体，别用字符窗口。
+  const asrProbeBody = (() => {
+    // 🔴 这里不能用 ROOT：它在文件更后面才 const 定义，此刻是 TDZ（Cannot access before initialization）
+    const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'asr.js'), 'utf8').replace(/\r\n/g, '\n');
+    const m = src.match(/export async function probeCloud\([^)]*\)\s*\{([\s\S]*?)\n\}/);
+    return m ? m[0] : '';
+  })();
+  check('[探测超时] probeCloud 函数体内 fetch 带 signal（超时能中断，不是靠外部兜）',
+    !!asrProbeBody && /signal:\s*ctrl\.signal/.test(asrProbeBody), asrProbeBody ? '' : '(截不到 probeCloud 函数体)');
+
   // ⑥ 提示气泡：不再是黑条（柔和奶油白 + 深色字）
   await pageZ.evaluate(async () => { const s = await import('/js/store.js'); s.toast('测试提示'); });
   await pageZ.waitForTimeout(200);

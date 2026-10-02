@@ -1,22 +1,30 @@
 {
-  "latest_version": "1.7.3",
+  "latest_version": "1.7.4",
   "force_update": false,
-  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.7.3-release.apk",
+  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.7.4-release.apk",
   "web_url": "https://xiaoting.app.workbuddy.host/",
   "apk": {
-    "versionCode": 10703,
+    "versionCode": 10704,
     "version": "1.7.3",
-    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.7.3-release.apk",
-    "md5": "0efe14d6d29108d8335860ca68fd701a",
-    "size": 4344140,
+    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.7.4-release.apk",
+    "md5": "PENDING_CI",
+    "size": 0,
     "force": false
   },
   "release_notes": [
-    "「重新检测通道」卡住不再赖着：网络慢或超时（15 秒）也会把按钮放回来，并直说这次没跑完，不会再让用户对着一个转圈的按钮干等。",
-    "修掉「点了没反应」的那一下：设置页若被重绘过，诊断行会照着旧节点写字 —— 探测成功了、屏幕却纹丝不动。现在每次都写到当前那个节点。",
-    "其余同 v1.7.2：「重新检测通道」真测整条链路（自建不通就直接打免密钥云端），把当前走哪条、用的哪个模型直说；首屏不偷跑模型调用，未实测过就直说未实测过。"
+    "「按住说」在信号差的时候不再整条卡死：判断能不能用云端语音识别的那一步，以前是一次没有超时的网络请求，遇到网络半开就会永远挂着，等到你松手，屏幕还是纹丝不动。现在这一步自带 6 秒上限，探不出来就当云端不能用、老老实实落回本机识别，绝不让这个核心动作干等。",
+    "探测失败会分清楚是「超时」还是「网络真的不通」，设置页的诊断行照实说，不再一律含糊成一句网络失败。"
   ],
   "history": [
+    {
+      "version": "1.7.4",
+      "date": "2026-10-02",
+      "title": "弱网下「按住说」不再卡死 + 探测超时与不可达分开写",
+      "notes": [
+        "「按住说」在信号差的时候不再整条卡死：判断能不能用云端语音识别的那一步，以前是一次没有超时的网络请求，遇到网络半开就会永远挂着，等到你松手，屏幕还是纹丝不动。现在这一步自带 6 秒上限，探不出来就当云端不能用、老老实实落回本机识别，绝不让这个核心动作干等。",
+        "探测失败会分清楚是「超时」还是「网络真的不通」，设置页的诊断行照实说，不再一律含糊成一句网络失败。"
+      ]
+    },
     {
       "version": "1.7.3",
       "date": "2026-10-02",
@@ -645,5 +653,5 @@
       ]
     }
   ],
-  "versionCode": 10623
+  "versionCode": 10704
 }

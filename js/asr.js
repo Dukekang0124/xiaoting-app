@@ -104,8 +104,14 @@ export async function probeCloud(force = false) {
   const t = Date.now();
   const ep = cloudUrl(CLOUD_ASR.health);
   const dseq = diag.begin('asr', 'probe', { detail: '探测云端识别能力 ' + ep });
+  // 🔴 探测自带超时。裸 fetch 在网络挂起（半开连接 / 慢 DNS / 弱网）时会永久 pending，
+  //    而 app.js:436 与 :461 两处都是 `await asr.probeCloud()` 才决定走不走云端 ——
+  //    探不到就等于把整条识别链停在这一行，用户看到的是「按住说完，什么都没发生」。
+  //    所以超时一律判 unavailable（≈探不到），立刻落内置识别兜底，绝不让人等。
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), CLOUD_ASR.probeTimeoutMs);
   try {
-    const r = await fetch(ep, { method: 'GET', cache: 'no-store' });
+    const r = await fetch(ep, { method: 'GET', cache: 'no-store', signal: ctrl.signal });
     const j = await r.json().catch(() => null);
     const ready = !!(r.ok && j && j.ok === true && j.ai_binding === true);
     cloudState = {
@@ -118,8 +124,16 @@ export async function probeCloud(force = false) {
       detail: `http=${r.status} 结果=${cloudState.state} 后端=${(j && j.service) || '-'} build=${(j && j.build) || '-'} ai_binding=${!!(j && j.ai_binding)}`,
     });
   } catch (e) {
+    const aborted = !!(e && e.name === 'AbortError');
     cloudState = { state: 'unavailable', checkedAt: Date.now(), version: '' };
-    diag.end(dseq, { ok: false, code: 'network', ms: Date.now() - t, detail: `云端不可达：${String(e && e.message || e).slice(0, 80)}` });
+    diag.end(dseq, {
+      ok: false, code: aborted ? 'timeout' : 'network', ms: Date.now() - t,
+      detail: aborted
+        ? `云端探测超时（${CLOUD_ASR.probeTimeoutMs}ms）⇒ 按不可用处理，落内置识别兜底`
+        : `云端不可达：${String(e && e.message || e).slice(0, 80)}`,
+    });
+  } finally {
+    clearTimeout(timer);
   }
   return cloudState.state;
 }

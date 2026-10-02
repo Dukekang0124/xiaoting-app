@@ -108,6 +108,9 @@ export const CLOUD_ASR = {
   health: '/api/health',
   lang: 'zh',
   timeoutMs: 25000,          // 单次超时。实测 6.7s 音频约 1.8~3.4s，留足一倍余量
+  // 🔴 探测（probeCloud）专用超时，必须远小于 timeoutMs：探测答的是"值不值得走云端"，
+  //    探不出来就直接按不可用落内置识别兜底 —— 绝不能让调用方卡在 await probeCloud() 上干等网络。
+  probeTimeoutMs: 6000,
   maxAttempts: 3,            // 含首次，共 3 次（应对上面两类瞬态失败）
   backoffMs: 700,            // 退避基值，按 700/1400ms 递增
 };
