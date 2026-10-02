@@ -3326,6 +3326,28 @@ const MOCK_SDK = `(function(){
       /document\.removeEventListener\('keydown'/.test(body));
   }
 
+  /* ================= C10. 死字段与零调用导出已清除（P2-2，v1.7.5） =================
+     historyBias 只写不读（app.js 写进 store，全仓 0 处读），setQuietMode / setGreeting /
+     setHistoryBias 是「导出即终点」的零调用接口（调用点就是定义行本身）。
+     🔴 这组断言的另一半是**防删过头**：安静模式/问候那几个真状态（quietMode / greeting /
+     cardHint）是真读的，删死接口时最容易顺手把真状态一起删了 —— 那才算真出事。 */
+  sec('C10. 死字段与零调用导出已清除（P2-2）');
+  {
+    const storeSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'store.js'), 'utf8').replace(/\r\n/g, '\n');
+    const appSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8').replace(/\r\n/g, '\n');
+    check('C10·store 初始状态里不再有 historyBias 死字段',
+      /(^|\n)\s*historyBias\s*:/.test(storeSrc) === false);
+    check('C10·三个零调用导出（setQuietMode / setGreeting / setHistoryBias）已删除',
+      !/export function set(QuietMode|Greeting|HistoryBias)\s*\(/.test(storeSrc));
+    check('C10·app.js 不再把 bias 写进 store 状态（只当局部变量用）',
+      !/historyBias\s*:\s*bias/.test(appSrc));
+    // —— 防删过头：这些是真状态，必须还活着 ——
+    check('真状态 quietMode 仍在被真读（删死接口没误删真开关）',
+      /getState\(\)\.quietMode|s\.quietMode|st\.quietMode/.test(appSrc));
+    check('真状态 greeting / greetingSmall / cardHint 仍在被真读',
+      /s\.greeting\b/.test(appSrc) && /s\.greetingSmall\b/.test(appSrc) && /s\.cardHint\b/.test(appSrc));
+  }
+
   await browser.close();
 
   // 断言总数基线自检：数量对不上就是「有人悄悄删/加了断言」，宁可红一条也不要静默漂移。

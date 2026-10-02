@@ -54,7 +54,6 @@ let state = {
   greeting: '',
   greetingSmall: '',
   cardHint: '',
-  historyBias: null,
   toast: null,
 };
 
@@ -203,20 +202,11 @@ export function setHappy(ms = 4000) {
 
 /* ---------- v1.3.1/1.3.2/1.3.3：安静陪伴模式 + 首页问候 ---------- */
 
-/** 进入/退出安静陪伴模式（不产生任何卡片、不记录情绪） */
-export function setQuietMode(on) {
-  setState({ quietMode: !!on });
-}
-
-/** 写入本会话的首页问候文案（会话内固定；重开 App 才重新轮换） */
-export function setGreeting(greeting, greetingSmall, cardHint) {
-  setState({ greeting: greeting || '', greetingSmall: greetingSmall || '', cardHint: cardHint || '' });
-}
-
-/** 写入历史情绪偏向（来自记忆地基，供问候匹配） */
-export function setHistoryBias(bias) {
-  setState({ historyBias: bias || null });
-}
+/* 🔴 v1.7.5（P2-2）：上面那三个「导出即终点」的 setter（setQuietMode / setGreeting /
+   setHistoryBias）全仓零调用 —— 安静模式由 app.js 直接 store.setState({ quietMode:true/false })，
+   问候文案同理（initGreeting 直接写），历史偏向这个字段更是只写不读。
+   留着它们是「假接口」：调用方以为有这个入口，实际谁也没调（调用点即是定义行本身）。
+   真状态 quietMode / greeting / greetingSmall / cardHint 都是**真读**的，一个没删。 */
 
 /** 删除一条已保存的情绪时间线（本地数据，用户自主要求） */
 export function removeTimeline(id) {

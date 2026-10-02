@@ -3737,8 +3737,10 @@ async function initGreeting() {
   let rows = [];
   try { rows = await memory.loadMemory(); } catch (e) { rows = []; }
   const bias = historyBiasFrom(rows);
+  // 🔴 v1.7.5（P2-2）：这里原来还会把 bias 写进 store 的 historyBias 字段，但全仓 0 处读
+  //    （问候真正吃的是下面 greetingFor 拿到的 bias 结果）。字段+配套 setter 都已删，
+  //    bias 作为局部变量留在这一层就够了，别为「存起来」而存一个没人读的键。
   store.setState({
-    historyBias: bias,
     greeting: cw.greetingFor({ hour: new Date().getHours(), hasHistory: !!bias, bias }),
     greetingSmall: cw.pick(cw.GREETING_SMALL_TEXT),
     cardHint: cw.pick(cw.CARD_HINT),
