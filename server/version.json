@@ -5,10 +5,10 @@
   "web_url": "https://xiaoting.app.workbuddy.host/",
   "apk": {
     "versionCode": 10705,
-    "version": "1.7.4",
+    "version": "1.7.5",
     "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.7.5-release.apk",
-    "md5": "PENDING_CI",
-    "size": 0,
+    "md5": "da75bb83e16a806b9e5ab614eaeefced",
+    "size": 4344140,
     "force": false
   },
   "release_notes": [
