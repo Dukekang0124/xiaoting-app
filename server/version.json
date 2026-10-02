@@ -1,17 +1,18 @@
 {
-  "latest_version": "1.6.11",
+  "latest_version": "1.6.12",
   "force_update": false,
-  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.11-release.apk",
+  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.12-release.apk",
   "web_url": "https://xiaoting.app.workbuddy.host/#/say",
   "apk": {
-    "versionCode": 10611,
-    "version": "1.6.11",
-    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.11-release.apk",
-    "md5": "2b1d64add5ae4fdcaf0a7cf0c80be6d9",
-    "size": 4311204,
+    "versionCode": 10612,
+    "version": "1.6.12",
+    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.12-release.apk",
+    "md5": "",
+    "size": 0,
     "force": false
   },
   "release_notes": [
+    "下载更新不会再「一切后台就断」了（v1.6.12）：以前更新包是在 App 自己里下的，你一按 Home、锁屏或切到别的 App，系统就会把下载挂起，进度白跑、还得从头再来。这一版把下载交给了手机**系统自带的下载服务**——它独立于墨小溟运行，切后台、锁屏、甚至把墨小溟划掉都照样下；下拉通知栏能看到**系统级的下载进度条**，网络恢复了会自动接着下。点「先放着」之后它会继续在后台下，下完系统通知会告诉你；回到墨小溟会自动弹「包已下好，立即安装」，点一下就进系统安装界面。",
     "追问回答不会再「按第二次没反应」了（v1.6.11）：上一版真机发现，在追问页按住说回答过一轮后，第二次按住经常完全没反应，说话像石沉大海。根因是上一次录音一旦中途出岔子（设备识别卡住、麦克风释放不干净），录音状态就卡住不重置，后面所有按压都被挡住。这一版给录音加了「看门狗 + 硬复位」：任何一步超时或出错都自动收回状态、彻底关掉麦克风，第二次按住照样能用。顺带修了一个更隐蔽的问题：偶尔输入框会冒出「字幕志愿者 杨茜茜」这类与你完全无关的句子 —— 那是云端识别对『没录到声音』的空音频产生的幻觉。现在太短的录音根本不会发出去，返回文本若命中已知「幻觉套话」也一律当没听清处理，绝不会再拿假句子污染你的记录。同时补全了录音诊断日志（录音开始 / 音频大小 / 请求地址 / 返回原文 / 资源已释放），真机排障一眼定位。",
     "换了张更暖的脸（v1.6.10）：桌面图标重画了。上一版是深紫底、安安静静的小墨鱼，不少人说看着有距离感、不像会想点开的样子。这次改成暖奶油白到浅紫的柔和渐变底，一只圆乎乎、大眼睛、带腮红、头顶两根发光小触角的墨小溟，更像深海里一个会听你说话的伙伴。形象仍然是墨鱼（不是章鱼、也不是水母）：宽圆的身体两侧有一圈小裙边一样的侧鳍，底下收着 8 只短触手。网页版的书签图标也一起换了。",
     "更新弹窗修好了（v1.6.9）：下载更新的包不会再\"丢\"。下载完成就记下来，App 万一被系统退到桌面或杀掉，下次打开会自动问你\"安装包已下好了，要不要现在装\"——不用重新下、也不用去通知栏翻文件。装的那一下系统会接管、墨小溟暂时退到后台是正常现象，装完自动回来。",
@@ -55,6 +56,19 @@
     "新增设置开关：IP 动效总开关 / IP 触碰互动 / 气泡文字 / 动画强度（柔和·标准）/ 水墨气泡轻音效（默认关，纯 Web Audio 合成、零素材）"
   ],
   "history": [
+    {
+      "version": "1.6.12",
+      "date": "2026-10-02",
+      "title": "更新下载改走 Android 原生 DownloadManager（后台不断线）",
+      "notes": [
+        "第四份需求（真机更新体验缺陷）：下载更新包时一切后台/被弹回桌面，下载就中断失败。",
+        "根因：原下载走 @capacitor/filesystem 的 downloadFile —— 在 WebView 进程里发起，切后台时系统挂起 WebView ⇒ 请求断开；且无断点续传、无系统通知。",
+        "方案：接入 @capgo/capacitor-downloader（v8.3.7，注册名 CapacitorDownloader），底层就是 Android DownloadManager——setAllowedOverMetered/Roaming(true)、getExternalFilesDir(null)/downloads/ 落盘、系统通知栏进度、系统负责网络恢复续传。仅从 Capacitor 桥按注册名取，绝不裸 import（沿用 v1.6.4 铁律）。",
+        "落地：update.js DL_DIR CACHE→EXTERNAL（与 DownloadManager 的 getExternalFilesDir 同一处）+ APK_SUBDIR=downloads/；installApkInApp 优先 DM 路径（失败/插件缺失回落旧 Filesystem 链路）；新增 dm_task 标记 + 启动 reconcile（后台下完能被认出来）。",
+        "注意：插件 pause/resume 对 DownloadManager 是 no-op（系统不支持单任务暂停），但网络中断由系统自动重试续传；包在应用私有外部目录，卸载即清。",
+        "验收面：CI 构建成功（npm 装插件 + cap add/sync 注册） + 康哥真机（Home 键后仍下、通知栏进度、回 App 弹安装）。"
+      ]
+    },
     {
       "version": "1.6.11",
       "date": "2026-10-02",

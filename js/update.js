@@ -39,11 +39,11 @@ const SNOOZE_KEY = 'xiaoting:update_snooze_day'; // 当天"稍后再说"过的�
  * 🔴 与 APP_VERSION 必须同步：自测里有一条断言卡死这条（两者必须相等），
  *   否则「发版忘改常量」又会变成下一个静默故障。
  */
-export const LATEST_VERSION = '1.6.11';
+export const LATEST_VERSION = '1.6.12';
 
 /** 兜底安装包地址：必须是**版本化文件名**，不能用 xiaoting-latest.apk 别名
  *  （别名指向"站点上最新的那一版"，站点没发布时它反而是旧版 ⇒ 会让人装回旧包）。 */
-const FALLBACK_APK_URL = 'https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.11-release.apk';
+const FALLBACK_APK_URL = 'https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.12-release.apk';
 
 /**
  * 版本清单的两个候选路径，按顺序试（v1.1.4 修）。
@@ -567,8 +567,145 @@ async function loadInstaller() {
   return { Filesystem, FileOpener };
 }
 
-/** v1.6.4：原生下载走 Filesystem 的 CACHE 目录（DownloadFileOptions.directory 官方枚举值是字符串）。 */
-const DL_DIR = 'CACHE';
+/**
+ * 下载落盘目录（v1.6.12）。
+ * 🔴 从 CACHE 改到 EXTERNAL：Android 原生 DownloadManager 只能写**应用私有外部目录**
+ *    （`getExternalFilesDir(null)`），而 Capacitor Filesystem 的 `Directory.External` 恰好指向同一处
+ *    ⇒ DownloadManager 下好的包，和 Filesystem.stat/getUri 看到的是同一个文件，能直接拿去唤起安装器。
+ *    子目录 `downloads/` 与 DownloadManager 的 destination 约定保持一致。
+ */
+const DL_DIR = 'EXTERNAL';
+const APK_SUBDIR = 'downloads';
+const apkPath = (version) => APK_SUBDIR + '/xiaoting-v' + String(version || 'latest').replace(/[^\w.]/g, '') + '.apk';
+
+/* ---------------- v1.6.12：Android 原生 DownloadManager（后台下载，切后台/锁屏不断线） ---------------- */
+
+/**
+ * 取原生后台下载器（`@capgo/capacitor-downloader`，注册名 `CapacitorDownloader`）。
+ * 与项目既有约定一致：**只从 Capacitor 桥上按注册名取**，绝不裸 import（无构建 WebView 解析不了裸说明符）。
+ * @returns null = 不可用（Web 端 / 插件没注册）⇒ 上层回落旧的 Filesystem 下载链路。
+ */
+function loadDownloader() {
+  if (!isNativeApp()) return null;
+  const C = typeof window !== 'undefined' ? window.Capacitor : null;
+  const p = C && C.Plugins && C.Plugins.CapacitorDownloader;
+  return (p && typeof p.download === 'function') ? p : null;
+}
+
+const DM_TASK_PREFIX = 'xiaoting:dm_task_';
+function setDmTask(version, id) { try { localStorage.setItem(DM_TASK_PREFIX + version, id); } catch (e) { /* ignore */ } }
+function clearDmTask(version) { try { localStorage.removeItem(DM_TASK_PREFIX + version); } catch (e) { /* ignore */ } }
+export function getDmTask(version) { try { return localStorage.getItem(DM_TASK_PREFIX + version) || ''; } catch (e) { return ''; } }
+
+/**
+ * 用 Android 原生 **DownloadManager** 下载 APK（v1.6.12）。
+ *
+ * 为什么必须换掉前端/Filesystem 下载：那两者都是在 WebView 进程里发起的请求，
+ * **切后台/锁屏时系统会挂起 WebView，下载直接断**，且没有断点续传 —— 用户一按 Home 就白下。
+ * DownloadManager 是系统级服务：独立进程、通知栏进度、进程被杀仍继续、网络恢复自动续传。
+ *
+ * @returns 结果对象；**返回 null 表示插件不可用**（上层回落到 Filesystem 链路）。
+ */
+async function downloadViaDownloadManager(url, version, opts = {}) {
+  const DM = loadDownloader();
+  if (!DM) return null;
+  const kit = await loadInstaller();
+  if (!kit) return null;
+  const { Filesystem, FileOpener } = kit;
+  const path = apkPath(version);
+  const id = 'xiaoting-update-' + String(version || 'latest').replace(/[^\w.]/g, '');
+
+  // 先清掉同名旧任务与旧文件，避免拿到半截包
+  try { await DM.stop({ id }); } catch (e) { /* ignore */ }
+  try { await Filesystem.deleteFile({ path, directory: DL_DIR }); } catch (e) { /* ignore */ }
+
+  let settled = false;
+  let resolveFinish;
+  const finish = new Promise((r) => { resolveFinish = r; });
+  const done = (r) => { if (settled) return; settled = true; resolveFinish(r); };
+  const handles = [];
+
+  const finalize = async () => {
+    let size = 0;
+    try { const st = await Filesystem.stat({ path, directory: DL_DIR }); size = Number(st && st.size) || 0; } catch (e) { /* ignore */ }
+    const expect = Number(opts.expectSize) || 0;
+    if (size === 0 || (expect > 0 && Math.abs(size - expect) > 2048)) {
+      diag.note('update', 'dm_bad_payload', { ok: false, detail: `落盘 ${size}B / 清单 ${expect}B` });
+      try { await Filesystem.deleteFile({ path, directory: DL_DIR }); } catch (e) { /* ignore */ }
+      return done({ ok: false, reason: 'not_an_apk', detail: `落盘 ${size}B，清单写的是 ${expect}B`, retryable: true });
+    }
+    markDownloaded(version); clearDmTask(version);
+    diag.note('update', 'dm_done', { ok: true, detail: `DownloadManager 下载完成 ${size}B` });
+    try {
+      const uri = await Filesystem.getUri({ path, directory: DL_DIR });
+      await FileOpener.open({ url: uri.uri, contentType: 'application/vnd.android.package-archive' });
+      clearDownloaded(version);
+      return done({ ok: true, size });
+    } catch (e) {
+      // 包在、但没唤起来：仍算成功（UI 会给「再打开一次安装界面」），不谎报失败
+      diag.note('update', 'dm_open_failed', { ok: false, detail: String((e && e.message) || e).slice(0, 160) });
+      return done({ ok: true, size, openFailed: true });
+    }
+  };
+
+  try {
+    if (typeof DM.addListener === 'function') {
+      handles.push(await DM.addListener('downloadProgress', (p) => {
+        const bytes = Number(p && p.bytesWritten) || 0;
+        const total = Number(p && p.bytesTotal) || 0;
+        const prog = Number(p && p.progress);
+        const pct = total > 0 ? Math.min(100, Math.round((bytes / total) * 100)) : (prog >= 0 ? Math.round(prog) : -1);
+        if (opts.onProgress) { try { opts.onProgress({ bytes, total, pct, phase: 'downloading' }); } catch (e) { /* ignore */ } }
+      }));
+      handles.push(await DM.addListener('downloadCompleted', () => { void finalize(); }));
+      handles.push(await DM.addListener('downloadFailed', (e) => {
+        diag.note('update', 'dm_failed', { ok: false, detail: String((e && e.error) || '') });
+        done({ ok: false, reason: 'download_failed', detail: String((e && e.error) || '系统下载失败'), retryable: true });
+      }));
+    }
+  } catch (e) { /* 监听注册失败不致命：下面有 checkStatus 轮询兜底 */ }
+
+  try {
+    await DM.download({ id, url, destination: path, notification: 'progress' });
+    setDmTask(version, id);
+    diag.note('update', 'dm_enqueue', { ok: true, detail: `DownloadManager 已入队 id=${id} dest=${path} url=${String(url).slice(0, 90)}` });
+  } catch (e) {
+    diag.note('update', 'dm_enqueue_failed', { ok: false, detail: String((e && e.message) || e).slice(0, 160) });
+    handles.forEach((h) => { try { h && h.remove && h.remove(); } catch (er) { /* ignore */ } });
+    return null;   // 入队失败 → 回落旧链路，而不是把用户卡死
+  }
+
+  // 轮询 checkStatus 兜底：事件可能因 WebView 暂停而漏收；回到前台后靠它把最终态认出来
+  const POLL_MS = 1500;
+  const MAX_MS = 20 * 60 * 1000;
+  const t0 = Date.now();
+  const poll = setInterval(async () => {
+    if (settled) { clearInterval(poll); return; }
+    if (Date.now() - t0 > MAX_MS) { clearInterval(poll); return done({ ok: false, reason: 'download_timeout', detail: '等太久还没下完', retryable: true }); }
+    if (typeof DM.checkStatus !== 'function') return;
+    try {
+      const st = await DM.checkStatus({ id });
+      const s = st && st.status;
+      const bytes = Number(st && st.bytesDownloaded) || 0;
+      const total = Number(st && st.bytesTotal) || 0;
+      if (opts.onProgress && (bytes || total)) {
+        const pct = total > 0 ? Math.min(100, Math.round((bytes / total) * 100)) : -1;
+        try { opts.onProgress({ bytes, total, pct, phase: 'downloading' }); } catch (e) { /* ignore */ }
+      }
+      // DownloadManager 状态码：8=SUCCESSFUL，16=FAILED（插件可能回数字或字符串，两种都认）
+      if (s === 8 || s === 'SUCCESSFUL' || s === 'DONE') { clearInterval(poll); void finalize(); }
+      else if (s === 16 || s === 'FAILED' || s === 'ERROR') {
+        clearInterval(poll);
+        done({ ok: false, reason: 'download_failed', detail: String((st && (st.reasonText || st.reason)) || '系统下载失败'), retryable: true });
+      }
+    } catch (e) { /* 查询失败忽略，下一轮再试 */ }
+  }, POLL_MS);
+
+  const r = await finish;
+  clearInterval(poll);
+  handles.forEach((h) => { try { h && h.remove && h.remove(); } catch (e) { /* ignore */ } });
+  return r;
+}
 
 function bytesToBase64(u8) {
   let s = '';
@@ -630,10 +767,15 @@ export function validateApkBytes(bytes, contentType) {
  * @returns {{ok:true}|{ok:false, reason:string, detail?:string}}
  */
 export async function installApkInApp(url, version = '', opts = {}) {
+  // v1.6.12：优先 Android 原生 DownloadManager —— 切后台/锁屏不断线、通知栏进度、系统负责续传。
+  // 返回 null 表示插件不可用（Web / 未注册）⇒ 回落到下面的 Filesystem 链路。
+  const dm = await downloadViaDownloadManager(url, version, opts);
+  if (dm) return dm;
+
   const kit = await loadInstaller();
   if (!kit) return { ok: false, reason: 'plugin_missing' };
   const { Filesystem, FileOpener } = kit;
-  const file = `xiaoting-v${String(version || 'latest').replace(/[^\w.]/g, '')}.apk`;
+  const file = apkPath(version);
 
   // 失败时把半截文件删掉，免得下次 getUri 拿到的是一个"看起来在、装了会解析包失败"的坏文件
   const drop = async () => { try { await Filesystem.deleteFile({ path: file, directory: DL_DIR }); } catch (e) { /* ignore */ } };
@@ -712,7 +854,7 @@ function showInstallGuide(data, p) {
 
   const card = overlay.querySelector('.install-card');
   const close = () => { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); };
-  const file = `xiaoting-v${String(data.latest_version || '').replace(/[^\w.]/g, '')}.apk`;
+  const file = apkPath(data.latest_version);
   let lastKit = null;   // 成功后的「再打开一次安装界面」不必重新下载
   let lastRun = null;
   let isResume = false;  // 当前卡片是「已下好·立即安装」而非「3 步指引」
@@ -790,7 +932,7 @@ function showInstallGuide(data, p) {
     setCard({ sign: 'listening', label: '下载中', title: '正在下载安装包…',
       body: '<div class="dl-bar"><i class="dl-bar__fill" id="dlFill"></i></div>' +
             '<p class="update-sub" id="dlHint">准备连接…</p>' +
-            '<p class="update-sub update-sub--dim">这次下载全程在手机里完成，不用切到浏览器，包也不会丢在别处。下完会跳到系统安装界面，墨小溟可能暂时退到后台，这是正常的，装完自动回来。</p>',
+            '<p class="update-sub update-sub--dim">下载交给手机系统的下载服务：切出去、锁屏、甚至把墨小溟划掉，都不会断，下拉通知栏能看到系统进度。下完会自动跳到系统安装界面（那一下墨小溟暂时退到后台是正常的，装完自动回来）。想让它自己在后台下，点「先放着」就行。</p>',
       actions: [{ id: 'dlCancel', text: '先放着', ghost: true }] });
 
     const r = await installApkInApp(url, data.latest_version, {
@@ -846,8 +988,8 @@ function showInstallGuide(data, p) {
         sign: 'happy', label: '安装指引',
         title: `墨小溟 v${esc(data.latest_version)} 已经准备好了`,
         body: '<ol class="install-steps">' +
-          '<li>点「开始下载」，包就在这个 App 里下载，进度看得见。</li>' +
-          '<li>下完会跳到系统安装界面 —— 不用切到浏览器，包也不会丢在别处。</li>' +
+          '<li>点「开始下载」，包交给手机系统的下载服务 —— <b>切出去、锁屏都不会断</b>，下拉通知栏能看到系统下载进度。</li>' +
+          '<li>下完会自动跳到系统安装界面 —— 不用切到浏览器，包也不会丢在别处。</li>' +
           '<li>装那一下系统会接管，墨小溟可能暂时退到后台，这是正常的；若弹出「允许安装未知应用」，打开权限再点「安装」。</li>' +
           '</ol>',
         actions: [{ id: 'installStart', text: '开始下载' }, { id: 'installLater', text: '稍后再说', ghost: true }],
@@ -925,7 +1067,7 @@ export function getDownloadedVersion() {
 async function fileExists(version) {
   const kit = await loadInstaller();
   if (!kit) return false;
-  const file = `xiaoting-v${String(version || '').replace(/[^\w.]/g, '')}.apk`;
+  const file = apkPath(version);
   try { await kit.Filesystem.stat({ path: file, directory: DL_DIR }); return true; }
   catch (e) { return false; }
 }
@@ -938,7 +1080,7 @@ export async function resumeInstall(data) {
   const version = String((data && data.latest_version) || '');
   const kit = await loadInstaller();
   if (!kit) { showInstallGuide(data, platform()); return; }
-  const file = `xiaoting-v${version.replace(/[^\w.]/g, '')}.apk`;
+  const file = apkPath(version);
   let size = 0;
   try { const st = await kit.Filesystem.stat({ path: file, directory: DL_DIR }); size = Number(st && st.size) || 0; } catch (e) { /* gone */ }
   if (!size) { showInstallGuide(data, platform()); return; }   // 包没了 → 重新下
@@ -1113,11 +1255,49 @@ export function describeCheckResult(r) {
 }
 
 /** 启动版本检测：App 启动 + 从后台回到前台 */
+/**
+ * v1.6.12：把「走后台上/系统下载器」的任务最终态认出来。
+ * DownloadManager 可能在 App 关闭期间就把包下完了 —— 那条路径不经过 JS，不会写「已下好」标记，
+ * 所以启动时主动查一次：DONE ⇒ 补写标记（让「已下好，立即安装」卡片弹出来）；FAILED ⇒ 清掉残留标记。
+ */
+async function reconcileDownloadManager() {
+  const DM = loadDownloader();
+  if (!DM || typeof DM.checkStatus !== 'function') return;
+  const kit = await loadInstaller();
+  if (!kit) return;
+  const tasks = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i) || '';
+      if (k.startsWith(DM_TASK_PREFIX)) tasks.push({ v: k.slice(DM_TASK_PREFIX.length), id: localStorage.getItem(k) || '' });
+    }
+  } catch (e) { return; }
+  for (const { v, id } of tasks) {
+    if (!v || !id) { clearDmTask(v); continue; }
+    try {
+      const st = await DM.checkStatus({ id });
+      const s = st && st.status;
+      if (s === 8 || s === 'SUCCESSFUL' || s === 'DONE') {
+        const path = apkPath(v);
+        let size = 0;
+        try { const f = await kit.Filesystem.stat({ path, directory: DL_DIR }); size = Number(f && f.size) || 0; } catch (e) { /* ignore */ }
+        if (size > 4096) markDownloaded(v);
+        clearDmTask(v);
+        diag.note('update', 'dm_reconcile_done', { ok: true, detail: `v${v} 已在后台下完 size=${size}B` });
+      } else if (s === 16 || s === 'FAILED' || s === 'ERROR') {
+        clearDmTask(v);
+        diag.note('update', 'dm_reconcile_failed', { ok: false, detail: `v${v} 后台下载失败` });
+      }
+    } catch (e) { /* 查询失败下次再说 */ }
+  }
+}
+
 export function initUpdate() {
   // 启动即检测一次
   checkUpdate().catch(() => {});
   // v1.6.9：重开续装 —— 若上一次下载完成但没装上（被杀/退后台），自动提示"安装包已下好，是否立即安装"
   (async () => {
+    await reconcileDownloadManager();          // v1.6.12：先把后台下载的最终态认出来
     const pending = getDownloadedVersion();
     if (!pending) return;
     if (getDismissedVersion() === pending) return;   // 用户曾对这个版本点"稍后再说"则不打扰
