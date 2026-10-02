@@ -2280,7 +2280,7 @@ function pageMe() {
       <p class="mblock__d">${esc(M.download.desc)}</p>
       <a class="mrow mrow--download" href="#/download">
         <span class="mrow__ico">${ICON.download}</span>
-        <span class="mrow__txt">${esc(M.download.row)}<span class="mrow__sub" id="meDlSub">当前版本 v${esc(window.APP_VERSION || '1.7.1')}</span></span>
+        <span class="mrow__txt">${esc(M.download.row)}<span class="mrow__sub" id="meDlSub">当前版本 v${esc(window.APP_VERSION || '1.7.2')}</span></span>
         <i class="mrow__arrow">›</i>
       </a>
       <button class="ghost me-install" id="meInstall" type="button">${esc(M.download.installBtn)}</button>
@@ -2455,7 +2455,9 @@ function aiChannelText(s) {
     const c = st.ok ? `本次已成功调用 ${st.ok} 次` : '本次还没有成功调用记录';
     return `${st.channelLabel}${n}，${c}。`;
   }
-  return '本次会话还没开口，暂时看不到通道状态。打开说一句就会记下来。';
+  // v1.7.2：unknown 只表示「一次都没实测过」，不说谎、也不许含糊过去。
+  // 想看通道就得点下面的「重新检测通道」真跑一次 —— 那才会把自建/云端、模型名报出来。
+  return '还没实测过通道：现在走哪条路、用的哪个模型，要真点一次才知道。点下方「重新检测通道」会实际跑一次（极短），然后把结论写在这里。';
 }
 
 function pageSettings() {
@@ -2538,7 +2540,7 @@ function pageSettings() {
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
     ${privacyBlockHtml(COPY.privacyFull)}
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.7.1')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.7.2')}</p>
   </section>`;
 }
 
@@ -2590,29 +2592,30 @@ function bindSettings() {
     }
   });
 
-  // v1.7.1 AI 通道诊断行：进页面就填一次（能填出什么就报什么），点「重新检测」再探一次。
-  // 🔴 渲染后必须真跑一次异步探测再断言 DOM —— 骨架上的文字是渲染时按"还没调用过"写的，
-  //    只等 .set-page 出现就读数，必然读到 unknown 那句。
+  // v1.7.1/v1.7.2 AI 通道诊断行。
+  // v1.7.1 进页面就真探测一次 ⇒ 用户每次开设置页都被白扣一次模型调用，报出来的还是「还没开口」。
+  // v1.7.2：首屏只取不探测的 status()（如实报「还没实测过」），点「重新检测通道」才真跑一次整条链路。
+  // 按钮说「重新检测通道」，就真去测通道 —— 按钮名和行为必须一件事。
   const aiTxt = document.getElementById('aiChannelText');
   const aiBtn = document.getElementById('aiChannelRetest');
+  function paintAiChannel(s) {
+    if (!aiTxt || !s) return null;
+    aiTxt.textContent = aiChannelText(s);
+    aiTxt.dataset.channel = s.channel || 'unknown';
+    aiTxt.dataset.model = s.model || '';
+    aiTxt.dataset.provider = s.provider || '';
+    return s;
+  }
   async function fillAiChannel() {
     if (!aiTxt) return null;
-    try {
-      const s = await api.aiProbe();
-      aiTxt.textContent = aiChannelText(s);
-      aiTxt.dataset.channel = s.channel || 'unknown';
-      aiTxt.dataset.model = s.model || '';
-      aiTxt.dataset.provider = s.provider || '';
-      return s;
-    } catch (e) {
-      return null;
-    }
+    try { return paintAiChannel(api.aiStatus()); }
+    catch (e) { return null; }
   }
   if (aiBtn) aiBtn.addEventListener('click', async () => {
     aiBtn.disabled = true;
     const old = aiBtn.textContent;
     aiBtn.textContent = '检测中…';
-    await fillAiChannel();
+    try { paintAiChannel(await api.aiProbe()); } catch (e) { /* 本层不抛，status 自会如实报 */ }
     aiBtn.disabled = false;
     aiBtn.textContent = old;
     store.toast('通道已重新检测');
@@ -2888,7 +2891,7 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.7.1')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.7.2')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -2901,7 +2904,7 @@ function pageChangelog() {
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.7.1')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.7.2')}</p>
   </section>`;
 }
 

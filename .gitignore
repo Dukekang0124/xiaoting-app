@@ -43,3 +43,5 @@ _selftest/shots-onboarding/
 release/
 _selftest/shots-live-v160/
 _selftest/shots-monthly/
+# 误拷进来的九思数字资产（OB 素材）：只声明不上线，不动文件本身，避免误提交
+02-Areas-*/

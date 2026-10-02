@@ -147,7 +147,12 @@ export function stats() {
  *   local   = 明确走本地规则引擎（离线 / 显式 mock / 全挂）
  *   self    = 自建调度通道在跑
  *   cloud   = 免密钥网关在跑
- *   unknown = 本次会话还没开口，没得可报（不是没模型）
+ *   unknown = 一次都没试过（没实测过），不是「没模型」、也不是「还没开口」
+ *
+ * 🔴 unknown 的语义在 v1.7.2 改过：v1.7.1 把它写成「本次会话还没开口」，可设置页一进来
+ * 必然就是这个态（用户还没说第一句话）—— 于是「当前用的什么模型」这个最该回答的问题，
+ * 恰好在最需要它的位置永远答不上，而按钮点了也只是重探自建通道（线上恒 501）照样 unknown。
+ * 「还没开口」是另一种信息，由 UI 在 unknown 之外另行说明，别混进通道状态里。
  */
 export function status() {
   const s = stats();
@@ -156,9 +161,9 @@ export function status() {
   if (forcedMock() || !AI.enabled) channel = 'local';
   else if (sc && sc.state === 'up') channel = 'self';
   else if (s.ok > 0 && s.model) channel = (s.provider === 'self') ? 'self' : 'cloud';
-  else if (s.calls > 0 && s.ok === 0) channel = 'local';   // 试过一轮全没成 → 兜底在干活
+  else if (s.calls > 0) channel = 'local';   // 试过一轮没成（或全成但没拿到 model）→ 兜底在干活
   const labels = {
-    local: '本地规则引擎', self: '自建调度通道', cloud: '免密钥云端模型', unknown: '本次还没开口',
+    local: '本地规则引擎', self: '自建调度通道', cloud: '免密钥云端模型', unknown: '还没实测过',
   };
   return {
     ...s, channel,
@@ -170,15 +175,23 @@ export function status() {
 
 /** 主动重测通道（UI「重新检测通道」按钮用）。
  *
- * 会被真实调用一次「自建通道」的握手：线上静态托管时是 404/501 秒返（几乎零成本），
- * 本地自测时有后端会真跑一次极短的模型调用——这是刻意换来的「状态是准的」：
- * 只清缓存不探测的话，状态还是上一轮的旧值，按钮点了等于没点。
+ * 🔴 v1.7.2 修：原来只探「自建通道」一条腿 —— `callSelf` 线上恒 404/501 秒返（纯静态托管），
+ * 探完什么都没探到，status 里 calls 还是 0 ⇒ 按钮点了照样报「还没开口」。按钮说的是
+ * 「重新检测通道」，就得把整条路走完：自建不通就直接打到免密钥网关，拿到真模型名。
+ *   · 自建通 ⇒ channel='self'，模型名来自服务端配置
+ *   · 自建不通、网关通 ⇒ channel='cloud'，模型名来自真实那一跳
+ *   · 都不通 ⇒ channel='local' + degraded（UI 该说「刚才没连上」）
+ * 只清缓存不探测的话状态还是上一轮的旧值，按钮点了等于没点。
+ * 探测本身就是一次极短的真实调用（maxTokens=1、不要求 JSON），代价换来状态是准的。
  */
 export async function probe() {
   resetSelfChannel();
   try {
-    await callSelf({ stage: 'probe', system: 'ping', user: 'ping', temperature: 0, maxTokens: 1, json: false });
-  } catch (e) { /* 探测本身失败不影响返回的 status，通道不可用是靠 status 报的 */ }
+    await call({
+      stage: 'probe', system: 'ping', user: 'ping',
+      temperature: 0, maxTokens: 1, json: false, timeoutMs: 12000,
+    });
+  } catch (e) { /* 本模块永不抛错：探测失败也照常返回 status，由它如实报 local */ }
   return status();
 }
 

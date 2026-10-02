@@ -3152,20 +3152,53 @@ const MOCK_SDK = `(function(){
     const el = document.getElementById('aiChannelText');
     return { ch: (el.dataset.channel || ''), text: ((el.textContent || '').trim()) };
   });
-  check('C8·没开口过：通道报 unknown（不是 cloud、更不是 local 兜底）', C8unk.ch === 'unknown', JSON.stringify(C8unk));
-  check('C8·没开口过：文案说"还没开口"，不许编出模型名',
-    /还没开口/.test(C8unk.text) && !/按可用列表自动选择/.test(C8unk.text), C8unk.text);
+  check('C8·没实测过：通道报 unknown（不是 cloud、更不是 local 兜底）', C8unk.ch === 'unknown', JSON.stringify(C8unk));
+  check('C8·没实测过：文案只能说"还没实测过"，不许编出模型名、也不许含糊成"还没开口"',
+    /还没实测过/.test(C8unk.text) && !/按可用列表自动选择/.test(C8unk.text) && !/还没开口/.test(C8unk.text), C8unk.text);
+
+  // v1.7.2 关键区分力：unknown 只是"没测过"，点「重新检测通道」必须真跑一次整条链路把结论捞出来。
+  // 线上 v1.7.1 就是这个死法 —— probe 只探自建通道，纯静态托管恒 501，点了照样 unknown。
+  await pageC8b.click('#aiChannelRetest').catch(() => {});
+  await pageC8b.waitForFunction(() => {
+    const el = document.getElementById('aiChannelText');
+    return !!el && el.dataset.channel && el.dataset.channel !== 'unknown';
+  }, null, { timeout: 30000 }).catch(() => {});
+  const C8unkAfter = await pageC8b.evaluate(() => {
+    const el = document.getElementById('aiChannelText');
+    return { ch: (el.dataset.channel || ''), model: (el.dataset.model || ''), text: ((el.textContent || '').trim()) };
+  });
+  check('C8·点「重新检测通道」后从 unknown 翻成 cloud（按钮真跑了，不是空转）',
+    C8unkAfter.ch === 'cloud', JSON.stringify(C8unkAfter));
+  check('C8·点完能报出真实模型名（自建没接住 ⇒ 网关那条腿被探到了）',
+    C8unkAfter.model === 'mock-chat' && C8unkAfter.text.indexOf('mock-chat') >= 0, C8unkAfter.text);
 
   // ④ 源码闸门：四态出口与"不许现场拼谎话"都要在代码里立得住
   const srcLlmC8 = readC5('js/llm.js');
   const srcAppC8 = readC5('js/app.js');
   const srcApiC8 = readC5('js/api.js');
+  // 🔴 只能判代码行：注释里复述这句旧谎话是文档，不该被当成"还留着这段代码"（同 v1.7.0 那次坑）
+  const stripCmt = (s) => String(s).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
   check('C8·llm.js 有 status() 四态出口（local/self/cloud/unknown）',
     /export function status\(\)/.test(srcLlmC8) && /channel\s*=\s*'local'/.test(srcLlmC8) && /channel\s*=\s*'unknown'/.test(srcLlmC8));
   check('C8·llm.js 有 probe()（「重新检测通道」是真探，不是只清缓存）', /export async function probe\(\)/.test(srcLlmC8));
+  // 🔴 v1.7.2 防回归：probe() 必须把整条链路走完（自建不通⇒网关），不许只探自建一条腿。
+  //    v1.7.1 就是只 callSelf ⇒ 线上纯静态托管恒 501 ⇒ 按钮点了也报 unknown。
+  const stripCmtLlmC8 = stripCmt(srcLlmC8);
+  check('C8·llm.js 的 probe() 走完整链路 call()（不是只探自建通道 callSelf）',
+    /await call\(/.test(stripCmtLlmC8) && /stage:\s*'probe'/.test(stripCmtLlmC8));
+  check('C8·llm.js 的 unknown 语义是「还没实测过」，不是「本次会话还没开口」',
+    /unknown:\s*'还没实测过'/.test(srcLlmC8));
+  const srcAppC8c = stripCmt(srcAppC8).replace(/\r/g, '');
+  // 只取 fillAiChannel 的函数体 —— 用 400 字符窗口会把按钮里的 aiProbe 也算进来，判据就假了
+  const fillBody = ((srcAppC8c.match(/async function fillAiChannel\(\)\s*\{([\s\S]*?)\n {2}\}/) || ['', ''])[1]);
+  const hasFillAiStatus = /api\.aiStatus\(\)/.test(fillBody);
+  const hasFillAiProbe = /aiProbe\(\)/.test(fillBody);
+  check('C8·app.js 首屏只取不探测（不白跑模型调用），探测留给按钮',
+    !!fillBody && hasFillAiStatus && !hasFillAiProbe,
+    `fillAiChannel 函数体=${fillBody ? '取到' : '没取到'} 内含aiStatus=${hasFillAiStatus} 内含aiProbe=${hasFillAiProbe}`);
+  check('C8·app.js 的「重新检测通道」监听里走 aiProbe（真探整条链路）',
+    /addEventListener\('click'[\s\S]{0,300}?aiProbe\(\)/.test(srcAppC8c));
   check('C8·api.js 有 aiProbe() 透传', /async aiProbe\(\)/.test(srcApiC8) && /llmProbe/.test(srcApiC8));
-  // 🔴 只能判代码行：注释里复述这句旧谎话是文档，不该被当成"还留着这段代码"（同 v1.7.0 那次坑）
-  const stripCmt = (s) => String(s).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
   check('C8·app.js 的 AI 通道代码里不再拼「按可用列表自动选择」（注释复述不算）',
     stripCmt(srcAppC8).indexOf('按可用列表自动选择') < 0);
   check('C8·设置页挂了 #aiChannelText 与「重新检测通道」按钮',
