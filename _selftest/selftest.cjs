@@ -2273,6 +2273,15 @@ const MOCK_SDK = `(function(){
     /getDismissedVersion/.test(updSrc) && /setDismissedVersion/.test(updSrc)
     && /reason: 'dismissed'/.test(updSrc) && /snooze = \(\) => \{ setSnoozeDay\(\); setDismissedVersion/.test(updSrc));
 
+  // ③b v1.6.14：唤起系统安装器的**参数契约** —— 必须传 filePath，不是 url。
+  //    真机根因：@capacitor-community/file-opener 读的是 getString("filePath")（见其 Java:24），
+  //    本仓从 v1.6.4 起一直传 url ⇒ filePath 为空 ⇒ 插件直接 reject ⇒ 安装界面从未被打开过
+  //    （真机表现：点「立即安装」只退到桌面）。修复前这两条必须失败。
+  check('update·唤起安装器一律传 filePath（不再误传 url）',
+    /filePath:\s*fileUri/.test(updSrc) && !/FileOpener\.open\(\{\s*url:/.test(updSrc));
+  check('update·唤不起来时如实返回失败（不谎报「安装界面已打开」）',
+    /openApkWithInstaller/.test(updSrc) && /installer_failed/.test(updSrc));
+
   // H3. 非强制弹窗 UI（?fake_version=9.9.9 让"线上最新"高于当前，自动弹出）
   const ctx3 = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'zh-CN', isMobile: true, hasTouch: true });
   await ctx3.addInitScript(() => {

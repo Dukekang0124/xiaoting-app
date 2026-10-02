@@ -39,11 +39,11 @@ const SNOOZE_KEY = 'xiaoting:update_snooze_day'; // 当天"稍后再说"过的�
  * 🔴 与 APP_VERSION 必须同步：自测里有一条断言卡死这条（两者必须相等），
  *   否则「发版忘改常量」又会变成下一个静默故障。
  */
-export const LATEST_VERSION = '1.6.13';
+export const LATEST_VERSION = '1.6.14';
 
 /** 兜底安装包地址：必须是**版本化文件名**，不能用 xiaoting-latest.apk 别名
  *  （别名指向"站点上最新的那一版"，站点没发布时它反而是旧版 ⇒ 会让人装回旧包）。 */
-const FALLBACK_APK_URL = 'https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.13-release.apk';
+const FALLBACK_APK_URL = 'https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.14-release.apk';
 
 /**
  * 版本清单的两个候选路径，按顺序试（v1.1.4 修）。
@@ -636,16 +636,16 @@ async function downloadViaDownloadManager(url, version, opts = {}) {
     }
     markDownloaded(version); clearDmTask(version);
     diag.note('update', 'dm_done', { ok: true, detail: `DownloadManager 下载完成 ${size}B` });
-    try {
-      const uri = await Filesystem.getUri({ path, directory: DL_DIR });
-      await FileOpener.open({ url: uri.uri, contentType: 'application/vnd.android.package-archive' });
-      clearDownloaded(version);
-      return done({ ok: true, size });
-    } catch (e) {
-      // 包在、但没唤起来：仍算成功（UI 会给「再打开一次安装界面」），不谎报失败
-      diag.note('update', 'dm_open_failed', { ok: false, detail: String((e && e.message) || e).slice(0, 160) });
-      return done({ ok: true, size, openFailed: true });
+    let uri = null;
+    try { const u = await Filesystem.getUri({ path, directory: DL_DIR }); uri = u && u.uri; } catch (e) { /* ignore */ }
+    if (!uri) return done({ ok: false, reason: 'installer_failed', detail: '拿不到安装包路径', retryable: true });
+    const opened = await openApkWithInstaller({ FileOpener }, uri);
+    if (!opened.ok) {
+      // 🔴 不再谎报「安装界面已打开」：包已下好、但没唤起来 ⇒ 如实返回失败（保留"已下好"标记供重试）
+      return done({ ok: false, reason: 'installer_failed', detail: `安装包已下好，但系统安装器没被唤起（${opened.detail || opened.code || '未知'}）`, retryable: true });
     }
+    clearDownloaded(version);
+    return done({ ok: true, size });
   };
 
   try {
@@ -714,6 +714,40 @@ function bytesToBase64(u8) {
     s += String.fromCharCode.apply(null, u8.subarray(i, i + CHUNK));
   }
   return btoa(s);
+}
+
+/**
+ * 唤起系统安装器（v1.6.14 修正参数名）。
+ *
+ * 🔴 真机根因：`@capacitor-community/file-opener` 的入参契约是 **`filePath`**
+ *    （见其 `FileOpenerOptions` 与 `FileOpenerPlugin.java:24 getString("filePath")`），
+ *    而本仓从 v1.6.4 起一直传的是 `url` ⇒ `filePath` 为空 ⇒ 插件在
+ *    `filePath.startsWith(...)` 处直接抛错 reject ⇒ **安装界面从来没被打开过**。
+ *    真机表现：点「立即安装」App 退到后台/桌面，什么都不发生。
+ *    之所以长期没被发现：自动化测试跑在浏览器里，Web 端 `loadInstaller()` 恒 null，
+ *    这段原生代码**从未被执行过** —— 典型的「代码写了 ≠ 生产上生效」。
+ *
+ * 兼容策略：先按正确契约传 `filePath`；若插件是更老的版本（只认 url），再试一次 `url`。
+ * 两次都失败 ⇒ 返回 `{ok:false}` 并留诊断，**绝不谎报"安装界面已打开"**。
+ */
+async function openApkWithInstaller(kit, fileUri) {
+  const CT = 'application/vnd.android.package-archive';
+  const attempts = [
+    ['filePath', { filePath: fileUri, contentType: CT }],
+    ['url', { url: fileUri, contentType: CT }],
+  ];
+  let last = null;
+  for (const [shape, arg] of attempts) {
+    try {
+      await kit.FileOpener.open(arg);
+      diag.note('update', 'installer_open', { ok: true, detail: `已唤起安装器（参数形态=${shape}）` });
+      return { ok: true, via: shape };
+    } catch (e) {
+      last = { shape, msg: String((e && e.message) || e).slice(0, 160), code: String((e && e.code) || '') };
+    }
+  }
+  diag.note('update', 'installer_open_failed', { ok: false, detail: JSON.stringify(last) });
+  return { ok: false, via: last && last.shape, detail: last && last.msg, code: last && last.code };
 }
 
 /**
@@ -818,7 +852,10 @@ export async function installApkInApp(url, version = '', opts = {}) {
     markDownloaded(version);
 
     const uri = await Filesystem.getUri({ path: file, directory: DL_DIR });
-    await FileOpener.open({ url: uri.uri, contentType: 'application/vnd.android.package-archive' });
+    const opened = await openApkWithInstaller({ FileOpener }, uri.uri);
+    if (!opened.ok) {
+      return { ok: false, reason: 'installer_failed', detail: `安装包已下好，但没能唤起系统安装器（${opened.detail || opened.code || '未知'}）`, retryable: true };
+    }
     diag.note('update', 'installer_opened', { ok: true, detail: `已唤起系统安装器 ${uri.uri} 大小=${size}B` });
     clearDownloaded(version);
     return { ok: true, size };
@@ -907,8 +944,9 @@ function showInstallGuide(data, p) {
     if (!lastKit) { await run(); return; }
     try {
       const uri = await lastKit.Filesystem.getUri({ path: file, directory: DL_DIR });
-      await lastKit.FileOpener.open({ url: uri.uri, contentType: 'application/vnd.android.package-archive' });
-      return;
+      const o = await openApkWithInstaller(lastKit, uri.uri);
+      if (o.ok) return;
+      /* 唤不起来就完整重走一遍 */
     } catch (e) { /* 拿不到就完整重走一遍 */ }
     await run();
   };
@@ -1086,7 +1124,13 @@ export async function resumeInstall(data) {
   if (!size) { showInstallGuide(data, platform()); return; }   // 包没了 → 重新下
   try {
     const uri = await kit.Filesystem.getUri({ path: file, directory: DL_DIR });
-    await kit.FileOpener.open({ url: uri.uri, contentType: 'application/vnd.android.package-archive' });
+    const opened = await openApkWithInstaller(kit, uri.uri);
+    if (!opened.ok) {
+      // 包在、但唤不起来 ⇒ 如实说，并回落到「手动装」的完整流程，不再谎报已打开
+      diag.note('update', 'resume_open_failed', { ok: false, detail: String(opened.detail || opened.code || '') });
+      showInstallGuide(data, platform());
+      return;
+    }
     armInstalled(version);
     clearDownloaded(version);
     // 给一句"已就绪"交代（与正常流程的成功卡一致），并支持关闭
