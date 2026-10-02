@@ -2,6 +2,7 @@
 // 对应技术设计 §5。无第三方依赖。
 
 import { IP_SETTINGS_DEFAULT, BASE_SETTINGS_DEFAULT } from './state-machine.js';
+import { sanitizeSermon } from './prompts.js'; // v1.6.17 G7：AI 文本统一过说教守门
 
 const KEY = 'xiaoting:v1';
 const listeners = new Set();
@@ -170,7 +171,10 @@ export function startDraft(transcript, recordId) {
 /** 向对话区追加一条消息（role: 'user' | 'ai'），§3.3 强制弹窗时同步输出安抚文字用 */
 export function appendConvo(role, text) {
   if (!text) return;
-  state.conversation = [...(state.conversation || []), { role, text, at: Date.now() }];
+  // v1.6.17 G7：所有要给用户看的 AI 句子都过这一道说教守门（黑名单命中 → 换中性说法或兜底共情句）。
+  // 只守 AI 那一路：用户自己打的字一个字都不许动，那是他的原话，动一个字都是冒犯。
+  const out = role === 'ai' ? sanitizeSermon(text) : String(text);
+  state.conversation = [...(state.conversation || []), { role, text: out, at: Date.now() }];
   emit();
 }
 
@@ -254,6 +258,21 @@ export function addCard(card) {
 }
 
 export function getCard(id) { return state.cards.find((c) => c.id === id) || null; }
+
+/** v1.6.17 G3：单张卡片删除。此前只有「清空全部卡片」—— 存了 20 张想删一张，连入口都没有。 */
+export function deleteCard(id) {
+  setState({ cards: (state.cards || []).filter((c) => c.id !== id) });
+}
+
+/**
+ * v1.6.17 G3：给单张卡片翻标记（fav 收藏 / archived 归档）。
+ * 用白名单 flag 而不是任意键：避免出现 `toggleCardFlag(id,'__proto__')` 这种把状态表写脏的野路子。
+ */
+export function toggleCardFlag(id, flag) {
+  if (flag !== 'fav' && flag !== 'archived') return null;
+  setState({ cards: (state.cards || []).map((c) => (c.id === id ? { ...c, [flag]: !c[flag] } : c)) });
+  return getCard(id) || null;
+}
 
 /** 保存一张情绪时间线卡片到本机（隐私优先，完全本地，不自动分享） */
 export function addTimeline(tl) {

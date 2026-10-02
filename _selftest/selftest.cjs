@@ -2347,6 +2347,155 @@ const MOCK_SDK = `(function(){
     ntRun.inNative === true && ntRun.reasonEnv === 'env',
     `原生支持=${ntRun.inNative} 缺插件原因=${ntRun.reasonMissing || '(空)'} 非原生原因=${ntRun.reasonEnv}`);
 
+  // ③h v1.6.17：G4 情绪动效防抖（2.5s 稳定窗）。情绪识别在相邻轮次间会来回跳
+  //   （sad→angry→sad 常常只是采样噪声），旧实现每次 setState 都当场换动画类 + void offsetWidth
+  //   强制重排 ⇒ 一轮分析里连着跳三五次，视觉上是"抽搐"而不是"情绪变了"。
+  //   判据不只问"代码里写了常量"，还要真跑出「刚切不落地 → 满窗自动落地 → 高危不受限」。
+  const mSrc = await readSrc('js/motion.js');
+  check('motion·情绪切换走稳定窗（setState 不立即下发，要同一个情绪持续 2.5s）',
+    /const EMOTION_STABLE_MS\s*=\s*2500/.test(mSrc)
+    && /opts\.immediate\s*===\s*true\s*\|\|/.test(mSrc)
+    && /spec\.lock_motion\s*===\s*true/.test(mSrc));
+  // 先把页面摆到 say 页（IP 节点在 render 时才存在；上一批流程可能停在其他路由）
+  await page.evaluate(() => { location.hash = '#/me'; });
+  await page.waitForTimeout(150);
+  await page.evaluate(() => { location.hash = '#/say'; });
+  await page.waitForTimeout(260);
+  const g4 = await page.evaluate(async () => {
+    const m = await import('/js/motion.js');
+    m.setEnabled(true);
+    document.body.classList.remove('ip-motion-off');
+    const em = (m.getConfig() || {}).emotion_motion_map || {};
+    const pick = (k) => ((em[k] || {}).ip_anim || '');
+    const el = () => document.querySelector('.say__mascot')
+      || document.querySelector('.cf-mascot')
+      || document.querySelector('.fu-mascot')
+      || document.querySelector('.mascot');
+    const has = (a) => { const e = el(); return !!(e && a && e.classList.contains(a)); };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    // 摆到已知点：applied = joy（先落一个必然是"窗内候选"的值，免得撞初值）
+    m.setState('joy'); m.flush();
+    // ① 稳定窗内不落地
+    m.setState('sad');
+    const rightAfter = has(pick('sad'));
+    const flushed = m.flush();
+    const afterFlush = has(pick('sad')) && !!(flushed && flushed.applied && flushed.state === 'sad');
+    // ② 窗口内来回跳 = 推倒重来：落地的是最新那个，且窗口重新计时
+    m.setState('joy');
+    await sleep(300);
+    m.setState('angry');
+    const st = m.getStability();
+    const swing = { pending: st.pending, reset: st.pending_ms < 400 };
+    // ③ 满窗自动落地 —— 这是"持续 2.5s 才切"的核心承诺，必须真等，不能靠 flush 蒙混
+    m.setState('tired');
+    await sleep(2700);
+    const autoApplied = has(pick('tired'));
+    // ④ 高危不受窗约束：danger.lock_motion=true ⇒ 立刻落地并定格。
+    //    注意不能拿「挂没挂上 ip_anim 类」当判据 —— lock 态是**不挂**位移动画的（只定格 + 关粒子）。
+    //    能证明"越过稳定窗"的是返回一个 applied:true 的结果，且窗口被清干净（pending 为 null）。
+    const d = m.setState('danger');
+    const dangerNow = !!(d
+      && d.applied === true
+      && d.lock === true
+      && m.getStability().pending === null);
+    return { rightAfter, afterFlush, swing, autoApplied, dangerNow };
+  });
+  check('motion·G4 防抖：刚切情绪不立刻下发（稳定窗内 IP 保持原态）', g4.rightAfter === false);
+  check('motion·G4 防抖：flush 提供同步落地通道（供即时断言/高危使用）', g4.afterFlush === true);
+  check('motion·G4 防抖：窗内来回跳会推倒重来，落地最新那个且窗口重置',
+    g4.swing.pending === 'angry' && g4.swing.reset === true, JSON.stringify(g4.swing));
+  check('motion·G4 防抖：同一情绪持续满窗后自动落地（真等 2.7s，非 flush 蒙混）', g4.autoApplied === true);
+  check('motion·G4 防抖：高危（danger）不受窗约束，立刻落地定格并清空窗口', g4.dangerNow === true);
+
+  // ③i v1.6.17：G7 说教黑名单 + 共情白名单。轮子本来就有（FORBIDDEN_PHRASES / scrubForbidden，
+  //    ai.js 有 8 处真调用），缺的是「词表太薄（只有 8 条直球，挡不住软说教）+ 替换表没跟着扩」。
+  //    🔴 后者是致命的假绿：黑名单里加了词却没配替换项 ⇒ 「查出来但不改」＝ 拦了个寂寞。
+  const prSrc = await readSrc('js/prompts.js');
+  check('G7·黑名单已覆盖软说教（想开点/别想太多/你要乐观/坚强一点/调整心态/看开点/别难过/你应该放下/振作起来/时间会治愈一切）',
+    ['想开点', '别想太多', '你要乐观', '坚强一点', '调整心态', '看开点', '别难过', '你应该放下', '振作起来', '时间会治愈一切']
+      .every((w) => new RegExp(`'${w}',`).test(prSrc)));
+  check('G7·system 里注入了共情白名单与禁止句式（软约束，与前端硬拦截互补）',
+    /共情白名单/.test(prSrc) && /禁止句式/.test(prSrc) && /不许催他好起来/.test(prSrc));
+  const g7 = await page.evaluate(async () => {
+    const p = await import('/js/prompts.js');
+    const unmatched = (p.FORBIDDEN_PHRASES || []).filter((w) => !(w in p.SERMON_REPL));
+    const dense = p.sanitizeSermon('你要坚强一点，想开点吧。');
+    const light = p.sanitizeSermon('我听到你了，你要坚强一点。');
+    const clean = p.sanitizeSermon('我听到你被当众夸了，那一刻你很开心吧。');
+    // 真链路：appendConvo 是 AI 文本进 UI 的唯一入口，守门必须挂在这儿（挂在别处都有漏网的路）
+    const st = await import('/js/store.js');
+    st.appendConvo('ai', '你应该放下这段感情，往前看。');
+    const conv = st.getState().conversation || [];
+    const last = conv[conv.length - 1] || {};
+    st.appendConvo('user', '我想开点行不行？');
+    const conv2 = st.getState().conversation || [];
+    const lastUser = conv2[conv2.length - 1] || {};
+    return {
+      unmatched, dense, light, clean, fallback: p.SERMON_FALLBACK,
+      lastRole: last.role, lastText: last.text, lastUserText: lastUser.text,
+    };
+  });
+  check('G7·黑名单与替换表一一对应（防止「查出来但不改」的假拦截）',
+    g7.unmatched.length === 0, '缺替换项的词：' + JSON.stringify(g7.unmatched));
+  check('G7·整句都在说教 → 换成兜底共情句', g7.dense === g7.fallback, g7.dense);
+  check('G7·只夹了一处说教 → 只改那一处，好句子留着（不整句推倒）',
+    g7.light.includes('我听到你了') && !/你要坚强|坚强一点|想开|振作/.test(g7.light), g7.light);
+  check('G7·正常共情原样放过（不误伤）', g7.clean === '我听到你被当众夸了，那一刻你很开心吧。');
+  check('G7·守门挂在 appendConvo 上（AI 文本进 UI 的唯一入口）',
+    g7.lastRole === 'ai' && g7.lastText === g7.fallback, `${g7.lastRole} / ${g7.lastText}`);
+  check('G7·用户原话一个字都不改（只守 AI，不守用户）',
+    g7.lastUserText === '我想开点行不行？', g7.lastUserText);
+
+  // ③j v1.6.17：G1 第 5 屏 / G2 偏好收集 / G8 记忆默认关 / G5 会话重置 / G6 离线置灰 / G3 卡片管理。
+  //    这批全部走真跑：光看源码里写了不算数（v1.6.13 的 setState 空壳就是这么漏过去的）。
+  const smSrc17 = await readSrc('js/state-machine.js');
+  check('G8·memory_on 默认关闭（不勾就不写长期记忆，不是静默开写）',
+    /memory_on:\s*false/.test(smSrc17));
+  const g17 = await page.evaluate(async () => {
+    const st = await import('/js/store.js');
+    const pr = await import('/js/prompts.js');
+    // ① 卡片单条删除 / 收藏 / 归档（state-machine 的默认值才是本次新装的）
+    const c = st.addCard({ title: '断言用卡', event: '测试', emotion: ['委屈'], intensity: 5 });
+    const id = c.id;
+    const before = st.getState().cards.length;
+    st.toggleCardFlag(id, 'fav');
+    const faved = !!st.getCard(id).fav;
+    st.toggleCardFlag(id, 'archived');
+    const archived = !!st.getCard(id).archived;
+    st.toggleCardFlag(id, 'fav');                       // 再翻回去，确认是 toggle 不是 set
+    const unfaved = !st.getCard(id).fav;
+    st.deleteCard(id);
+    const after = st.getState().cards.length;
+    const gone = st.getCard(id) === null;
+    const badFlag = st.toggleCardFlag('nope', '__proto__');  // 白名单外的键必须挡住
+    // ② 会话重置：清本轮短期上下文、长期记忆不动
+    st.startSession();
+    // ③ 空标记间接证明引导第 5 屏的勾选能通过 setSetting 落进真实设置
+    st.setSetting('memory_on', true);
+    const memOn = st.getState().user.settings.memory_on === true;
+    st.setSetting('memory_on', false);
+    return {
+      before, after, faved, archived, unfaved, gone, badFlag, memOn,
+      hasFallback: !!pr.SERMON_FALLBACK,
+    };
+  });
+  check('G3·单张卡片可删（此前只有"清空全部"，存 20 张想删一张连入口都没有）',
+    g17.before === g17.after + 1 && g17.gone, `${g17.before} → ${g17.after}`);
+  check('G3·卡片可收藏 / 可归档（toggle 语义，翻回去能还原）',
+    g17.faved && g17.archived && g17.unfaved);
+  check('G3·toggleCardFlag 只认 fav / archived 两个键（挡住把状态表写脏的野路子）', g17.badFlag === null);
+  check('G8·勾选能真的把记忆开关打开（走 setSetting，不直接改 state 对象）', g17.memOn === true);
+  check('G5·startSession 清本轮上下文、长期记忆不受影响',
+    await page.evaluate(async () => {
+      const st = await import('/js/store.js');
+      st.startSession();
+      const s = st.getState();
+      return Array.isArray(s.conversation) && s.conversation.length === 0;
+    }));
+  check('G6·断网时「真需要 AI」的按钮置灰（data-ai-gated），且本地功能不受影响',
+    /setAiGate\(offline\)/.test(await readSrc('js/app.js'))
+    && /if \(offline\) \{\s*\n\s*\/\/ 记下/.test(await readSrc('js/app.js')));
+
   // ③f v1.6.15：假承诺清理。这两个键此前全仓只有定义处、0 读 0 UI；
   // 「云端记录将同步清除」是一个根本不存在的云端（产品不设账号）。全绿但说谎的话，比不写更糟。
   const smSrc = await readSrc('js/state-machine.js');

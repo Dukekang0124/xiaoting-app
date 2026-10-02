@@ -308,7 +308,10 @@ export const BASE_SETTINGS_DEFAULT = {
   // 0 处读取、0 处 UI（autoDeleteAudio 对应的开关早在 v0.5.0 就删了）。留着只是两个
   // 「存了但没人接」的钩子：哪天出现一个按 Object.keys(settings) 遍历的通用配置面板，
   // 它们就会以「能显示、拨了没反应」的形态复活。宁缺勿假。
-  cloudAsr: true, memory_on: true, notify_on: false,
+  // 🔴 v1.6.17 G8：memory_on 默认**关**。此前是默认开 —— 用户第一次开口就被静默写进长期记忆，
+  //    既没有授权弹窗，设置页也看不出"到底记了什么"。产品无账号无云端，这类静默留存是性格问题。
+  //    现在：第 5 屏（或设置页）用户主动勾了才开；不勾 = 只用单会话短期上下文，功能不受任何影响。
+  cloudAsr: true, memory_on: false, notify_on: false,
 };
 
 /** 总开关门禁：关掉 → 强制回退到中性 idle 静态（色彩/动画/特效全停） */

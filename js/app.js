@@ -536,7 +536,7 @@ function pageSay() {
         ${wave('wave--btn')}
       </button>
       <p class="say__hint">${esc(hint)}</p>
-      ${!quiet && sessionUser ? `<button class="endvent-btn" id="endVent" type="button">结束倾诉</button>` : ''}
+      ${!quiet && sessionUser ? `<button class="endvent-btn" id="endVent" type="button" data-ai-gated>结束倾诉</button><button class="endvent-btn endvent-btn--ghost" id="newSession" type="button">重新开始倾诉</button>` : ''}
       ${!quiet ? `<a class="say__type" href="#/record?mode=text">不方便说？打字也行</a>` : ''}
     </div>
     <div class="say__live" id="liveWrap" hidden><div class="live-label">正在听</div><div class="live-text" id="liveText">……</div></div>
@@ -572,6 +572,16 @@ function bindSay() {
   if (!btn) return;
   const endVent = document.getElementById('endVent');
   if (endVent) endVent.addEventListener('click', onEndVent);
+  // v1.6.17 G5：手动「重新开始倾诉」。以前只有「结束倾诉」，而结束倾诉不清短期上下文
+  //   ⇒ 用户想干净地重新开一轮，只能清整个 App 数据。这里走 store.startSession()：
+  //   清本轮对话/时间线草稿，**长期记忆不动**（那本来就该跨轮记得）。
+  const newSess = document.getElementById('newSession');
+  if (newSess) newSess.addEventListener('click', () => {
+    if (!window.confirm('重新开一轮？这轮说过的话就清空了，我不记得刚才那些。')) return;
+    store.startSession();
+    store.toast('好，重新来一轮');
+    render();
+  });
   const start = (e) => {
     e.preventDefault();
     // v1.3.2：安静模式下点「按住说」→ 先退出安静，再进入语音倾诉
@@ -1041,7 +1051,7 @@ function pageFollowup() {
       <div class="fu-voice__hint" id="fuTalkHint"></div>
     </div>
     <textarea class="big-input" id="fuInput" placeholder="不想说也可以跳过……"></textarea>
-    <button class="primary" id="fuNext" type="button">回答</button>
+    <button class="primary" id="fuNext" type="button" data-ai-gated>回答</button>
     <div class="row-center"><button class="linkbtn" id="fuSkip" type="button">跳过这个问题</button></div>
     ${a.summary ? `<p class="fu-note">${esc(a.summary)}</p>` : ''}
   </section>`;
@@ -1943,20 +1953,66 @@ function pageCards() {
         <a class="primary small" href="#/say">去说一次</a>
       </div></section>`;
   }
+  // v1.6.17 G3：列表按「全部 / 收藏 / 收起」三档过滤（收藏与归档都落在单张卡片上，状态写在卡片里）
+  const all = cards;
+  const view = cardFilter === 'fav' ? all.filter((c) => c.fav) : cardFilter === 'arch' ? all.filter((c) => c.archived) : all;
+  const chip = (k, label, n) => `<button class="cchip${cardFilter === k ? ' cchip--on' : ''}" type="button" data-card-filter="${k}"${k === 'fav' && !all.some((c) => c.fav) ? ' disabled' : ''}>${esc(label)}<i>${n}</i></button>`;
+  if (!view.length) {
+    return `<section class="cards"><div class="page-title center">卡片</div>
+      <div class="empty-state"><p>${cardFilter === 'fav' ? '还没有收藏的卡片。' : cardFilter === 'arch' ? '还没有收起来的卡片。' : '你的情绪卡片会出现在这里。<br/>先回首页说一次吧。'}</p>
+      <a class="primary small" href="#/say">去说一次</a></div></section>`;
+  }
   return `<section class="cards">
-    <div class="page-title center">卡片 · 共 ${cards.length} 张</div>
+    <div class="page-title center">卡片 · 共 ${all.length} 张</div>
+    <div class="cchips">
+      ${chip('all', '全部', all.length)}
+      ${chip('fav', '收藏', all.filter((c) => c.fav).length)}
+      ${chip('arch', '收起', all.filter((c) => c.archived).length)}
+    </div>
     <div class="card-list">
-      ${cards.map((c) => `
-        <a class="mcard" href="#/card/${esc(c.id)}">
-          <div class="mcard__face">${miniFace(c.ip_state || 'empathy', 30)}</div>
-          <div class="mcard__main">
-            <div class="mcard__date">${fmtDate(c.created_at)}</div>
-            <div class="mcard__title">${esc(c.title || c.event || '一张情绪卡片')}</div>
-            <div class="mcard__tags">${(c.emotion || []).map((e) => `<span class="tag">${esc(e)}</span>`).join('')}<span class="tag tag--i">强度 ${esc(c.intensity)}</span></div>
+      ${view.map((c) => `
+        <div class="mcard">
+          <a class="mcard__link" href="#/card/${esc(c.id)}">
+            <div class="mcard__face">${miniFace(c.ip_state || 'empathy', 30)}</div>
+            <div class="mcard__main">
+              <div class="mcard__date">${fmtDate(c.created_at)}</div>
+              <div class="mcard__title">${esc(c.title || c.event || '一张情绪卡片')}</div>
+              <div class="mcard__tags">${(c.emotion || []).map((e) => `<span class="tag">${esc(e)}</span>`).join('')}<span class="tag tag--i">强度 ${esc(c.intensity)}</span>${c.fav ? '<span class="tag tag--soft">已收藏</span>' : ''}${c.archived ? '<span class="tag tag--soft">已收起</span>' : ''}</div>
+            </div>
+          </a>
+          <div class="mcard__ops">
+            <button class="mop${c.fav ? ' mop--on' : ''}" type="button" data-card-fav="${esc(c.id)}" title="收藏这张">☆</button>
+            <button class="mop${c.archived ? ' mop--on' : ''}" type="button" data-card-arch="${esc(c.id)}" title="收起 / 归回列表">⇥</button>
           </div>
-        </a>`).join('')}
+        </div>`).join('')}
     </div>
   </section>`;
+}
+
+/* ---------------- 页面：卡片列表（v1.6.17 G3 绑定） ---------------- */
+
+/** 列表筛选档位：all 全部 / fav 收藏 / arch 已收起。模块级变量即 UI 状态（切页即复位，符合预期）。 */
+let cardFilter = 'all';
+
+function bindCards() {
+  document.querySelectorAll('[data-card-filter]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      cardFilter = btn.getAttribute('data-card-filter') || 'all';
+      render();
+    });
+  });
+  document.querySelectorAll('[data-card-fav]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      store.toggleCardFlag(btn.getAttribute('data-card-fav'), 'fav');
+      render(); // 🔴 store 变了不会自动重绘（subscribe 只挂了 renderToast），不重绘＝点了没反应
+    });
+  });
+  document.querySelectorAll('[data-card-arch]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      store.toggleCardFlag(btn.getAttribute('data-card-arch'), 'archived');
+      render();
+    });
+  });
 }
 
 /* ---------------- 页面：卡片详情 ---------------- */
@@ -1989,12 +2045,41 @@ function pageCardDetail(p) {
       ${kv('下次实验', c.experiment)}
     </div>
     ${c.summary ? `<div class="voice-box"><div class="voice-label">墨小溟说</div><p>${esc(c.summary)}</p></div>` : ''}
+    <div class="detail-ops">
+      <button class="ghost" id="dFav" type="button">${c.fav ? '取消收藏' : '收藏这张'}</button>
+      <button class="ghost" id="dArch" type="button">${c.archived ? '归回列表' : '收起这张'}</button>
+      <button class="danger-link" id="dDel" type="button">删除这张卡片</button>
+    </div>
   </section>`;
 }
 
 function bindCardDetail() {
   const b = document.getElementById('dBack');
   if (b) b.addEventListener('click', () => go('cards'));
+  // v1.6.17 G3：详情页也能收藏 / 收起 / 删单张。删除必须二次确认，且删完回列表别停在空页发呆。
+  // 🔴 当前卡片 id 只存在于 hash（`/#/card/<id>`）里，不往 store 里塞一份详情态：
+  //    那会出现"store 里有、页面上不是它"的第二个真相源，两边迟早对不上。
+  const rh = parseHash();
+  const id = rh.name === 'card' ? rh.param : '';
+  const fav = document.getElementById('dFav');
+  if (fav && id) fav.addEventListener('click', () => {
+    store.toggleCardFlag(id, 'fav');
+    render();
+  });
+  const arch = document.getElementById('dArch');
+  if (arch && id) arch.addEventListener('click', () => {
+    store.toggleCardFlag(id, 'archived');
+    render();
+  });
+  const del = document.getElementById('dDel');
+  if (del && id) del.addEventListener('click', () => {
+    const card = store.getCard(id);
+    if (!card) return;
+    if (!window.confirm('这张卡片就删掉了？删了就找不回来了。')) return;
+    store.deleteCard(id);
+    store.toast('这张卡片已经删掉');
+    go('cards');
+  });
 }
 
 /* ---------------- 页面：周报 ---------------- */
@@ -2090,6 +2175,8 @@ function pageMe() {
       </label>
       <p class="mblock__n">${esc(M.memory.toggleDesc)}</p>
       <button class="danger-link" id="meClearMemory" type="button">清空全部记忆</button>
+      <!-- v1.6.17 G1：引导只弹一次不够用 —— 用户隔一个月回来，那 5 步说明早忘了。给个随时能重看的口子。 -->
+      <button class="linkbtn" id="meReplayOnboarding" type="button">重看新手引导<span class="mrow__sub">5 步，可跳过</span></button>
     </div>
 
     <div class="mblock">
@@ -2188,6 +2275,13 @@ function bindMe() {
       }
     }).catch(() => {});
   }
+  // v1.6.17 G1：重开引导。清掉 WELCOME_KEY 即可让 showWelcome 重新弹（finish() 会再写回 '1'）。
+  const replay = document.getElementById('meReplayOnboarding');
+  if (replay) replay.addEventListener('click', () => {
+    try { localStorage.removeItem(WELCOME_KEY); } catch (e) {}
+    store.toast('好，我们从头讲一遍');
+    showWelcome();
+  });
   const cm = document.getElementById('meClearMemory');
   if (cm) cm.addEventListener('click', async () => {
     if (!window.confirm(cw.ME_COPY.memory.clearAll)) return;
@@ -2307,7 +2401,7 @@ function pageSettings() {
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
     ${privacyBlockHtml(COPY.privacyFull)}
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.6.16')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.6.17')}</p>
   </section>`;
 }
 
@@ -2493,7 +2587,7 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.6.16')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.6.17')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -2506,7 +2600,7 @@ function pageChangelog() {
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.6.16')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.6.17')}</p>
   </section>`;
 }
 
@@ -3085,7 +3179,7 @@ const PAGES = {
   confirm: { render: pageConfirm, bind: bindConfirm, nav: false },
   timeline: { render: pageTimeline, bind: bindTimeline, nav: false },
   timelines: { render: pageTimelines, nav: false },
-  cards: { render: pageCards, tab: 'cards', nav: true },
+  cards: { render: pageCards, bind: bindCards, tab: 'cards', nav: true },
   card: { render: pageCardDetail, bind: bindCardDetail, nav: true },
   weekly: { render: pageWeekly, mount: mountWeekly, nav: true },
   me: { render: pageMe, bind: bindMe, tab: 'me', nav: true },
@@ -3666,35 +3760,88 @@ export function initSwipeBack() {
   _swipeBound = true;
 }
 
-/** 离线浮条：断网时浮动提示，恢复后自动隐藏 */
+/**
+ * 离线浮条：断网时浮动提示，恢复后自动隐藏。
+ *
+ * v1.6.17 G6：光挂一条浮条不够 —— 那些**真需要联网才能回答**的按钮（追问、生成卡片）
+ * 在断网时还是亮着的，用户点下去才收到一句「刚刚没接上」，这等于把网络问题包装成产品坏掉。
+ * 现在断网就置灰 `data-ai-gated`，并当面写清「现在断网了，连上再说」。
+ * 本地能做的事（卡片翻看、待机动效、本地音效、打字记录）**一律不降级**。
+ */
+function setAiGate(offline) {
+  document.querySelectorAll('[data-ai-gated]').forEach((el) => {
+    if (!el.isConnected) return;
+    if (offline) {
+      // 记下**离线之前**到底是禁用还是可用：别的流程（追问未开始、正在生成…）也可能把它禁了，
+      //  恢复网络时不能无脑 enable，否则会把流程自己的禁用状态一起抹掉。
+      el.dataset.aiWasDisabled = el.disabled ? '1' : '';
+      el.disabled = true;
+      el.setAttribute('title', '现在断网了，连上再说；不方便的话，打字也行');
+    } else {
+      el.disabled = el.dataset.aiWasDisabled === '1';
+      el.removeAttribute('title');
+      delete el.dataset.aiWasDisabled;
+    }
+  });
+}
+
 function updateOfflineBar() {
   const bar = document.getElementById('offlineBar');
   if (!bar) return;
   const offline = navigator.onLine === false;
   bar.hidden = !offline;
   document.body.classList.toggle('is-offline', offline);
+  setAiGate(offline);
 }
 
 /* ---------------- 首次欢迎弹窗（墨小溟 · §3.3 / §4.3 版本1） ---------------- */
 
 const WELCOME_KEY = 'moxiaoming:welcomed_v1';
 
+/**
+ * v1.6.17 G2：把引导第 5 屏的勾选结果落进真实设置。
+ * 🔴 只用 setSetting（store 里改设置的唯一入口）—— 直接改 getState() 的对象是不持久化、不通知的，
+ *    看起来生效、刷新就没，属于「改了个寂寞」那一类。
+ * noSermon（讨厌说教）没有对应开关可拨：本产品本来就不说教，勾选它只是告诉用户"这条已经是你选的了"。
+ */
+function applyWelcomePrefs(picked) {
+  try {
+    if ('memory' in picked) store.setSetting('memory_on', !!picked.memory);
+    if ('short' in picked) store.setSetting('reply_short', !!picked.short);
+    if ('quiet' in picked) store.setSetting('quiet_pref', !!picked.quiet);
+  } catch (e) { /* 偏好是增强项，写不进去也不许卡住引导收尾 */ }
+}
+
 /* v1.6.0 文档 §二：4 屏新手引导（首次打开触发，可跳过）
+ * v1.6.17：补成 5 屏 —— 末屏（screen5）是「偏好与记忆授权」勾选项（G1/G2/G8）。
  * 原来只有 1 屏欢迎，文档要求 4 屏且**每屏可跳过**、走完弹问候气泡。
  * 关键点：
  *   1. 走完（或跳过）都要写 WELCOME_KEY —— 否则用户第二次打开被再问一遍，比不问更烦；
  *   2. 结束时要往**对话区**塞一句问候气泡（appendConvo），不是 toast ——
  *      toast 三秒就没，而文档要的是「引导结束后自动弹出首条问候气泡」，
  *      它得留在对话里，成为这段关系的第一句话；
- *   3. 第 3 屏的边界声明与热线必须真的能看到（tappable），不能只写在文案里当装饰。 */
+ *   3. 第 3 屏的边界声明与热线必须真的能看到（tappable），不能只写在文案里当装饰；
+ *   4. 末屏勾选**全部默认不勾**：不勾 = 不写长期记忆、不强制任何偏好。
+ *      跳过全部（skip）也走同一套默认值 ——「跳过」不能被解读成"我同意记住我"。 */
 function showWelcome() {
   let shown = false;
   try { shown = localStorage.getItem(WELCOME_KEY) === '1'; } catch (e) {}
   if (shown) return;
+  // 🔴 已经有一层引导浮层在（用户手抖连点「重看新手引导」）⇒ 别叠一层：两个浮层会互相抢按钮
+  if (document.querySelector('.welcome-overlay')) return;
   const OB = COPY.onboarding || {};
-  const screens = [OB.screen1, OB.screen2, OB.screen3, OB.screen4].filter(Boolean);
-  if (screens.length < 4) return; // 文案不齐就别弹（半截引导比不引导更糟）
+  const screens = [OB.screen1, OB.screen2, OB.screen3, OB.screen4, OB.screen5].filter(Boolean);
+  if (screens.length < 5) return; // 文案不齐就别弹（半截引导比不引导更糟）
   let i = 0;
+  // 末屏勾选结果：全部默认 false。存的是「用户勾选了什么」，不是「用户关掉了什么」。
+  const picked = Object.create(null); // { memory: true, short: true, quiet: true, noSermon: true }
+  const PF = OB.prefs || {};
+  const PREF_ITEMS = [
+    ['memory', PF.memory],
+    ['noSermon', PF.noSermon],
+    ['short', PF.short],
+    ['quiet', PF.quiet],
+  ].filter(([, label]) => !!label);
 
   const overlay = document.createElement('div');
   overlay.className = 'welcome-overlay welcome-overlay--steps';
@@ -3711,6 +3858,15 @@ function showWelcome() {
   function paint() {
     const s = screens[i];
     const last = i === screens.length - 1;
+    // 末屏才画勾选项；其余屏保持原来的纯文案形态（别把勾选塞进欢迎页，那是另一件事）
+    const prefsHtml = last ? `
+        <div class="welcome-prefs">
+          ${PREF_ITEMS.map(([k, label]) => `
+            <label class="welcome-pref">
+              <input type="checkbox" data-pref="${esc(k)}"${picked[k] ? ' checked' : ''} />
+              <span>${esc(label)}</span>
+            </label>`).join('')}
+        </div>` : '';
     overlay.innerHTML = `
       <div class="welcome-card">
         <div class="welcome-progress">${dots()}</div>
@@ -3718,6 +3874,7 @@ function showWelcome() {
         <div class="welcome-badge">${esc(OB.done ? (i === 2 ? '重要提醒' : (last ? OB.done : COPY.welcome.badge)) : COPY.welcome.badge)}</div>
         <div class="welcome-title">${esc(s.title)}</div>
         <div class="welcome-lines">${esc(s.body)}</div>
+        ${prefsHtml}
         <button class="primary" id="wNext" type="button">${esc(last || !OB.next ? OB.done : OB.next)}</button>
         <div class="welcome-btns">
           ${i > 0 ? `<button class="linkbtn" id="wBack" type="button">${esc(OB.back)}</button>` : ''}
@@ -3727,6 +3884,13 @@ function showWelcome() {
     const next = document.getElementById('wNext');
     const back = document.getElementById('wBack');
     const skip = document.getElementById('wSkip');
+    // 勾选即生效：勾了的当场写进 settings，不用等"完成"—— 用户点返回改主意时也得跟着变
+    overlay.querySelectorAll('input[data-pref]').forEach((box) => {
+      box.addEventListener('change', () => {
+        picked[box.getAttribute('data-pref')] = !!box.checked;
+        applyWelcomePrefs(picked);
+      });
+    });
     if (next) next.addEventListener('click', () => { if (last) finish(); else { i += 1; paint(); } });
     if (back) back.addEventListener('click', () => { if (i > 0) { i -= 1; paint(); } });
     if (skip) skip.addEventListener('click', finish);

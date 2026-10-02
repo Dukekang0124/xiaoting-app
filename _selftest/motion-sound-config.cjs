@@ -69,7 +69,11 @@ function ok(name, cond, detail = '') {
       try {
         const em = (cfg || {}).emotion_motion_map || {};
         const key = Object.keys(em).find((k) => (em[k] || {}).ip_anim);
-        const ret = (w && typeof w.setState === 'function') ? w.setState(key) : null;
+        // v1.6.17：setState 带了 2.5s 情绪稳定窗（G4），同步调一次不会立刻落地。
+        //    探针要验的是"配置里的 ip_anim 真挂到 IP 上"，所以 setState 之后显式 flush 一次落地再断言。
+        //    （不是把防抖关掉——防抖另有一组专门断言复核。）
+        w && typeof w.setState === 'function' && w.setState(key);
+        const ret = (w && typeof w.flush === 'function') ? w.flush() : null;
         const el = document.querySelector('.say__mascot') || document.querySelector('.mascot');
         out.wire.setState = {
           key, ret,

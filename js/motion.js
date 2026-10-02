@@ -119,7 +119,39 @@ export function playTap(count) {
  * 外层承载情绪位移，内层继续跑待机浮沉 —— 两层嵌套 transform，互不覆盖。
  * 状态色（.mascot--x）仍由 ip.js 的渲染负责，这里**不碰**，避免两处抢同一个类。
  */
-export function setState(state) {
+/* ===================== G4 情绪稳定窗（v1.6.17） =====================
+ *
+ * 痛点：情绪识别在相邻轮次间会来回跳（sad→angry→sad 常常只是采样噪声，不是用户真的换了情绪）。
+ * 旧实现每次 setState 都**当场**换掉 IP 上的动画类和粒子变量 ⇒ 一轮分析里连着跳三五次，
+ * 视觉上是"抽搐"，而不是"情绪变了"； moreover 每次都要 `void el.offsetWidth` 强制重排，
+ * 频繁重排还会把待机呼吸的连续感打断。
+ *
+ * 现在：同一情绪必须**持续 STABLE_MS 才真正下发**动效；窗口内来回跳只会把窗口推倒重来
+ * （短时波动 = 不切）。danger（emotion_motion_map.danger.lock_motion=true）**不受此窗约束**，
+ * 立刻定格 —— 安全信号迟 2.5s 到，等于没做。
+ *
+ * 兜底 MAX_WAIT：若情绪以「永远填不满 2.5s」的节奏无限交替，防抖会把切换无限推迟。
+ * 这里压一个时间上限，到点强制刷出**当时**的最新状态，宁可早切也不让用户等成一个死动画。
+ */
+const EMOTION_STABLE_MS = 2500;
+const STABLE_MAX_WAIT_MS = 6000;
+
+let appliedState = null;   // 已真正落地的动效状态
+let lastEl = null;         // 上次落地动效时挂类的那个 IP 节点（换页后它会被销毁）
+let pendingState = null;   // 窗口里蹲着的最新（候选）状态
+let pendingSince = 0;
+let stableTimer = null;
+let maxWaitTimer = null;
+
+function clearPending() {
+  if (stableTimer) { clearTimeout(stableTimer); stableTimer = null; }
+  if (maxWaitTimer) { clearTimeout(maxWaitTimer); maxWaitTimer = null; }
+  pendingState = null;
+  pendingSince = 0;
+}
+
+/** 真正落地一次动效（= 旧 setState 的主体，唯一的下发出口）。 */
+function applyState(state) {
   if (typeof document === 'undefined') return null;
   const em = (cfg && cfg.emotion_motion_map) || {};
   const el = document.querySelector('.say__mascot')
@@ -127,6 +159,7 @@ export function setState(state) {
     || document.querySelector('.fu-mascot')
     || document.querySelector('.mascot');
   if (!el) return null;
+  lastEl = el;
   // 先摘掉上一次的情绪动画类：换情绪时不能留着旧位移，也不能两层叠加
   Object.values(em).forEach((v) => { const a = (v || {}).ip_anim; if (a) el.classList.remove(a); });
   const spec = state ? em[state] : null;
@@ -141,11 +174,70 @@ export function setState(state) {
     r.style.setProperty('--mm-particle', String(spec.particle || 'none'));
     r.dataset.particle = String(spec.particle || 'none');
   } catch (e) { /* ignore */ }
-  return { state, ip_state: spec.ip_state, ip_anim: spec.ip_anim, particle: spec.particle, lock };
+  const out = { applied: true, state, ip_state: spec.ip_state, ip_anim: spec.ip_anim, particle: spec.particle, lock };
+  appliedState = state;
+  return out;
+}
+
+/** 把窗口里蹲着的最新状态立刻落地（同步返回真实结果，供需要即时断言的场景用）。 */
+export function flush() {
+  if (!pendingState) return null;
+  const target = pendingState;
+  clearPending();
+  return applyState(target);
+}
+
+/** 当前窗口状态（给探针/诊断读，不产生副作用）。 */
+export function getStability() {
+  return {
+    stable_ms: EMOTION_STABLE_MS,
+    applied: appliedState,
+    pending: pendingState,
+    pending_ms: pendingSince ? Math.max(0, Date.now() - pendingSince) : 0,
+  };
+}
+
+export function setState(state, opts = {}) {
+  const em = (cfg && cfg.emotion_motion_map) || {};
+  const spec = state ? em[state] : null;
+  // 高危定格 / 显式要求即时：越过稳定窗，直接落地（安全优先）
+  if (opts.immediate === true || (spec && spec.lock_motion === true)) {
+    clearPending();
+    return applyState(state);
+  }
+  if (state === appliedState) {
+    clearPending();
+    // 🔴 换页后 IP 节点是全新的（render() 整块 innerHTML 重写，动画类随旧节点一起没了）。
+    //    此时若照旧 return null，就变成「第二次进同一情绪页，IP 一动不动」——v1.6.13 自己引入的静默失效。
+    //    节点还连在文档里才是"没变化"；节点已被换掉 ⇒ 新节点老老实实重新挂一次。
+    if (lastEl && lastEl.isConnected) return null;
+    return applyState(state);
+  }
+  if (state === pendingState) return null;                       // 已知在途，不重复计时
+  // 换了新情绪：窗口推倒重来 —— 这就是"短时波动不切"的定义
+  pendingState = state;
+  pendingSince = Date.now();
+  if (stableTimer) clearTimeout(stableTimer);
+  if (maxWaitTimer) clearTimeout(maxWaitTimer);
+  stableTimer = setTimeout(() => {
+    stableTimer = null;
+    const target = pendingState;
+    pendingState = null;
+    pendingSince = 0;
+    if (target) applyState(target);
+  }, EMOTION_STABLE_MS);
+  maxWaitTimer = setTimeout(() => {
+    maxWaitTimer = null;
+    if (!pendingState) return;               // 已被正常窗口刷掉
+    const target = pendingState;
+    clearPending();
+    applyState(target);
+  }, STABLE_MAX_WAIT_MS);
+  return { applied: false, pending: true, state, wait_ms: EMOTION_STABLE_MS };
 }
 
 export function onChange(fn) { if (typeof fn === 'function') listeners.add(fn); }
 
 export default {
-  load, mount, getConfig, setEnabled, isEnabled, setIntensity, playTap, setState, onChange,
+  load, mount, getConfig, setEnabled, isEnabled, setIntensity, playTap, setState, flush, getStability, onChange,
 };
