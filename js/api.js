@@ -17,7 +17,7 @@ import {
   buildScenarioCard, selectCardType, pickActionVariant, buildTimeline, detectTimelineEmotions, isHighRiskText,
   withTimelineMeta, descForNode,
 } from './ai.js';
-import { callJson, isStructural, debug as llmDebug, stats as llmStats } from './llm.js';
+import { callJson, isStructural, debug as llmDebug, stats as llmStats, status as llmStatus, probe as llmProbe } from './llm.js';
 import {
   SYSTEM, MODEL_CONFIG, buildSafetyPrompt, buildMainPrompt, buildFollowupPrompt,
   buildCardPrompt, buildWeeklyPrompt, buildTimelinePrompt, scrubForbidden, findForbidden, CARD_LIB, CARD_LAYER, TIMELINE_EMOTIONS,
@@ -631,7 +631,7 @@ export const api = {
   /** 诊断用：当前 AI 通道状态 + 调用轨迹（自测与排查取证据的入口） */
   aiStatus() {
     return {
-      ...llmStats(),
+      ...llmStatus(),
       forbidden: forbiddenHits(),
       intensityFixed: intensityAdjustments(),
       inputCap: AI.maxInputChars,
@@ -639,4 +639,15 @@ export const api = {
   },
 
   aiDebug() { return llmDebug(); },
+
+  /** 设置页「重新检测通道」：清掉自建通道探测缓存，让状态重新判一次 */
+  async aiProbe() {
+    try { await llmProbe(); } catch (e) { /* 探测失败也要返回状态，别让 UI 卡在这一步 */ }
+    return {
+      ...llmStatus(),
+      forbidden: forbiddenHits(),
+      intensityFixed: intensityAdjustments(),
+      inputCap: AI.maxInputChars,
+    };
+  },
 };

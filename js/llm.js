@@ -90,7 +90,12 @@ async function callSelf({ stage, system, user, temperature, maxTokens, json }) {
       diag.note('llm', 'self', { ok: false, code: 'self_channel_bad_response', detail: '自建服务返回结构不符合契约 → 本通道停用' });
       return null;
     }
-    selfChannel.state = 'up';
+    // 🔴 后端在、但明确回了 ok:false ⇒ 这条通道此刻不可用，state 必须记 down。
+    // 老写法无论 ok true/false 都置 'up'，于是 providerName() 报「走自建调度」，
+    // 实际请求早就 404/报错退回网关了 —— 设置页照这个状态说话，等于报了个不存在的通道。
+    // 冷却计时也要写：不然每一次调用都会重新撞一次后端，白付一次往返。
+    selfChannel.state = j.ok ? 'up' : 'down';
+    selfChannel.checkedAt = Date.now();
     selfChannel.model = j.model || '';
     selfChannel.degraded = !!j.degraded;
     selfChannel.lastError = j.ok ? null : { code: j.code || 'unknown' };
@@ -126,7 +131,55 @@ export function stats() {
     if (t.ok) { ok++; byStage[t.stage].ok++; } else { fail++; byStage[t.stage].fail++; }
     byStage[t.stage].ms += t.ms || 0;
   }
-  return { calls: trace.length, ok, fail, byStage, provider: providerName(), model: lastUsedModel, lastError };
+  return {
+    calls: trace.length, ok, fail, byStage,
+    provider: providerName(), model: lastUsedModel, lastError,
+    selfChannel: { ...selfChannel }, real: isReal(), ready: readyState,
+  };
+}
+
+/** 面向 UI 的通道身份：把「用户该被怎么告知」这件事从文案里搬到数据里。
+ *
+ * 老版本只有 provider 一个值，设置页拿它编文案，于是出现两种谎报：
+ *   ① 一次模型都没调过（model 为空）→ 文案仍写「按可用列表自动选择」，用户以为在跑模型；
+ *   ② 网关全挂、整轮走本地兜底 → 文案仍写「云服务免密钥模型：<上一次成功的模型名>」。
+ * 这里把四态钉死，UI 只照抄，不许自己编：
+ *   local   = 明确走本地规则引擎（离线 / 显式 mock / 全挂）
+ *   self    = 自建调度通道在跑
+ *   cloud   = 免密钥网关在跑
+ *   unknown = 本次会话还没开口，没得可报（不是没模型）
+ */
+export function status() {
+  const s = stats();
+  const sc = s.selfChannel;
+  let channel = 'unknown';
+  if (forcedMock() || !AI.enabled) channel = 'local';
+  else if (sc && sc.state === 'up') channel = 'self';
+  else if (s.ok > 0 && s.model) channel = (s.provider === 'self') ? 'self' : 'cloud';
+  else if (s.calls > 0 && s.ok === 0) channel = 'local';   // 试过一轮全没成 → 兜底在干活
+  const labels = {
+    local: '本地规则引擎', self: '自建调度通道', cloud: '免密钥云端模型', unknown: '本次还没开口',
+  };
+  return {
+    ...s, channel,
+    channelLabel: labels[channel] || '未知',
+    channelName: channel === 'self' ? (sc.model || '自建调度') : (channel === 'cloud' ? (s.model || '') : ''),
+    degraded: channel === 'local' && s.calls > 0,
+  };
+}
+
+/** 主动重测通道（UI「重新检测通道」按钮用）。
+ *
+ * 会被真实调用一次「自建通道」的握手：线上静态托管时是 404/501 秒返（几乎零成本），
+ * 本地自测时有后端会真跑一次极短的模型调用——这是刻意换来的「状态是准的」：
+ * 只清缓存不探测的话，状态还是上一轮的旧值，按钮点了等于没点。
+ */
+export async function probe() {
+  resetSelfChannel();
+  try {
+    await callSelf({ stage: 'probe', system: 'ping', user: 'ping', temperature: 0, maxTokens: 1, json: false });
+  } catch (e) { /* 探测本身失败不影响返回的 status，通道不可用是靠 status 报的 */ }
+  return status();
 }
 
 export function resetTrace() { trace.length = 0; lastError = null; return true; }

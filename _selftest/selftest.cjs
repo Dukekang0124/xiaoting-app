@@ -3055,6 +3055,122 @@ const MOCK_SDK = `(function(){
   check('[ASR] 追问页松手用 setPointerCapture（抗丢事件）', srcApp.includes('setPointerCapture'));
   check('[ASR] native.done 带超时（不再无限等待卡死）', srcApp.includes('fuRec.native.done') && /Promise\.race\(\[/.test(srcApp));
 
+  /* ================= C8. AI 通道诊断行（v1.7.1） =================
+     这个分区是「设置页必须报真话」的闸门。v1.7.1 之前设置页那句话是拿 provider/model
+     现场拼的，被证实会撒两种谎：一次模型没调过 → 报「按可用列表自动选择」；
+     网关全挂走本地兜底 → 还是报「云服务免密钥模型：<上次成功的名字>」。
+     现在改成只照抄 llm.status().channel 的四态，下面两种结果各验一遍。 */
+  sec('C8. AI 通道诊断行（v1.7.1）');
+
+  // ① 本地兜底态：C0~C7 用的 page 就注入了 xiaoting:ai='mock'，通道必然是 local
+  await page.goto(BASE + '/#/settings', { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('#aiChannelText', { timeout: 20000 });
+  // 🔴 这一行是异步探测（api.aiProbe）填进去的，骨架一出现就读数必读到"渲染时"那句兜底文案
+  await page.waitForFunction(() => {
+    const el = document.getElementById('aiChannelText');
+    return !!el && !!el.dataset && !!el.dataset.channel && el.dataset.channel !== 'unknown';
+  }, null, { timeout: 20000 }).catch(() => {});
+  const C8local = await page.evaluate(() => {
+    const el = document.getElementById('aiChannelText');
+    return { ch: (el.dataset.channel || ''), model: (el.dataset.model || ''), text: ((el.textContent || '').trim()) };
+  });
+  check('C8·本地兜底态：通道报 local（不再含糊成"云服务"）', C8local.ch === 'local', JSON.stringify(C8local));
+  check('C8·本地兜底态：文案明说本机规则引擎', /本机规则引擎/.test(C8local.text), C8local.text);
+  check('C8·本地兜底态：不许再出现「云服务免密钥模型」这句旧谎报', !/云服务免密钥模型/.test(C8local.text), C8local.text);
+
+  // ② 真通道态：新上下文接 SDK 契约替身，真跑一次安全识别，让 status() 带上真实 model
+  const ctxC8 = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: 'zh-CN' });
+  await ctxC8.addInitScript(() => {
+    try {
+      const ym = new Date().getFullYear() * 100 + (new Date().getMonth() + 1);
+      localStorage.setItem('moxiaoming:welcomed_v1', '1');
+      localStorage.setItem('monthly:done_' + ym, String(Date.now()));
+      localStorage.setItem('__seeded_c8', '1');
+    } catch (e) { /* ignore */ }
+  });
+  await ctxC8.route(/(index\.global\.js|workbuddy-cloud-sdk\.js)/, (route) => route.fulfill({
+    status: 200, contentType: 'application/javascript; charset=utf-8', body: MOCK_SDK,
+  }));
+  // 自建通道给结构不符的响应 ⇒ 回落 SDK（与线上「后端没部署」是同一类结局）
+  await ctxC8.route('**/api/llm*', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ ok: false, code: 'self_channel_bad_response' }),
+  }));
+  const pageC8 = await ctxC8.newPage();
+  await pageC8.goto(BASE + '/#/say', { waitUntil: 'domcontentloaded' });
+  await pageC8.waitForSelector('.app, #app', { timeout: 20000 }).catch(() => {});
+  await pageC8.waitForTimeout(800);
+  const C8run = await pageC8.evaluate(async () => {
+    const { api } = await import('/js/app.js').then((m) => m.__test__ || m);
+    let r = null, err = null;
+    try { r = await api.safety({ transcript: '今天被领导当众骂了，很难受，又说不出话来。' }); } catch (e) { err = String(e.message || e); }
+    const s = api.aiStatus();
+    return { err, level: r && r.risk_level, channel: s.channel, model: s.model || '', ok: s.ok };
+  });
+  check('C8·真通道：跑完安全识别后通道报 cloud（自建通道没接住 ⇒ 网关接管）', C8run.channel === 'cloud', JSON.stringify(C8run));
+  check('C8·真通道：status 里是真实模型名（替身目录里的 mock-chat）', C8run.model === 'mock-chat', C8run.model);
+
+  await pageC8.goto(BASE + '/#/settings', { waitUntil: 'domcontentloaded' });
+  await pageC8.waitForSelector('#aiChannelText', { timeout: 20000 });
+  await pageC8.waitForFunction(() => {
+    const el = document.getElementById('aiChannelText');
+    return !!el && !!el.dataset && !!el.dataset.channel && el.dataset.channel !== 'unknown';
+  }, null, { timeout: 20000 }).catch(() => {});
+  const C8cloud = await pageC8.evaluate(() => {
+    const el = document.getElementById('aiChannelText');
+    return { ch: (el.dataset.channel || ''), model: (el.dataset.model || ''), text: ((el.textContent || '').trim()) };
+  });
+  check('C8·真通道：设置页诊断行报 cloud', C8cloud.ch === 'cloud', JSON.stringify(C8cloud));
+  check('C8·真通道：诊断行把真实模型名写给用户看（不是"按可用列表自动选择"）',
+    C8cloud.model === 'mock-chat' && C8cloud.text.indexOf('mock-chat') >= 0, C8cloud.text);
+  check('C8·真通道：诊断行不许出现「按可用列表自动选择」这句空话',
+    C8cloud.text.indexOf('按可用列表自动选择') < 0, C8cloud.text);
+
+  // ③ 还没开口的会话：报「本次还没开口」，而不是编一个模型出来
+  const ctxC8b = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: 'zh-CN' });
+  await ctxC8b.addInitScript(() => {
+    try {
+      const ym = new Date().getFullYear() * 100 + (new Date().getMonth() + 1);
+      localStorage.setItem('moxiaoming:welcomed_v1', '1');
+      localStorage.setItem('monthly:done_' + ym, String(Date.now()));
+      localStorage.setItem('__seeded_c8b', '1');
+    } catch (e) { /* ignore */ }
+  });
+  await ctxC8b.route(/(index\.global\.js|workbuddy-cloud-sdk\.js)/, (route) => route.fulfill({
+    status: 200, contentType: 'application/javascript; charset=utf-8', body: MOCK_SDK,
+  }));
+  await ctxC8b.route('**/api/llm*', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ ok: false, code: 'self_channel_bad_response' }),
+  }));
+  const pageC8b = await ctxC8b.newPage();
+  await pageC8b.goto(BASE + '/#/settings', { waitUntil: 'domcontentloaded' });
+  await pageC8b.waitForSelector('#aiChannelText', { timeout: 20000 });
+  await pageC8b.waitForFunction(() => {
+    const el = document.getElementById('aiChannelText');
+    return !!el && !!el.dataset && !!el.dataset.channel;
+  }, null, { timeout: 20000 }).catch(() => {});
+  const C8unk = await pageC8b.evaluate(() => {
+    const el = document.getElementById('aiChannelText');
+    return { ch: (el.dataset.channel || ''), text: ((el.textContent || '').trim()) };
+  });
+  check('C8·没开口过：通道报 unknown（不是 cloud、更不是 local 兜底）', C8unk.ch === 'unknown', JSON.stringify(C8unk));
+  check('C8·没开口过：文案说"还没开口"，不许编出模型名',
+    /还没开口/.test(C8unk.text) && !/按可用列表自动选择/.test(C8unk.text), C8unk.text);
+
+  // ④ 源码闸门：四态出口与"不许现场拼谎话"都要在代码里立得住
+  const srcLlmC8 = readC5('js/llm.js');
+  const srcAppC8 = readC5('js/app.js');
+  const srcApiC8 = readC5('js/api.js');
+  check('C8·llm.js 有 status() 四态出口（local/self/cloud/unknown）',
+    /export function status\(\)/.test(srcLlmC8) && /channel\s*=\s*'local'/.test(srcLlmC8) && /channel\s*=\s*'unknown'/.test(srcLlmC8));
+  check('C8·llm.js 有 probe()（「重新检测通道」是真探，不是只清缓存）', /export async function probe\(\)/.test(srcLlmC8));
+  check('C8·api.js 有 aiProbe() 透传', /async aiProbe\(\)/.test(srcApiC8) && /llmProbe/.test(srcApiC8));
+  // 🔴 只能判代码行：注释里复述这句旧谎话是文档，不该被当成"还留着这段代码"（同 v1.7.0 那次坑）
+  const stripCmt = (s) => String(s).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+  check('C8·app.js 的 AI 通道代码里不再拼「按可用列表自动选择」（注释复述不算）',
+    stripCmt(srcAppC8).indexOf('按可用列表自动选择') < 0);
+  check('C8·设置页挂了 #aiChannelText 与「重新检测通道」按钮',
+    /id="aiChannelText"/.test(srcAppC8) && /id="aiChannelRetest"/.test(srcAppC8) && /aiChannelRetest/.test(srcAppC8));
+
   await browser.close();
 
   // 断言总数基线自检：数量对不上就是「有人悄悄删/加了断言」，宁可红一条也不要静默漂移。

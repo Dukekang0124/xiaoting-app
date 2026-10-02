@@ -42,6 +42,9 @@ const EXCLUDE = new Set([
   'server', 'server.cjs', 'package.json', 'package-lock.json',
   'capacitor.config.json', 'README.md', '.assetsignore', 'apk-icons',
   'android-assets', 'assets', 'keystore', 'apk-dist', 'release',
+  // 02-Areas-资产/：误拷进来的九思数字资产（OB 素材，不是 App 运行时要的东西）。
+  //   它属于**工作区资产**，与产品无关 —— 只在这里声明"不上线"，不动它的文件本身。
+  '02-Areas-资产',
 ]);
 
 /* 归类断言：仓库根新加一个条目后若忘了归类，构建直接失败

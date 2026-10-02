@@ -2280,7 +2280,7 @@ function pageMe() {
       <p class="mblock__d">${esc(M.download.desc)}</p>
       <a class="mrow mrow--download" href="#/download">
         <span class="mrow__ico">${ICON.download}</span>
-        <span class="mrow__txt">${esc(M.download.row)}<span class="mrow__sub" id="meDlSub">当前版本 v${esc(window.APP_VERSION || '1.7.0')}</span></span>
+        <span class="mrow__txt">${esc(M.download.row)}<span class="mrow__sub" id="meDlSub">当前版本 v${esc(window.APP_VERSION || '1.7.1')}</span></span>
         <i class="mrow__arrow">›</i>
       </a>
       <button class="ghost me-install" id="meInstall" type="button">${esc(M.download.installBtn)}</button>
@@ -2432,12 +2432,30 @@ function exportAllData() {
 
 /* ---------------- 页面：设置与隐私 ---------------- */
 
-/** 设置页用：把当前 AI 通道说人话（不暴露任何服务端信息） */
-function aiChannelText() {
-  const s = api.aiStatus();
-  if (s.provider === 'mock') return '本地规则引擎（当前没连模型，功能不受影响）。';
-  const called = s.ok ? `本次已成功调用 ${s.ok} 次` : '等待首次调用';
-  return `云服务免密钥模型：${s.model || '按可用列表自动选择'}，${called}。`;
+/** 设置页用：把当前 AI 通道说人话（不暴露任何服务端信息）。
+ *
+ * 🔴 只照抄 llm.status().channel 给的四态，禁止自己拿 provider/model 拼文案 ——
+ * 老版本就是这么编的，于是「一次模型都没调过」也被报成「按可用列表自动选择」，
+ * 「网关全挂走本地兜底」也被报成「云服务免密钥模型：<上次成功的名字>」。两句话都在骗人。
+ * @param {object} [s] aiStatus()/aiProbe() 的返回；不传就现取一次
+ */
+function aiChannelText(s) {
+  const st = s || api.aiStatus();
+  const ch = st.channel || 'unknown';
+  if (ch === 'local') {
+    return st.degraded
+      ? '刚才没连上模型，这次的分析与卡片由本机规则引擎兜底生成——功能不受影响，只是更通用一些。'
+      : '当前没有调用模型，分析与卡片由本机规则引擎生成，功能不受影响。';
+  }
+  if (ch === 'self') {
+    return `走自建调度通道${st.channelName ? '（' + st.channelName + '）' : ''}，本次已成功调用 ${st.ok || 0} 次。`;
+  }
+  if (ch === 'cloud') {
+    const n = st.model ? ` 当前模型：${st.model}` : '';
+    const c = st.ok ? `本次已成功调用 ${st.ok} 次` : '本次还没有成功调用记录';
+    return `${st.channelLabel}${n}，${c}。`;
+  }
+  return '本次会话还没开口，暂时看不到通道状态。打开说一句就会记下来。';
 }
 
 function pageSettings() {
@@ -2506,7 +2524,8 @@ function pageSettings() {
     </div>
     <div class="set-block">
       <div class="set-title">AI 通道</div>
-      <p class="set-sub">${esc(aiChannelText())}</p>
+      <p class="set-sub" id="aiChannelText">${esc(aiChannelText())}</p>
+      <button class="primary small" id="aiChannelRetest" type="button">重新检测通道</button>
       <a class="ghost set-diaglink" href="#/diag">查看链路诊断日志 →</a>
     </div>
     <div class="set-block">
@@ -2519,7 +2538,7 @@ function pageSettings() {
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
     ${privacyBlockHtml(COPY.privacyFull)}
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.7.0')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.7.1')}</p>
   </section>`;
 }
 
@@ -2570,6 +2589,35 @@ function bindSettings() {
       go('say');
     }
   });
+
+  // v1.7.1 AI 通道诊断行：进页面就填一次（能填出什么就报什么），点「重新检测」再探一次。
+  // 🔴 渲染后必须真跑一次异步探测再断言 DOM —— 骨架上的文字是渲染时按"还没调用过"写的，
+  //    只等 .set-page 出现就读数，必然读到 unknown 那句。
+  const aiTxt = document.getElementById('aiChannelText');
+  const aiBtn = document.getElementById('aiChannelRetest');
+  async function fillAiChannel() {
+    if (!aiTxt) return null;
+    try {
+      const s = await api.aiProbe();
+      aiTxt.textContent = aiChannelText(s);
+      aiTxt.dataset.channel = s.channel || 'unknown';
+      aiTxt.dataset.model = s.model || '';
+      aiTxt.dataset.provider = s.provider || '';
+      return s;
+    } catch (e) {
+      return null;
+    }
+  }
+  if (aiBtn) aiBtn.addEventListener('click', async () => {
+    aiBtn.disabled = true;
+    const old = aiBtn.textContent;
+    aiBtn.textContent = '检测中…';
+    await fillAiChannel();
+    aiBtn.disabled = false;
+    aiBtn.textContent = old;
+    store.toast('通道已重新检测');
+  });
+  fillAiChannel();
 }
 
 /* ---------------- 页面：我的记忆（V1.1 记忆地基 / app v1.3.0） ---------------- */
@@ -2840,7 +2888,7 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.7.0')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.7.1')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -2853,7 +2901,7 @@ function pageChangelog() {
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.7.0')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.7.1')}</p>
   </section>`;
 }
 
