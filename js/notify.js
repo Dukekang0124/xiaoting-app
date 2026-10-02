@@ -20,26 +20,62 @@ import * as diag from './diag.js';
 const REMINDER_ID = 20260930; // 固定 ID：重复 schedule 不会堆积多条，只会覆盖
 
 let kit = null;
-let kitLoaded = false;
+let unsupported = ''; // ''=可用；'env'=非原生环境；'plugin_missing'=原生环境但插件没挂上
 
-/** 惰性加载通知插件。**必须动态 import**：Web 端没这个包，静态 import 会连带崩掉整条设置页。 */
-async function loadKit() {
-  if (kitLoaded) return kit;
-  kitLoaded = true;
-  if (!isNativeApp()) { kit = null; return null; }
+/**
+ * 取原生通知插件。
+ *
+ * 🔴 v1.6.16 修复：**只能从 Capacitor 运行时的插件表拿，不能靠裸说明符动态加载原生插件**。
+ * 本项目无构建（浏览器/安卓 WebView 直接跑 ES Module），裸说明符没有 import map 也没有打包器解析，
+ * 一定抛 `Failed to resolve module specifier` ⇒ 被 catch 吞掉 ⇒ Web 端「永远不支持轻提醒」的假象。
+ * 这个坑 v1.6.12 的 DownloadManager 已经踩过一次（项目 MEMORY 铁律），notify.js 这次也没躲开：
+ * 真机 APK 明明在 assets/capacitor.plugins.json 里注册了 @capacitor/local-notifications，
+ * 用户却看到「当前环境不支持轻提醒（需安装 App 后使用）」—— 明明已经装了 App。
+ *
+ * 顺带不去缓存结果：Capacitor 的 bridge 可能晚于页面脚本就绪，每次读全局最稳（读一次全局的成本可忽略）。
+ */
+function pickPlugin() {
   try {
-    const m = await import('@capacitor/local-notifications');
-    kit = m && m.LocalNotifications ? m.LocalNotifications : null;
-  } catch (e) {
-    kit = null;
-    diag.note('notify', 'plugin_unavailable', { detail: String((e && e.message) || e).slice(0, 120) });
+    const P = window.Capacitor && window.Capacitor.Plugins;
+    return (P && (P.LocalNotifications || P.Notifications)) || null;
+  } catch (e) { return null; }
+}
+
+/** 当前环境能不能真的发本地通知。UI 用它决定开关是否可用、以及怎么说明。 */
+async function loadKit() {
+  if (!isNativeApp()) { unsupported = 'env'; return null; }
+  kit = pickPlugin();
+  if (!kit) {
+    unsupported = 'plugin_missing';
+    diag.note('notify', 'plugin_unavailable', { detail: 'window.Capacitor.Plugins.LocalNotifications 缺失' });
+    return null;
   }
+  unsupported = '';
   return kit;
 }
 
 /** 当前环境能不能真的发本地通知。UI 用它决定开关是否可用、以及怎么说明。 */
 export async function isSupported() {
   return !!(await loadKit());
+}
+
+/** 不支持时的原因（'env' | 'plugin_missing' | ''）。UI 照它说人话，别一律甩「需安装 App」。 */
+export function unsupportedReason() { return unsupported || ''; }
+
+/**
+ * 把时间戳变成 Date。
+ *
+ * 🔴 v1.6.16 修复：原来写的是 `new Date(Number(t))`——`Number('2026-10-01T06:10:00.000Z')` 是 NaN，
+ * 而 store 里真实字段就是 ISO 字符串（`addTimeline` 写 `saved_at`、`addCard` 写 `created_at`）
+ * ⇒ 每一条都被 `Number.isFinite` 过滤掉 ⇒ 众数算不出来 ⇒ 又回到默认 21 点。
+ * 上一版（v1.6.15）用数字时间戳造 3 条数据测出「6 点」是**假绿**：真实数据一条都解析不出来。
+ * `new Date('ISO 串')` 和 `new Date(毫秒数)` 都吃得下，别再套一层 Number。
+ */
+function toDate(t) {
+  if (t === null || t === undefined || t === '') return null;
+  if (t instanceof Date) return Number.isFinite(t.getTime()) ? t : null;
+  const d = new Date(t);
+  return Number.isFinite(d.getTime()) ? d : null;
 }
 
 /**
@@ -51,10 +87,9 @@ export function preferredHour(records) {
   const list = Array.isArray(records) ? records : [];
   const buckets = new Array(24).fill(0);
   for (const r of list) {
-    const t = r && (r.createdAt || r.savedAt || r.ts || r.saved_at || r.create_time || r.created_at);
-    if (!t) continue;
-    const d = new Date(Number(t));
-    if (!Number.isFinite(d.getTime())) continue;
+    const t = r && (r.createdAt || r.created_at || r.savedAt || r.saved_at || r.ts || r.time || r.at);
+    const d = toDate(t);
+    if (!d) continue;
     buckets[d.getHours()] += 1;
   }
   let bestHour = -1;

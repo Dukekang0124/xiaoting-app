@@ -2305,6 +2305,48 @@ const MOCK_SDK = `(function(){
   check('notify·冷启动按 notify_on 补挂（不能只在开关 change 里调一次）',
     /notify_on === true\) notify\.sync\(true\)/.test(appSrc));
 
+  // ③g v1.6.16：轻提醒「假不支持」根治。真机 APK 明明在 capacitor.plugins.json 里注册了
+  //   @capacitor/local-notifications，UI 却提示「当前环境不支持轻提醒（需安装 App 后使用）」——
+  //   装都装了还让你装。根因：loadKit() 用裸说明符动态加载那个原生插件包，
+  //   无构建 WebView 没有打包器也没 import map，一定抛 Failed to resolve module specifier，
+  //   被 catch 吞掉 ⇒ 永远降级成「不支持」。与 v1.6.12 DownloadManager 是同一类坑（项目铁律）。
+  check('notify·不裸 import 原生插件（无构建环境解析不了裸说明符），改从 Capacitor 插件表取',
+    !/import\(\s*['"]@capacitor\//.test(notifySrc) && /window\.Capacitor\.Plugins/.test(notifySrc));
+  check('notify·UI 按 unsupportedReason 分流（装了 App 不能再被提示「需安装 App」）',
+    /unsupportedReason\(\)\s*===\s*'plugin_missing'/.test(appSrc) && /轻提醒插件没能装载/.test(appSrc));
+  // 真跑（不是正则）：store 里真实字段是 ISO 字符串（addTimeline 写 saved_at、addCard 写 created_at），
+  // 老实现写 new Date(Number(t)) ⇒ Number('ISO 串') = NaN ⇒ 每条都被过滤 ⇒ 恒 21 点。
+  // 上一版（v1.6.15）拿数字时间戳造 3 条测出「6 点」是假绿，真实数据一条都解析不出来。
+  const ntRun = await page.evaluate(async () => {
+    const n = await import('/js/notify.js');
+    const iso = [
+      { saved_at: '2026-10-01T06:10:00' },
+      { created_at: '2026-10-02T06:20:00' },
+      { savedAt: '2026-10-03T06:05:00' },
+    ];
+    const hour = n.preferredHour(iso);
+    // 模拟原生环境：Capacitor 壳注入插件表之后，轻提醒应当「支持」；撤掉插件表仍应如实不支持
+    window.Capacitor = {
+      isNativePlatform: () => true,
+      Plugins: { LocalNotifications: { checkPermissions: async () => ({ display: 'granted' }) } },
+    };
+    const inNative = await n.isSupported();
+    // 插件没挂上时，原因要说清楚是 plugin_missing（好让 UI 不讲「需安装 App」这种自相矛盾的话）。
+    // unsupportedReason 记的是最近一次 loadKit 的结论，所以每次都要先驱动一次 isSupported() 再读。
+    delete window.Capacitor.Plugins.LocalNotifications;
+    await n.isSupported();
+    const reasonMissing = n.unsupportedReason();
+    delete window.Capacitor;
+    await n.isSupported();
+    const reasonEnv = n.unsupportedReason();
+    return { hour, inNative, reasonMissing, reasonEnv };
+  });
+  check('notify·preferredHour 吃得下 ISO 字符串时间戳（真实 store 字段，不再恒 21 点）',
+    ntRun.hour === 6, `实测=${ntRun.hour}`);
+  check('notify·原生环境取得到插件；非原生如实不支持且原因可区分',
+    ntRun.inNative === true && ntRun.reasonEnv === 'env',
+    `原生支持=${ntRun.inNative} 缺插件原因=${ntRun.reasonMissing || '(空)'} 非原生原因=${ntRun.reasonEnv}`);
+
   // ③f v1.6.15：假承诺清理。这两个键此前全仓只有定义处、0 读 0 UI；
   // 「云端记录将同步清除」是一个根本不存在的云端（产品不设账号）。全绿但说谎的话，比不写更糟。
   const smSrc = await readSrc('js/state-machine.js');

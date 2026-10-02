@@ -2179,7 +2179,13 @@ function bindMe() {
       nt.disabled = true;
       const desc = document.querySelector('#meNotify') && nt.closest('.mblock')
         ? nt.closest('.mblock').querySelector('.mblock__n') : null;
-      if (desc) desc.textContent = '当前环境不支持轻提醒（需安装 App 后使用）。';
+      // v1.6.16：不同原因说不同的话。装在 App 里还报「需安装 App」是自相矛盾的假话，
+      // 必须把「没装」和「装了但插件没挂上」分开讲。
+      if (desc) {
+        desc.textContent = (notify.unsupportedReason && notify.unsupportedReason() === 'plugin_missing')
+          ? '轻提醒插件没能装载，重启 App 后再试一次。'
+          : '当前环境不支持轻提醒（需安装 App 后使用）。';
+      }
     }).catch(() => {});
   }
   const cm = document.getElementById('meClearMemory');
