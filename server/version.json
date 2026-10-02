@@ -4,11 +4,11 @@
   "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.18-release.apk",
   "web_url": "https://xiaoting.app.workbuddy.host/#/say",
   "apk": {
-    "versionCode": 10617,
-    "version": "1.6.17",
+    "versionCode": 10618,
+    "version": "1.6.18",
     "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.18-release.apk",
-    "md5": "PENDING_CI",
-    "size": 0,
+    "md5": "e5d356ab9d696b71223e66df7a5928c6",
+    "size": 4323587,
     "force": false
   },
   "release_notes": [
