@@ -39,11 +39,11 @@ const SNOOZE_KEY = 'xiaoting:update_snooze_day'; // 当天"稍后再说"过的�
  * 🔴 与 APP_VERSION 必须同步：自测里有一条断言卡死这条（两者必须相等），
  *   否则「发版忘改常量」又会变成下一个静默故障。
  */
-export const LATEST_VERSION = '1.6.19';
+export const LATEST_VERSION = '1.7.0';
 
 /** 兜底安装包地址：必须是**版本化文件名**，不能用 xiaoting-latest.apk 别名
  *  （别名指向"站点上最新的那一版"，站点没发布时它反而是旧版 ⇒ 会让人装回旧包）。 */
-const FALLBACK_APK_URL = 'https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.19-release.apk';
+const FALLBACK_APK_URL = 'https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.7.0-release.apk';
 
 /**
  * 版本清单的两个候选路径，按顺序试（v1.1.4 修）。
@@ -390,7 +390,7 @@ function closeModal() {
 function subCopy(p, data) {
   if (p.isWeChat) return '微信里没法直接更新，点右上角「···」在浏览器中打开，就能装最新版啦。';
   if (p.isApk) return '点「立即更新」会弹出安装指引，跟着 3 步就能装上最新版。';
-  return '点击立即更新，墨小溟会自动刷新到最新版。';
+  return '网页版会自动刷新到最新版。想要晚上轻提醒、后台下载装包、手机返回手势，装个安卓版更顺手 —— 右边有入口。';
 }
 
 function primaryLabel(p) {
@@ -421,6 +421,7 @@ function showModal(data, opts) {
       <p class="update-sub">${esc(subCopy(p, data))}</p>
       ${notesHtml ? `<ul class="update-notes">${notesHtml}</ul>` : ''}
       <div class="update-actions">
+        ${(!p.isApk && !p.isWeChat) ? '<button class="update-btn update-btn--ghost" id="updateApk" type="button">下载安卓版</button>' : ''}
         <button class="update-btn update-btn--primary" id="updateNow" type="button">${esc(primaryLabel(p))}</button>
         ${force ? '' : '<button class="update-btn update-btn--ghost" id="updateLater" type="button">稍后再说</button>'}
       </div>
@@ -438,6 +439,14 @@ function showModal(data, opts) {
 
   const now = document.getElementById('updateNow');
   if (now) now.addEventListener('click', () => doUpdate(p, data));
+
+  // v1.7.0：网页版 / iOS 用户此前只被告知「会自动刷新」，从来没人告诉他有安卓版可装。
+  // 刷新本身是真的，但**没有一句 + 没有一个入口去兜住想装的人** —— 这条缺口现在补上。
+  const apkBtn = document.getElementById('updateApk');
+  if (apkBtn) apkBtn.addEventListener('click', () => {
+    closeModal();
+    try { location.hash = '#/download'; } catch (e) { /* ignore */ }
+  });
 
   const later = document.getElementById('updateLater');
   if (later) later.addEventListener('click', () => {

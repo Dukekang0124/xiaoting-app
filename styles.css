@@ -1444,3 +1444,31 @@ body.quiet-mode .talkbtn{opacity:.84}
 .super_slow_idle { animation: super_slow_idle 12s ease-in-out infinite; }
 .drift_sway_alternate { animation: drift_sway_alternate 10s ease-in-out infinite; }
 .static_calm { animation: none; }
+
+/* ---------- v1.7.0：下载与安装页 ---------- */
+.dlpage { padding: 22px 20px 40px; }
+.dlpage__ip { display: flex; justify-content: center; margin: 6px 0 14px; }
+.dlpage__lead { margin: 0 auto 22px; font-size: 14px; line-height: 1.85; color: var(--ink-2); text-align: center; max-width: 30em; }
+.dlpage__note { margin: 10px 2px 0; font-size: 13px; line-height: 1.8; color: var(--ink-2); min-height: 1.8em; }
+.dlcard {
+  margin: 10px 0 22px; padding: 18px 18px 16px; border-radius: 18px;
+  background: var(--primary-soft); border: 1px solid var(--line);
+}
+.dlcard--ios { background: rgba(168,200,232,.16); }
+.dlcard--wechat { background: rgba(255,184,140,.16); }
+.dlcard--apk { background: rgba(184,169,232,.14); }
+.dlcard__t { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
+.dlcard__b { margin: 0 0 14px; font-size: 13.5px; line-height: 1.8; color: var(--ink-2); }
+.dlcard__btn { display: block; width: 100%; }
+.dlcard__hint { margin: 10px 0 0; font-size: 13px; line-height: 1.8; color: var(--ink-2); }
+.dlver { margin: 4px 0 22px; }
+.dlver__row { display: flex; justify-content: space-between; align-items: center; padding: 11px 2px; border-bottom: 1px solid var(--line); font-size: 14px; }
+.dlver__row:first-child { border-top: 1px solid var(--line); }
+.dlver__row span { color: var(--ink-2); font-size: 13.5px; }
+.dlver__row b { font-weight: 600; }
+.dlver__notes { margin: 12px 2px 0; padding-left: 18px; font-size: 13px; line-height: 1.85; color: var(--ink-2); }
+.dlsteps { margin: 0 0 16px; }
+.dlsteps summary { font-size: 14px; color: var(--ink-2); padding: 10px 2px; cursor: pointer; }
+.dlsteps ol { margin: 0; padding-left: 20px; font-size: 13.5px; line-height: 1.95; color: var(--ink-2); }
+.dlsteps ol li { margin: 4px 0; }
+.me-install { display: block; width: 100%; margin-top: 10px; }

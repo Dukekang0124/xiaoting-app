@@ -2796,6 +2796,133 @@ const MOCK_SDK = `(function(){
   check('更新日志·有「检查更新」按钮', H6.hasCheck, String(H6.hasCheck));
   await shot(page6, '25-changelog.png');
 
+  /* ================= J. v1.7.0 下载与安装（#/download）+ 装到桌面 + 更新弹窗分流 ================= */
+  sec('J. v1.7.0 下载与安装');
+
+  // J1. install.js 的能力出口齐全（判据落在导出的函数，不落在注释）
+  const J1 = await page.evaluate(async () => {
+    const m = await import('/js/install.js');
+    return {
+      readManifest: typeof m.readManifest, apkHref: typeof m.apkHref, apkSources: typeof m.apkSources,
+      platformCard: typeof m.platformCard, installAction: typeof m.installAction,
+      initInstallPrompt: typeof m.initInstallPrompt, canInstall: typeof m.canInstall,
+    };
+  });
+  check('下载·install.js 导出完整（清单 / 地址 / 平台卡 / 装桌面 / 安装提示）',
+    J1.readManifest === 'function' && J1.apkHref === 'function' && J1.apkSources === 'function'
+    && J1.platformCard === 'function' && J1.installAction === 'function'
+    && J1.initInstallPrompt === 'function' && J1.canInstall === 'function', JSON.stringify(J1));
+
+  // J2. 🔴 下载地址三档回落：读不到清单也必须留得下一个真能下的按钮（不留空头入口）
+  const J2 = await page.evaluate(async () => {
+    const m = await import('/js/install.js');
+    const full = { latest_version: '9.9.9', apk: { url: 'https://x.test/a.apk' } };
+    const noUrl = { latest_version: '8.8.8', apk: {} };
+    return {
+      a0: m.apkSources(full)[0],
+      bHas: m.apkSources(noUrl).some((u) => u.indexOf('Xiaoting-v8.8.8-release.apk') >= 0),
+      cHas: m.apkSources(null).indexOf('apk/xiaoting-latest.apk') >= 0,
+      hrefFull: m.apkHref(full),
+      hrefEmpty: m.apkHref(null),
+    };
+  });
+  check('下载·清单给了地址就用清单（不拼第三档）', J2.a0 === 'https://x.test/a.apk', J2.a0);
+  check('下载·清单没给地址就按版本号拼包名', J2.bHas === true, String(J2.bHas));
+  check('下载·什么都没有也退到稳定别名（按钮不留空）', J2.cHas === true, String(J2.cHas));
+  check('下载·绝对地址原样用 / 空清单退到别名', J2.hrefFull === 'https://x.test/a.apk' && /xiaoting-latest\.apk$/.test(J2.hrefEmpty), J2.hrefEmpty);
+
+  // J3. 🔴 清单必须走 update.fetchLatest()，不能直接读 __VERSION_MANIFEST__
+  //   （那个变量是 update.js loadScript() 加载 version-latest.js 后写上、随即清掉的中转量，直接读九成是 null）
+  const J3 = await page.evaluate(async () => {
+    const m = await import('/js/install.js');
+    const u = await import('/js/update.js');
+    return { usesFetch: /fetchLatest/.test(String(m.readManifest)), exported: typeof u.fetchLatest };
+  });
+  check('下载·清单读 update.fetchLatest（不是用完就清的中转变量）', J3.usesFetch === true && J3.exported === 'function', JSON.stringify(J3));
+
+  // J4. 平台四态各给不同的卡（复用 update.platform()，这里只验分流结果）
+  const J4 = await page.evaluate(async () => {
+    const m = await import('/js/install.js');
+    const k = (o) => { const c = m.platformCard(o); return c && c.key; };
+    return {
+      android: k({ isApk: false, isWeChat: false, isIOS: false, isAndroid: true }),
+      ios: k({ isApk: false, isWeChat: false, isIOS: true, isAndroid: false }),
+      wechat: k({ isApk: false, isWeChat: true, isIOS: false, isAndroid: false }),
+      apk: k({ isApk: true, isWeChat: false, isIOS: false, isAndroid: true }),
+    };
+  });
+  check('下载·平台四态分流正确（android / ios / wechat / apk 各自一卡）',
+    J4.android === 'android' && J4.ios === 'ios' && J4.wechat === 'wechat' && J4.apk === 'apk', JSON.stringify(J4));
+
+  // J5. 下载页真跑渲染
+  const pageDl = await ctx3.newPage();
+  await pageDl.goto(BASE + '/#/download', { waitUntil: 'domcontentloaded' });
+  await pageDl.waitForSelector('.dlpage', { timeout: 8000 });
+  const J5a = await pageDl.evaluate(() => ({
+    cardKey: (document.querySelector('.dlcard') || {}).className || '',
+    hasApkBtn: !!document.getElementById('dlApk'),
+    steps: document.querySelectorAll('.dlsteps ol li').length,
+    back: !!document.querySelector('.dlpage .page-head a'),
+    disclaimer: !!document.querySelector('.dlpage .disclaimer-box'),
+  }));
+  check('下载页·渲染 + 有返回入口', J5a.back === true, JSON.stringify(J5a));
+  check('下载页·普通浏览器命中安卓卡', /dlcard--android/.test(J5a.cardKey), J5a.cardKey);
+  check('下载页·有安卓下载按钮 + 装包三步说明', J5a.hasApkBtn === true && J5a.steps >= 3, JSON.stringify(J5a));
+  check('下载页·保留安全边界声明（不是心理医生）', J5a.disclaimer === true, String(J5a.disclaimer));
+  // J5b. 按钮的 href 必须是真 apk 地址（异步从清单填充，等它落地）
+  await pageDl.waitForFunction(() => {
+    const a = document.getElementById('dlApk');
+    return a && /\.apk/i.test(a.getAttribute('href') || '');
+  }, null, { timeout: 8000 }).catch(() => {});
+  const J5b = await pageDl.evaluate(() => {
+    const a = document.getElementById('dlApk');
+    return { href: (a && a.getAttribute('href')) || '', box: (document.getElementById('dlVer') || {}).textContent || '' };
+  });
+  check('下载页·下载按钮 href 真指向 .apk（不是留个 # 点了没反应）', /\.apk/i.test(J5b.href), J5b.href);
+  check('下载页·版本信息区有内容（不写死、来自清单）', J5b.box.trim().length > 0, J5b.box.slice(0, 40));
+
+  // J6. 「我」页的两个入口
+  const pageMeDl = await ctx3.newPage();
+  await pageMeDl.goto(BASE + '/#/me', { waitUntil: 'domcontentloaded' });
+  await pageMeDl.waitForSelector('#meDownloadBlock', { timeout: 8000 });
+  const J6 = await pageMeDl.evaluate(() => ({
+    row: !!document.querySelector('.mrow--download[href="#/download"]'),
+    installBtn: !!document.getElementById('meInstall'),
+    sub: ((document.getElementById('meDlSub') || {}).textContent || ''),
+  }));
+  check('「我」页·有「安卓版 · 下载与安装」入口', J6.row === true, JSON.stringify(J6));
+  check('「我」页·有「装到桌面」按钮 + 版本副标题', J6.installBtn === true && /当前版本 v/.test(J6.sub), JSON.stringify(J6));
+
+  // J7. 🔴 点「装到桌面」必须有回话（支持就弹安装提示，不支持就给文字引导），绝不静默
+  await pageMeDl.click('#meInstall').catch(() => {});
+  await pageMeDl.waitForFunction(() => {
+    const h = document.getElementById('meInstallHint');
+    return h && (h.textContent || '').trim().length > 0;
+  }, null, { timeout: 6000 }).catch(() => {});
+  const J7 = await pageMeDl.evaluate(() => {
+    const h = document.getElementById('meInstallHint');
+    return { text: (h && h.textContent) || '', shown: h && !h.hidden };
+  });
+  check('装桌面·点了必须有回话（不给空头按钮）', J7.text.trim().length > 0 && J7.shown === true, JSON.stringify(J7));
+  await shot(pageMeDl, '27-me-download.png');
+  await shot(pageDl, '28-download.png');
+
+  // J8. 更新弹窗：Web/iOS 分支的文案与新入口（判据限定在 subCopy 与 showModal 上，不裸串整文件）
+  const srcUpd2 = readC5('js/update.js');
+  check('更新弹窗·Web 分支不再只说「会自动刷新」（旧整句清零）',
+    srcUpd2.indexOf('想要晚上轻提醒') >= 0 && srcUpd2.indexOf('点击立即更新，墨小溟会自动刷新到最新版。') < 0);
+  check('更新弹窗·给 Web/iOS 一个「下载安卓版」入口（仅非 apk/非微信才渲染）',
+    /!p\.isApk && !p\.isWeChat/.test(srcUpd2) && srcUpd2.indexOf('updateApk') >= 0 && srcUpd2.indexOf('#/download') >= 0);
+
+  // J9. 清单：web_url 回到站点根（这条字段是微信里复制出去的链接，带 hash 会把下载引导整段绕开）
+  const vJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'server/version.json'), 'utf8'));
+  check('清单·web_url 指向站点根（不带 hash）',
+    vJson.web_url === 'https://xiaoting.app.workbuddy.host/', String(vJson.web_url));
+
+  // J10. 离线可用：新模块进 SW 预缓存
+  const srcSw = readC5('sw.js');
+  check('SW 预缓存含 js/install.js（离线打开下载页不白屏）', srcSw.indexOf("'./js/install.js'") >= 0);
+
   /* ================= I. v0.8.0 全维度情绪共鸣与 IP 生命感（模块一二三） ================= */
   sec('I. v0.8.0 情绪共鸣与 IP 生命感');
 

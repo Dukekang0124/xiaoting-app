@@ -24,6 +24,9 @@ import {
 import { AI, ASR, isNativeApp } from './config.js';
 import * as memory from './memory.js';
 import * as notify from './notify.js'; // v1.4.1 轻提醒（修复「允许轻提醒」死开关）
+// v1.7.0：下载安卓版 + 装到桌面（A2HS）。清单读取、下载地址回落、平台引导都在这一个模块里，
+// 页面只负责渲染与接线 —— 避免"下载这件事"散落在 update.js / changelog 页 / 各处硬编码。
+import * as install from './install.js';
 import * as monthly from './monthly.js'; // v1.6.2 月度情绪复盘（文档 §追加模块3）
 
 const $view = () => document.getElementById('view');
@@ -43,6 +46,8 @@ const ICON = {
   memory: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12c2.5 0 2.5-5 5-5s2.5 10 5 10 2.5-5 4-5"/><circle cx="5" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>`,
   // 支持：一双手托住一颗心的托举意象（与「设置」的锁形区分）
   support: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-6.4-3.9-6.4-8.2A3.6 3.6 0 0 1 12 9.4a3.6 3.6 0 0 1 6.4 2.4C18.4 16.1 12 20 12 20Z"/></svg>`,
+  // v1.7.0 下载：一条向下的箭头落进托盘（与「设置」的锁、「关于」的圆区分开）
+  download: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6v11"/><path d="M8 11.2 12 15.2l4-4"/><path d="M4.6 17.6v1.6a1.8 1.8 0 0 0 1.8 1.8h11.2a1.8 1.8 0 0 0 1.8-1.8v-1.6"/></svg>`,
 };
 
 /** 录音波形（7 根柱子，CSS 驱动起伏） */
@@ -2268,6 +2273,20 @@ function pageMe() {
       <button class="danger-link" id="meClearCards" type="button">${esc(M.storage.clearBtn)}</button>
     </div>
 
+    <!-- v1.7.0：「我」页此前没有任何下载引导 —— 网页版/iOS 用户不知道这产品还有安卓客户端。
+         装桌面按钮与「下载与安装」入口同块，讲清"网页版能用、安卓版多三件事"。 -->
+    <div class="mblock" id="meDownloadBlock">
+      <div class="mblock__t">${esc(M.download.title)}</div>
+      <p class="mblock__d">${esc(M.download.desc)}</p>
+      <a class="mrow mrow--download" href="#/download">
+        <span class="mrow__ico">${ICON.download}</span>
+        <span class="mrow__txt">${esc(M.download.row)}<span class="mrow__sub" id="meDlSub">当前版本 v${esc(window.APP_VERSION || '1.7.0')}</span></span>
+        <i class="mrow__arrow">›</i>
+      </a>
+      <button class="ghost me-install" id="meInstall" type="button">${esc(M.download.installBtn)}</button>
+      <p class="mblock__n" id="meInstallHint">${esc(M.download.installHint)}</p>
+    </div>
+
     <div class="mblock mblock--quiet">
       <div class="mblock__t">${esc(M.boundary.title)}</div>
       <p class="mblock__n">${esc(M.boundary.text)}</p>
@@ -2369,6 +2388,30 @@ function bindMe() {
   if (wipe) wipe.addEventListener('click', async () => {
     if (window.confirm(cw.ME_COPY.wipe.confirm)) { await api.userDataDelete(); store.toast('已删除全部数据'); go('say'); }
   });
+
+  /* v1.7.0：装到桌面 —— 点了必须有回话，支持就弹原生安装框，不支持就给文字引导，绝不静默 */
+  install.initInstallPrompt();
+  const mi = document.getElementById('meInstall');
+  if (mi) mi.addEventListener('click', async () => {
+    mi.disabled = true;
+    const r = await install.installAction();
+    const hint = document.getElementById('meInstallHint');
+    if (hint) hint.textContent = r.text;
+    store.toast(r.kind === 'installed' ? '好，桌面上有墨小溟了' : '按下面这个来就行');
+    mi.disabled = false;
+  });
+  // 「下载与安装」行的副标题补上真实的包体积（版本号渲染时已有，体积只有清单里才有）
+  // bindMe 不是 async 函数（它被 render 同步调用），这里单独起一个 async 块。
+  (async () => {
+    try {
+      const sub = document.getElementById('meDlSub');
+      if (sub && /\d/.test(sub.textContent || '')) {
+        const m = await install.readManifest();
+        const size = m && m.apk && m.apk.size ? parseInt(m.apk.size, 10) : 0;
+        if (size > 0) sub.textContent = `当前版本 v${m.latest_version} · ${(size / 1048576).toFixed(1)} MB`;
+      }
+    } catch (e) { /* 读不到清单不算错：行内版本号本来就有，副标题少个体积不伤人 */ }
+  })();
 }
 
 /** v1.3.4：导出全部情绪记录为 JSON（本地下载，不上传） */
@@ -2476,7 +2519,7 @@ function pageSettings() {
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
     ${privacyBlockHtml(COPY.privacyFull)}
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.6.19')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.7.0')}</p>
   </section>`;
 }
 
@@ -2663,12 +2706,141 @@ function privacyBlockHtml(p) {
     </div>`;
 }
 
+/* ---------------- 页面：下载与安装（v1.7.0） ---------------- */
+
+/** 平台卡上的动作：能给什么就给什么，给不了就不装按钮（不给空头入口） */
+function dlActionHtml(action) {
+  if (!action) return '';
+  if (action.kind === 'apk') return '<a class="primary dlcard__btn" id="dlApk" href="#" download>下载安卓安装包</a>';
+  if (action.kind === 'install') return '<button class="primary dlcard__btn" id="dlInstall" type="button">告诉我怎么装</button>';
+  return '<button class="ghost dlcard__btn" id="dlCopy" type="button">复制墨小溟网址</button>';
+}
+
+/**
+ * 下载与安装页。
+ * 【为什么要有这一页】v1.6.19 之前「安卓版」只存在于更新历史页底部一个小链接（changelog 页的 cl-dl），
+ * 「我」页、更新弹窗**一次都没提过**。结果就是：网页版/iOS 用户根本不知道这产品还有客户端。
+ */
+function pageDownload() {
+  const D = cw.ME_COPY.download;
+  // 平台判断复用 update.platform()（四态：wechat / apk / ios / android），不重造 UA 判断
+  const card = install.platformCard();
+  return `
+  <section class="dlpage">
+    <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">下载与安装</div><span style="width:48px"></span></div>
+    <div class="dlpage__ip">${avatar('happy', 60)}</div>
+    <p class="dlpage__lead">${esc(D.desc)}</p>
+
+    <div class="set-title">按你的设备选</div>
+    <div class="dlcard dlcard--${esc(card.key)}" data-dl-card="${esc(card.key)}">
+      <div class="dlcard__t">${esc(card.title)}</div>
+      <p class="dlcard__b">${esc(card.body)}</p>
+      ${dlActionHtml(card.action)}
+      <p class="dlcard__hint" id="dlCardHint" hidden></p>
+    </div>
+
+    <div class="set-title">安装包信息</div>
+    <div class="dlver" id="dlVer"><p class="set-sub">正在读取线上版本清单…</p></div>
+
+    <details class="dlsteps">
+      <summary>安卓装包三步</summary>
+      <ol>
+        <li>点上面的「下载安卓安装包」，浏览器开始下载 .apk 文件。</li>
+        <li>系统会弹「不允许安装此应用」——去 设置 → 安全 → 允许「未知来源应用」，给浏览器开个权限就好。</li>
+        <li>回到浏览器点那个安装包，跟着系统提示装完，桌面上就多一个墨小溟。</li>
+      </ol>
+    </details>
+
+    <details class="dlsteps" id="dlMd5Wrap" hidden>
+      <summary>安装包校验值（md5）</summary>
+      <p class="set-sub" id="dlMd5"></p>
+      <p class="set-sub">想自己核对：手机上长按安装包看属性，或在电脑上用 md5sum 比对，对得上就是没被动过的原包。</p>
+    </details>
+
+    <button class="ghost" id="dlInstallDesktop" type="button">装到桌面（网页版）</button>
+    <p class="dlpage__note" id="dlInstallHint"></p>
+
+    <div class="disclaimer-box">${esc(COPY.about.disclaimer)}</div>
+    <p class="foot-note">墨小溟不会诊断，也不是心理医生。<br/>它只是陪你把心事说出来。</p>
+  </section>`;
+}
+
+async function bindDownload() {
+  install.initInstallPrompt();
+
+  /* 版本信息 + 下载按钮的真实地址：唯一真相源是线上清单，页面不硬编码版本号 */
+  const verBox = document.getElementById('dlVer');
+  const apkLink = document.getElementById('dlApk');
+  try {
+    const m = await install.readManifest();
+    if (!m) throw new Error('manifest_unavailable');
+    const size = (m.apk && m.apk.size) ? `${(m.apk.size / 1048576).toFixed(1)} MB` : '';
+    const rows = [
+      `<div class="dlver__row"><span>版本号</span><b>v${esc(m.latest_version)}</b></div>`,
+      size ? `<div class="dlver__row"><span>安装包</span><b>${esc(size)}</b></div>` : '',
+    ];
+    if (apkLink) apkLink.href = install.apkHref(m);
+    const notes = (m.release_notes || []).slice(0, 5);
+    if (notes.length) rows.push(`<ul class="dlver__notes">${notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>`);
+    const md5Wrap = document.getElementById('dlMd5Wrap');
+    if (md5Wrap) {
+      const md5 = (m.apk && m.apk.md5) || '';
+      if (md5) {
+        const md5Box = document.getElementById('dlMd5');
+        if (md5Box) md5Box.textContent = md5;
+        md5Wrap.hidden = false;
+      }
+    }
+    if (verBox) verBox.innerHTML = rows.filter(Boolean).join('');
+  } catch (e) {
+    // 🔴 读不到清单时不许"假装无新版"、也不许留一个点了没反应的下载按钮：
+    //   没有清单 ⇒ 地址退到稳定别名（www/apk/ 里构建产物必存在），页面照常有东西可下。
+    if (apkLink) {
+      const fallback = install.apkHref(null);
+      if (fallback) apkLink.href = fallback;
+    }
+    if (verBox) verBox.innerHTML = '<p class="set-sub">暂时读不到线上清单，下面的下载按钮仍能下到最新版。</p>';
+  }
+
+  /* 平台动作接线 */
+  const cardHint = document.getElementById('dlCardHint');
+  const installBtn = document.getElementById('dlInstall');
+  if (installBtn) installBtn.addEventListener('click', async () => {
+    const r = await install.installAction();
+    if (cardHint) {
+      cardHint.hidden = false;
+      cardHint.textContent = r.text;
+    }
+  });
+
+  const copyBtn = document.getElementById('dlCopy');
+  if (copyBtn) copyBtn.addEventListener('click', async () => {
+    const url = (location.origin || '') + '/';
+    let ok = false;
+    try { await update.copyText(url); ok = true; } catch (e) { ok = false; }
+    if (cardHint) {
+      cardHint.hidden = false;
+      cardHint.textContent = ok ? '网址已复制 ✓ 去浏览器粘贴打开就行。' : '复制没成功，手动复制这个地址：' + url;
+    }
+  });
+
+  /* 装到桌面（网页版） */
+  const deskBtn = document.getElementById('dlInstallDesktop');
+  if (deskBtn) deskBtn.addEventListener('click', async () => {
+    const hint = document.getElementById('dlInstallHint');
+    deskBtn.disabled = true;
+    const r = await install.installAction();
+    if (hint) hint.textContent = r.text;
+    deskBtn.disabled = false;
+  });
+}
+
 function pageChangelog() {
   return `
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.6.19')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.7.0')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -2681,7 +2853,7 @@ function pageChangelog() {
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.6.19')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.7.0')}</p>
   </section>`;
 }
 
@@ -3266,6 +3438,8 @@ const PAGES = {
   me: { render: pageMe, bind: bindMe, tab: 'me', nav: true },
   memory: { render: pageMemory, bind: bindMemory, nav: true },
   settings: { render: pageSettings, bind: bindSettings, nav: true },
+  // v1.7.0：下载与安装（「我」页入口 + 更新弹窗次级按钮都落这里）
+  download: { render: pageDownload, bind: bindDownload, nav: true },
   changelog: { render: pageChangelog, bind: bindChangelog, nav: false },
   risk: { render: pageRisk, bind: bindRisk, nav: false },
   diag: { render: pageDiag, bind: bindDiag, nav: false },

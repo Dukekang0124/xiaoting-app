@@ -1,7 +1,7 @@
 // 墨小溟 · Service Worker（离线缓存）
 // 版本号位置 2/5：改版本须与 index.html 的 APP_VERSION、manifest、package.json、js/app.js 兜底同步
 // （见作品集 00-文档写作与版本约定 §2.2）
-const CACHE = 'xiaoting-v1.6.19';
+const CACHE = 'xiaoting-v1.7.0';
 const ASSETS = [
   './',
   './index.html',
@@ -32,6 +32,9 @@ const ASSETS = [
   './vendor/workbuddy-cloud-sdk.js',
   './js/monthly.js',
   './js/motion.js',
+  // v1.7.0 下载与安装页：下载按钮 + A2HS 装桌面都在这一个模块里，
+  // 不预缓存的话离线打开这一页会白屏（页面结构在，但下载/装桌面按钮全哑）。
+  './js/install.js',
   // 动效参数真相源：同样要预缓存，离线时不然动效悄悄退回 CSS 默认值
   './moxiaoming_motion_sound_config.json',
 ];
