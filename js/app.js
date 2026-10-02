@@ -2296,7 +2296,7 @@ function pageMe() {
       <p class="mblock__d">${esc(M.download.desc)}</p>
       <a class="mrow mrow--download" href="#/download">
         <span class="mrow__ico">${ICON.download}</span>
-        <span class="mrow__txt">${esc(M.download.row)}<span class="mrow__sub" id="meDlSub">当前版本 v${esc(window.APP_VERSION || '1.7.4')}</span></span>
+        <span class="mrow__txt">${esc(M.download.row)}<span class="mrow__sub" id="meDlSub">当前版本 v${esc(window.APP_VERSION || '1.7.5')}</span></span>
         <i class="mrow__arrow">›</i>
       </a>
       <button class="ghost me-install" id="meInstall" type="button">${esc(M.download.installBtn)}</button>
@@ -2556,7 +2556,7 @@ function pageSettings() {
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
     ${privacyBlockHtml(COPY.privacyFull)}
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.7.4')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.7.5')}</p>
   </section>`;
 }
 
@@ -2921,7 +2921,7 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.7.4')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.7.5')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -2934,7 +2934,7 @@ function pageChangelog() {
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.7.4')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.7.5')}</p>
   </section>`;
 }
 

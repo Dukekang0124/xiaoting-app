@@ -1,21 +1,32 @@
 {
-  "latest_version": "1.7.4",
+  "latest_version": "1.7.5",
   "force_update": false,
-  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.7.4-release.apk",
+  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.7.5-release.apk",
   "web_url": "https://xiaoting.app.workbuddy.host/",
   "apk": {
-    "versionCode": 10704,
+    "versionCode": 10705,
     "version": "1.7.4",
-    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.7.4-release.apk",
-    "md5": "43cf9c8a9569a75019876ec4c5baed23",
-    "size": 4344140,
+    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.7.5-release.apk",
+    "md5": "PENDING_CI",
+    "size": 0,
     "force": false
   },
   "release_notes": [
-    "「按住说」在信号差的时候不再整条卡死：判断能不能用云端语音识别的那一步，以前是一次没有超时的网络请求，遇到网络半开就会永远挂着，等到你松手，屏幕还是纹丝不动。现在这一步自带 6 秒上限，探不出来就当云端不能用、老老实实落回本机识别，绝不让这个核心动作干等。",
-    "探测失败会分清楚是「超时」还是「网络真的不通」，设置页的诊断行照实说，不再一律含糊成一句网络失败。"
+    "月度复盘的整屏遮罩，现在点空白处、按返回键都能关掉。以前它只认那两个按钮，每月 1 号打开就整屏盖住，没有物理返回键的手机上等于只能对着按钮点。",
+    "清掉一批「存了但没人用」的假设置：一直写着、样式表里压根没有消费方的粒子效果，四个从来没人读的场景特效，问候语里一条永远轮不到的 morning，以及语音识别里三个没人读的地址配置。删掉比留着诚实——留着你会以为能调，其实调了没反应。",
+    "时间线和卡片各留最多 500 条。本机存储是有上限的，写满之后手机会直接拒绝写入、页面看着却还正常，那种丢数据是静默的，不如早点明确砍一条最旧的。"
   ],
   "history": [
+    {
+      "version": "1.7.5",
+      "date": "2026-10-03",
+      "title": "月度复盘可点空白/Esc 关 + 清掉一批假设置 + 存储留上限",
+      "notes": [
+        "月度复盘的整屏遮罩，现在点空白处、按返回键都能关掉。以前它只认那两个按钮，每月 1 号打开就整屏盖住，没有物理返回键的手机上等于只能对着按钮点。",
+        "清掉一批「存了但没人用」的假设置：一直写着、样式表里压根没有消费方的粒子效果，四个从来没人读的场景特效，问候语里一条永远轮不到的 morning，以及语音识别里三个没人读的地址配置。删掉比留着诚实——留着你会以为能调，其实调了没反应。",
+        "时间线和卡片各留最多 500 条。本机存储是有上限的，写满之后手机会直接拒绝写入、页面看着却还正常，那种丢数据是静默的，不如早点明确砍一条最旧的。"
+      ]
+    },
     {
       "version": "1.7.4",
       "date": "2026-10-02",
@@ -653,5 +664,5 @@
       ]
     }
   ],
-  "versionCode": 10704
+  "versionCode": 10705
 }
