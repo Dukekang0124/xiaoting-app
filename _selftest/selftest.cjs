@@ -3348,6 +3348,54 @@ const MOCK_SDK = `(function(){
       /s\.greeting\b/.test(appSrc) && /s\.greetingSmall\b/.test(appSrc) && /s\.cardHint\b/.test(appSrc));
   }
 
+  /* ================= C11. 零散死配置与存储上限（P3-3 / P3-4 / P3-5 / P3-6，v1.7.5） =============
+     · dawn≡morning：问候库里 morning 那四条和 dawn 一字不差，而 timeSlot() 永不返回 morning
+     · config.js 的 ASR 里 endpoint / health / timeoutMs 三个字段零读（真跑的是 CLOUD_ASR）
+     · reply_short 没有默认值，靠读取处 `=== true` 兜底
+     · addTimeline / addCard 只进不出，localStorage 攒到配额会静默写不进去 */
+  sec('C11. 零散死配置与存储上限（P3）');
+  {
+    const cfgSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'config.js'), 'utf8').replace(/\r\n/g, '\n');
+    const cwSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'copywriting.js'), 'utf8').replace(/\r\n/g, '\n');
+    const smSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'state-machine.js'), 'utf8').replace(/\r\n/g, '\n');
+    // 切出第一个对象字面量（ASR 定义在 CLOUD_ASR 之前，避免把 CLOUD_ASR 的字段算进来）
+    const asrBlock = (() => {
+      const i = cfgSrc.indexOf('export const ASR = {');
+      return i < 0 ? '' : cfgSrc.slice(i, cfgSrc.indexOf('\n};', i));
+    })();
+    check('C11·config.js 的 ASR 已清掉零读字段 endpoint/health/timeoutMs',
+      asrBlock && !/(^|\n)\s*(endpoint|health|timeoutMs)\s*:/.test(asrBlock), asrBlock.slice(0, 120));
+    check('C11·但 ASR 里真被读的字段还在（events / lang，删过头就出事）',
+      /\bevents\s*:/.test(asrBlock) && /\blang\s*:/.test(asrBlock));
+    const tBlock = (() => {
+      const i = cwSrc.indexOf('time_based:');
+      return i < 0 ? '' : cwSrc.slice(i, cwSrc.indexOf('\n  },', i));
+    })();
+    check('C11·问候库 time_based 里删掉了永不命中的 morning 键（dawn 保留）',
+      tBlock && !/(^|\n)\s*morning\s*:/.test(tBlock) && /\bdawn\s*:/.test(tBlock));
+    check('C11·reply_short 有了显式默认 false（不再靠读取处兜底）',
+      /reply_short\s*:\s*false/.test(smSrc));
+
+    // 运行态：超上限真会砍（静态看代码看不出「攒到 520 条还留不留下」）
+    const cap = await page.evaluate(async () => {
+      const st = await import('/js/store.js');
+      try { localStorage.removeItem('xiaoting:v1'); } catch (e) { /* ignore */ }
+      for (let i = 0; i < 520; i++) st.addCard({ card_title: 't' + i, emotion_text: 'x', saved_at: new Date().toISOString() });
+      const cards = (st.getState().cards || []).length;
+      for (let i = 0; i < 520; i++) st.addTimeline({ card_title: 'tl' + i, nodes: [], timeline_list: [] });
+      const tls = (st.getState().timelines || []).length;
+      // addCard 是「新的插前面」，所以最后塞进来的是 t519、它应该正好落在第 0 位；
+      // 若实现成「砍新的」，第 0 位会变成 t518 —— 这条断言就是抓那个方向错的。
+      const list = st.getState().cards || [];
+      return { cards, tls, headTitle: (list[0] || {}).card_title || '', tailTitle: (list[list.length - 1] || {}).card_title || '' };
+    });
+    check('C11·addCard 有上限（塞 520 条只留 500，不把 localStorage 写爆）',
+      cap.cards === 500, JSON.stringify(cap));
+    check('C11·addTimeline 也有上限（500）', cap.tls === 500, JSON.stringify(cap));
+    check('C11·超限时砍的是最旧的、最新那条还在（不是反过来砍新的）',
+      cap.headTitle === 't519' && cap.tailTitle !== 't519', JSON.stringify(cap));
+  }
+
   await browser.close();
 
   // 断言总数基线自检：数量对不上就是「有人悄悄删/加了断言」，宁可红一条也不要静默漂移。

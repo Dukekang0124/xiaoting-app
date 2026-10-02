@@ -311,7 +311,11 @@ export const BASE_SETTINGS_DEFAULT = {
   // 🔴 v1.6.17 G8：memory_on 默认**关**。此前是默认开 —— 用户第一次开口就被静默写进长期记忆，
   //    既没有授权弹窗，设置页也看不出"到底记了什么"。产品无账号无云端，这类静默留存是性格问题。
   //    现在：第 5 屏（或设置页）用户主动勾了才开；不勾 = 只用单会话短期上下文，功能不受任何影响。
-  cloudAsr: true, memory_on: false, notify_on: false,
+  // 🔴 v1.7.5（P3-5）：reply_short 以前**没有默认值** —— 只有老用户设置页勾过才存在这个键，
+  //    新用户是「键不存在」，靠 api.js 那句 `=== true` 兜出 false。能跑，但默认值是隐含的：
+  //    一(i) 改读取逻辑时容易写成 `!!s.reply_short` 之外的真值判断；(ii) 导出产品文档时这一栏是空的。
+  //    显式写出 false，让「默认不复短」这件事在默认值表里就看得见。
+  cloudAsr: true, memory_on: false, notify_on: false, reply_short: false,
 };
 
 /** 总开关门禁：关掉 → 强制回退到中性 idle 静态（色彩/动画/特效全停） */

@@ -70,11 +70,13 @@ export function apiBase() {
  * 三个端点都由 server.cjs 提供；拿不到时 asr.js 会自动降级到原生识别 / 打字，不会白屏。
  */
 export const ASR = {
-  endpoint: '/api/asr',      // POST { speech: base64, lang } → { ok, text }
-  health: '/api/health',     // GET 探测服务端是否配好密钥（顺带在服务端预热 token）
+  // 🔴 v1.7.5（P3-4）：原来的 endpoint / health / timeoutMs 三个字段**全仓零读** ——
+  //    真正在跑的云端链路用的是下面 CLOUD_ASR 那一份（origin + endpoint 拼绝对地址），
+  //    同源这条（/api/asr）线上是纯静态托管、恒 404，代码里也没人再去读这三个键。
+  //    留着就是三个「看着能配、配了没用」的钩子。需要同源调用时看 asr.js 的 url()，
+  //    那里拼的是字面量路径 —— 这也是它唯一在用的形态。
   events: '/api/events',     // POST 内测埋点批量上报
   lang: 'zh',                // 墨小溟是中文产品；服务端映射 dev_pid 1537
-  timeoutMs: 15000,          // 单次识别超时（含上传）；实测云端 1-3s，留足余量
   minB64Len: 2000,           // 粗筛：base64 短于此直接判空（约 0.05s）
   minAudioMs: 500,           // v1.6.11：解码后时长 < 此值 ⇒ 判「没录到」，不发云端。
                              //   真机实测：静音/近空音频喂给 Whisper 会「幻觉」出无关文本
@@ -86,8 +88,9 @@ export const ASR = {
 /**
  * 云端语音识别后端（v1.4.1 · A' 方案）。
  *
- * 【为什么必须换后端】上面 ASR.endpoint 是同源 /api/asr，由 server.cjs 提供。
- * 但线上是**纯静态托管**（没有 Node 进程）⇒ APK 里这个地址恒 404。
+ * 【为什么必须换后端】同源那条 ASR 端点（由 server.cjs 提供）线上是**纯静态托管**（没有 Node 进程）⇒
+ * 恒 404，也就是说「云端 ASR 优先」这条链路从上线第一天起就没跑通过一次；能跑的只有下面这个
+ * 独立部署在 Cloudflare Pages 的跨域端点。
  * 也就是说：代码里「云端 ASR 优先」这条链路，从上线第一天起就从来没跑通过一次。
  *
  * 【为什么是 pages.dev 不是 workers.dev】2026-09-30 实测 DNS：

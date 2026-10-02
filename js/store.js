@@ -243,7 +243,7 @@ export function addCard(card) {
     id: 'c_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     created_at: new Date().toISOString(),
   };
-  setState({ cards: [full, ...state.cards], draft: null });
+  setState({ cards: trimOldest([full, ...state.cards], MAX_CARDS), draft: null });
   return full;
 }
 
@@ -265,13 +265,27 @@ export function toggleCardFlag(id, flag) {
 }
 
 /** 保存一张情绪时间线卡片到本机（隐私优先，完全本地，不自动分享） */
+/** 🔴 v1.7.5（P3-6）：timelines / cards 两份数组**只进不出**，此前没有任何长度闸。
+ *  localStorage 有配额（移动端约 5–10MB）：攒到边界时浏览器直接抛 QuotaExceededError，
+ *  setState 静默失败 ⇒ 之后所有 setState 都落不进盘，页面看着还正常，其实已经在丢数据了。
+ *  与其让它在某一天突然全丢，不如留一个**明确上限**：超了丢最旧那条，并把话说明白
+ *  （产品无账号无云端，只存本机，这份取舍必须摆到明面上，不能让用户以为「都在」）。 */
+const MAX_TIMELINES = 500;
+const MAX_CARDS = 500;
+
+/** 数组是「新的在前」，超限时从尾部砍最旧的 */
+function trimOldest(list, max) {
+  return Array.isArray(list) && list.length > max ? list.slice(0, max) : list;
+}
+
 export function addTimeline(tl) {
   const full = {
     ...tl,
     id: 'tl_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     saved_at: new Date().toISOString(),
   };
-  setState({ timelines: [full, ...(state.timelines || [])] });
+  const rows = trimOldest([full, ...(state.timelines || [])], MAX_TIMELINES);
+  setState({ timelines: rows });
   return full;
 }
 
