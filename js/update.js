@@ -39,11 +39,11 @@ const SNOOZE_KEY = 'xiaoting:update_snooze_day'; // 当天"稍后再说"过的�
  * 🔴 与 APP_VERSION 必须同步：自测里有一条断言卡死这条（两者必须相等），
  *   否则「发版忘改常量」又会变成下一个静默故障。
  */
-export const LATEST_VERSION = '1.6.8';
+export const LATEST_VERSION = '1.6.9';
 
 /** 兜底安装包地址：必须是**版本化文件名**，不能用 xiaoting-latest.apk 别名
  *  （别名指向"站点上最新的那一版"，站点没发布时它反而是旧版 ⇒ 会让人装回旧包）。 */
-const FALLBACK_APK_URL = 'https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.8-release.apk';
+const FALLBACK_APK_URL = 'https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.6.9-release.apk';
 
 /**
  * 版本清单的两个候选路径，按顺序试（v1.1.4 修）。
@@ -672,9 +672,13 @@ export async function installApkInApp(url, version = '', opts = {}) {
       return { ok: false, reason: 'not_an_apk', detail: `落盘 ${size}B，清单写的是 ${expect}B`, retryable: true };
     }
 
+    // v1.6.9：落盘体积校验通过 ⇒ 记「已下好」，供重开续装用
+    markDownloaded(version);
+
     const uri = await Filesystem.getUri({ path: file, directory: DL_DIR });
     await FileOpener.open({ url: uri.uri, contentType: 'application/vnd.android.package-archive' });
     diag.note('update', 'installer_opened', { ok: true, detail: `已唤起系统安装器 ${uri.uri} 大小=${size}B` });
+    clearDownloaded(version);
     return { ok: true, size };
   } catch (e) {
     const detail = String((e && e.message) || e).slice(0, 160);
@@ -711,6 +715,7 @@ function showInstallGuide(data, p) {
   const file = `xiaoting-v${String(data.latest_version || '').replace(/[^\w.]/g, '')}.apk`;
   let lastKit = null;   // 成功后的「再打开一次安装界面」不必重新下载
   let lastRun = null;
+  let isResume = false;  // 当前卡片是「已下好·立即安装」而非「3 步指引」
 
   /** 统一渲染卡片：IP + 标题 + 正文 + 按钮组（下载中 / 失败 / 成功三态共用一套，避免各写一套跑偏）。 */
   const setCard = (o) => {
@@ -729,9 +734,11 @@ function showInstallGuide(data, p) {
       const el = document.getElementById(a.id);
       if (!el) return;
       el.addEventListener('click', () => {
-        if (a.id === 'installDone' || a.id === 'dlCancel' || a.id === 'installLater') { close(); return; }
+        if (a.id === 'installDone' || a.id === 'dlCancel') { close(); return; }
+        if (a.id === 'installLater') { if (isResume) setDismissedVersion(String((data && data.latest_version) || '')); close(); return; }
         if (a.id === 'installStart' || a.id === 'dlRetry') { void run(); return; }
         if (a.id === 'dlReopen') { void reopen(); return; }
+        if (a.id === 'dlResume') { void resumeInstall(data); return; }
         if (a.id === 'dlManual') { try { window.location.href = url; } catch (e) { /* ignore */ } close(); }
       });
     });
@@ -783,7 +790,7 @@ function showInstallGuide(data, p) {
     setCard({ sign: 'listening', label: '下载中', title: '正在下载安装包…',
       body: '<div class="dl-bar"><i class="dl-bar__fill" id="dlFill"></i></div>' +
             '<p class="update-sub" id="dlHint">准备连接…</p>' +
-            '<p class="update-sub update-sub--dim">这次下载全程在你手机里完成，不用切到浏览器，也不用去通知栏找包。</p>',
+            '<p class="update-sub update-sub--dim">这次下载全程在手机里完成，不用切到浏览器，包也不会丢在别处。下完会跳到系统安装界面，墨小溟可能暂时退到后台，这是正常的，装完自动回来。</p>',
       actions: [{ id: 'dlCancel', text: '先放着', ghost: true }] });
 
     const r = await installApkInApp(url, data.latest_version, {
@@ -820,18 +827,34 @@ function showInstallGuide(data, p) {
         .concat([{ id: 'installDone', text: '先放着', ghost: true }]) });
   };
 
-  /* 首屏：先把「这次跟以前不一样」讲清楚 —— 下载留在 App 里，不再把人赶去通知栏。
-     按钮只负责触发 run()，下载链路与状态卡全在下面那套 setCard 里。 */
-  setCard({
-    sign: 'happy', label: '安装指引',
-    title: `墨小溟 v${esc(data.latest_version)} 已经准备好了`,
-    body: '<ol class="install-steps">' +
-      '<li>点「开始下载」，包就在这个 App 里下载，进度看得见。</li>' +
-      '<li>下完会自动弹出安装界面 —— 不用切到浏览器，也不用去通知栏翻文件。</li>' +
-      '<li>若弹出「允许安装未知应用」，打开这个权限，再点「安装」就行。</li>' +
-      '</ol>',
-    actions: [{ id: 'installStart', text: '开始下载' }, { id: 'installLater', text: '稍后再说', ghost: true }],
-  });
+  /* 首屏分两种：已下好 → 直接"立即安装"；否则 → 3 步指引。一套骨架只留一处渲染入口。 */
+  const renderFirst = async () => {
+    const pending = getDownloadedVersion();
+    const have = pending && cmpVersion(pending, data.latest_version) === 0 && (await fileExists(pending));
+    if (have) {
+      isResume = true;
+      setCard({
+        sign: 'happy', label: '已就绪',
+        title: `墨小溟 v${esc(data.latest_version)} 的安装包已经下好了`,
+        body: '上次下载完成了，这次不用重新下。点「立即安装」，系统会接管安装 —— ' +
+              '那一下墨小溟可能暂时退到后台，是正常的，装完自动回来。',
+        actions: [{ id: 'dlResume', text: '立即安装' }, { id: 'installLater', text: '稍后再说', ghost: true }],
+      });
+    } else {
+      isResume = false;
+      setCard({
+        sign: 'happy', label: '安装指引',
+        title: `墨小溟 v${esc(data.latest_version)} 已经准备好了`,
+        body: '<ol class="install-steps">' +
+          '<li>点「开始下载」，包就在这个 App 里下载，进度看得见。</li>' +
+          '<li>下完会跳到系统安装界面 —— 不用切到浏览器，包也不会丢在别处。</li>' +
+          '<li>装那一下系统会接管，墨小溟可能暂时退到后台，这是正常的；若弹出「允许安装未知应用」，打开权限再点「安装」。</li>' +
+          '</ol>',
+        actions: [{ id: 'installStart', text: '开始下载' }, { id: 'installLater', text: '稍后再说', ghost: true }],
+      });
+    }
+  };
+  void renderFirst();
 }
 
 /* ---------------- 装完之后的那句交代（v1.6.4） ---------------- */
@@ -861,6 +884,123 @@ export function announceJustUpdated() {
   } catch (e) { return false; }
   try { toast(`已经用上 v${cur} 了。谢谢你还在说。`, 3600); } catch (e) { /* ignore */ }
   return true;
+}
+
+/* ---------------- 下载完成标记 + 重开续装（v1.6.9） ---------------- */
+
+/**
+ * v1.6.9：下载完成（落盘体积校验通过）即记「已下好」标记，与「唤起安装界面」(armInstalled) 分开。
+ *   前者是"包在"，后者是"装了"。用途：App 被杀/退后台后重开，能自动提示"安装包已下好，是否立即安装"。
+ *   这条直接解决用户反馈的「下载更新包自动跳回桌面、找不到包」——
+ *   跳回桌面发生在"安装"那一下（安卓必须拉起系统安装器，谁都绕不开），不是下载；
+ *   而"找不到包"是因为旧流程没有把"已下好的包"在重开时重新呈现给用户。
+ */
+const DOWNLOADED_PREFIX = 'xiaoting:apk_downloaded_';
+
+export function markDownloaded(version) {
+  try { localStorage.setItem(DOWNLOADED_PREFIX + String(version), String(Date.now())); } catch (e) { /* ignore */ }
+}
+function clearDownloaded(version) {
+  try { localStorage.removeItem(DOWNLOADED_PREFIX + String(version)); } catch (e) { /* ignore */ }
+}
+
+/** 返回"已下好、且比当前版本新、且还没装上"的最高版本；没有则返回 ''。 */
+export function getDownloadedVersion() {
+  try {
+    const cur = String(window.APP_VERSION || '');
+    let best = '';
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i) || '';
+      if (!k.startsWith(DOWNLOADED_PREFIX)) continue;
+      const v = k.slice(DOWNLOADED_PREFIX.length);
+      if (!v || cmpVersion(v, cur) <= 0) continue;            // 不比当前新就不用续装
+      if (localStorage.getItem(ARMED_PREFIX + v)) continue;    // 已经装上了就不提了
+      if (!best || cmpVersion(v, best) > 0) best = v;
+    }
+    return best;
+  } catch (e) { return ''; }
+}
+
+/** 包是否真的还在磁盘上（系统可能清过缓存目录）。 */
+async function fileExists(version) {
+  const kit = await loadInstaller();
+  if (!kit) return false;
+  const file = `xiaoting-v${String(version || '').replace(/[^\w.]/g, '')}.apk`;
+  try { await kit.Filesystem.stat({ path: file, directory: DL_DIR }); return true; }
+  catch (e) { return false; }
+}
+
+/**
+ * 重开续装：包已下好 → 跳过下载、直接拿 URI 唤起安装界面。
+ * 文件不在了（缓存被清）→ 回落完整下载流程；桥上没插件 → 同样回落。
+ */
+export async function resumeInstall(data) {
+  const version = String((data && data.latest_version) || '');
+  const kit = await loadInstaller();
+  if (!kit) { showInstallGuide(data, platform()); return; }
+  const file = `xiaoting-v${version.replace(/[^\w.]/g, '')}.apk`;
+  let size = 0;
+  try { const st = await kit.Filesystem.stat({ path: file, directory: DL_DIR }); size = Number(st && st.size) || 0; } catch (e) { /* gone */ }
+  if (!size) { showInstallGuide(data, platform()); return; }   // 包没了 → 重新下
+  try {
+    const uri = await kit.Filesystem.getUri({ path: file, directory: DL_DIR });
+    await kit.FileOpener.open({ url: uri.uri, contentType: 'application/vnd.android.package-archive' });
+    armInstalled(version);
+    clearDownloaded(version);
+    // 给一句"已就绪"交代（与正常流程的成功卡一致），并支持关闭
+    const card = document.querySelector('.install-overlay .install-card');
+    if (card) {
+      card.innerHTML = `<div class="update-ip">${mascot('happy', 96)}<div class="update-sign">已就绪</div></div>` +
+        `<h3 class="update-title">安装界面已经打开了</h3>` +
+        `<div class="install-body">按系统提示点「安装」，装完会自动回到墨小溟（那一下是系统在安装界面，不算跳出产品）。</div>` +
+        `<div class="install-actions"><button class="update-btn update-btn--ghost" id="installDone" type="button">我知道了</button></div>`;
+      const done = card.querySelector('#installDone');
+      if (done) done.addEventListener('click', () => { const o = card.closest('.install-overlay'); if (o && o.parentNode) o.parentNode.removeChild(o); });
+    }
+  } catch (e) {
+    showInstallGuide(data, platform());   // 唤起失败 → 完整重走
+  }
+}
+
+/**
+ * 启动即弹的"安装包已下好，是否立即安装"提示（与 showInstallGuide 的安装指引是两条入口，
+ * 但都用同一套卡片样式）。重开续装的主入口，从 initUpdate 调。
+ */
+function showPendingInstallCard(data) {
+  const overlay = document.createElement('div');
+  overlay.className = 'install-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.innerHTML = '<div class="install-card"></div>';
+  document.body.appendChild(overlay);
+  const card = overlay.querySelector('.install-card');
+  const close = () => { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); };
+  const setCard = (o) => {
+    if (!card) return;
+    const acts = (o.actions && o.actions.length ? o.actions : [{ id: 'installDone', text: '我知道了' }]).filter(Boolean);
+    card.innerHTML = `
+      <div class="update-ip">${mascot(o.sign, 96)}<div class="update-sign">${esc(o.label || '')}</div></div>
+      <h3 class="update-title">${esc(o.title)}</h3>
+      ${o.body ? `<div class="install-body">${o.body}</div>` : ''}
+      <div class="install-actions">${acts.map((a) => `<button class="update-btn ${a.ghost ? 'update-btn--ghost' : 'update-btn--primary'}" id="${a.id}" type="button">${esc(a.text)}</button>`).join('')}</div>`;
+    acts.forEach((a) => {
+      const el = document.getElementById(a.id);
+      if (!el) return;
+      el.addEventListener('click', () => {
+        if (a.id === 'installLater') { setDismissedVersion(String((data && data.latest_version) || '')); close(); return; }
+        if (a.id === 'dlResume') { void resumeInstall(data); return; }
+        close();
+      });
+    });
+  };
+  const v = String((data && data.latest_version) || '');
+  setCard({
+    sign: 'happy', label: '已就绪',
+    title: `墨小溟 v${esc(v)} 的安装包已经下好了`,
+    body: '上次下载完成了，这次不用重新下。点「立即安装」，系统会接管安装 —— ' +
+          '那一下墨小溟可能暂时退到后台，是正常的，装完自动回来。',
+    actions: [{ id: 'dlResume', text: '立即安装' }, { id: 'installLater', text: '稍后再说', ghost: true }],
+  });
 }
 
 /* ---------------- 检测主流程 ---------------- */
@@ -976,6 +1116,15 @@ export function describeCheckResult(r) {
 export function initUpdate() {
   // 启动即检测一次
   checkUpdate().catch(() => {});
+  // v1.6.9：重开续装 —— 若上一次下载完成但没装上（被杀/退后台），自动提示"安装包已下好，是否立即安装"
+  (async () => {
+    const pending = getDownloadedVersion();
+    if (!pending) return;
+    if (getDismissedVersion() === pending) return;   // 用户曾对这个版本点"稍后再说"则不打扰
+    let data = { latest_version: pending };
+    try { const f = await fetchLatest(); if (f && cmpVersion(String(f.latest_version || ''), pending) === 0) data = f; } catch (e) { /* 用最小 data */ }
+    showPendingInstallCard(data);
+  })().catch(() => {});
   // 从后台回到前台再检测一次（用户去微信聊天回来，可能正好发了新版）
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) checkUpdate().catch(() => {});

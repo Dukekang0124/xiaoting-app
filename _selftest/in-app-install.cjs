@@ -12,11 +12,13 @@
  * .FileOpener` 长得就是这个样子，两个插件在 APK 里的 Java 层都已注册），然后真的去点按钮、
  * 真的看 DOM 变化。这样验的是「接线接对了没 + 用户看到什么」，而不是"模块导出存不存在"。
  *
- * 四个场景：
+ * 五个场景：
  *   ① 正常：原生下载 + 真进度 → 唤起安装界面 + 记下"已装"凭据
  *   ② 网络中断（可重试）→ 说人话 + 给「再试一次」
  *   ③ 假包（体积对不上）→ 拦下 + 绝不拿 HTML 去唤起安装器
  *   ④ 桥上没插件 → 如实说这台设备装不了 + 给手动入口（**不再**静默 location.href）
+ *   ⑤ 重开续装（v1.6.9）：上一次下载完成但没装上（被杀/退后台）→ 重开自动弹"安装包已下好，是否立即安装"，
+ *     且点「立即安装」**不重新下载**、直接唤起安装界面（落盘校验已过的包还在）
  *
  * run: NODE_PATH=<workspace>/node_modules node _selftest/in-app-install.cjs
  */
@@ -28,7 +30,7 @@ const fs = require('fs');
 const ROOT = path.resolve(__dirname, '..');
 const PORT = 4191; // 安全区端口
 const BASE = 'http://127.0.0.1:' + PORT;
-const NODE = 'C:\\Users\\Admin\\.workbuddy\\binaries\\node\\versions\\22.22.2-3\\node.exe';
+const NODE = 'C:\\Users\\Admin\\.workbuddy\\binaries\\node\\versions\\22.22.2-5\\node.exe';
 
 /* 🔴 版本号一律从 index.html 的 APP_VERSION 现读，绝不写死在断言/假数据里 ——
 *    写死的话，下一个版本这条探针必定假红（`_selftest/` 里已经栽过一次：
@@ -37,6 +39,9 @@ const NODE = 'C:\\Users\\Admin\\.workbuddy\\binaries\\node\\versions\\22.22.2-3\
 const CUR = (fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8').match(/APP_VERSION\s*=\s*'([\d.]+)/) || [])[1];
 if (!CUR) { console.error('✗ 读不到 APP_VERSION'); process.exit(1); }
 const CUR_CODE = CUR.split('.').map((n) => Number(n) || 0).reduce((a, b) => a * 100 + b, 0);
+// 续装场景里"已下好、但比当前更新"的那个版本：必须是严格大于当前版（getDownloadedVersion 的判定），
+// 否者会被当成"不比当前新"直接跳过。取当前版的最后一段 +1，跟着版本走。
+const PENDING = CUR.split('.').slice(0, 2).join('.') + '.' + (Number(CUR.split('.')[2] || 0) + 1);
 
 const results = [];
 const check = (name, ok, detail = '') => {
@@ -270,6 +275,61 @@ const FAKE_MANIFEST = JSON.stringify({
       check('④ 拿不到插件时如实说「这台设备上没法直接装」', /这台设备上没法直接装/.test(txt), txt.slice(0, 50));
       check('④ 给了「手动下载」这个兜底入口（不是卡住不给反馈）', !!(await page.$('#dlManual')));
       check('④ 拿不到插件时也没偷偷把人甩去下载（不跳通知栏）', cap.dl === 0 && (!cap.opens || cap.opens.length === 0));
+      await page.close();
+    }
+
+    /* ---------- ⑤ 重开续装（v1.6.9）：下载完成但没装上 → 重开自动弹"已下好"，点立即安装不重下 ---------- */
+    console.log('⑤ 场景五：重开续装（上次下完了、但被系统退桌面/杀掉，这次重开）');
+    {
+      // 🔴 关键：不走 showUpdate（否则 checkUpdate 会先弹一个普通更新窗，把续装卡盖在后面）。
+      //    真实场景里"已装的"是旧版、"已下好"的是新版：这里用 PENDING（严格大于 APP_VERSION）模拟"下好的新版"，
+      //    APP_VERSION 仍是 CUR，正好对应"壳里还是旧版、缓存里躺着新版包"的体感。
+      //    预置 xiaoting:apk_downloaded_<PENDING> 标记 = 模拟"上一次下载完成、落盘校验已过、只是没去装"。
+      const c = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: 'zh-CN', isMobile: true, hasTouch: true });
+      const page = await c.newPage();
+      await page.route('**/version.json*', (r) => r.fulfill({ status: 200, contentType: 'application/json; charset=utf-8', body: FAKE_MANIFEST }));
+      await page.route('**/version-latest.js*', (r) => r.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body: 'window.__VERSION_MANIFEST__ = ' + FAKE_MANIFEST }));
+      await c.addInitScript(FAKE_BRIDGE(3635282, null));
+      await c.addInitScript(() => {
+        try {
+          // 跳过首启引导 + 模拟"上次下载完成、记了已下好标记"
+          localStorage.setItem('moxiaoming:welcomed_v1', '1');
+          localStorage.setItem('xiaoting:ai', 'mock');
+        } catch (e) {}
+      });
+      // 续装标记必须早于 app 启动读取 —— 用 evaluateOnNewDocument 在页面任何脚本前写好
+      await c.addInitScript((v) => {
+        try { localStorage.setItem('xiaoting:apk_downloaded_' + v, String(Date.now())); } catch (e) {}
+      }, PENDING);
+      // 不带 showUpdate：checkUpdate 因"线上 latest==当前版"判定无新版，不会弹普通更新窗；
+      // 只剩 initUpdate 的重开续装分支会弹"安装包已下好，是否立即安装"。
+      await page.goto(BASE + '/?app=android#/settings', { waitUntil: 'domcontentloaded' });
+      await page.waitForSelector('.install-overlay .install-card', { timeout: 12000 });
+      const first = await cardText(page);
+      const cap = await page.evaluate(() => window.__cap || { dl: 0, opens: [] });
+      const dlMarkBefore = await page.evaluate((v) => localStorage.getItem('xiaoting:apk_downloaded_' + v), PENDING);
+
+      check('⑤ 重开自动弹出"安装包已下好，是否立即安装"（不靠用户自己去找）', /已经下好|下好了/.test(first), first.slice(0, 90));
+      check('⑤ 续装卡有「立即安装」入口（#dlResume）', !!(await page.$('#dlResume')));
+      check('⑤ 续装卡不带"开始下载"误导（不走重新下载流程）', !(await page.$('#installStart')));
+      check('⑤ 续装卡不指挥用户去通知栏翻文件', trayDirective(first).length === 0, trayDirective(first).join('|') || first.slice(0, 80));
+      check('⑤ 重开前确实记着"已下好"标记', !!dlMarkBefore, dlMarkBefore ? '有标记' : '无标记');
+
+      // 点「立即安装」：应当跳过下载、直接唤起安装界面
+      await page.click('#dlResume');
+      await page.waitForFunction(() => {
+        const t = document.querySelector('.install-overlay .install-card');
+        return t && /安装界面已经打开了/.test(t.innerText);
+      }, null, { timeout: 12000 }).catch(() => {});
+      const cap2 = await page.evaluate(() => window.__cap || { dl: 0, opens: [] });
+      const txt2 = await cardText(page);
+      const dlMarkAfter = await page.evaluate((v) => localStorage.getItem('xiaoting:apk_downloaded_' + v), PENDING);
+
+      check('⑤ 点「立即安装」没有重新下载（复用已下好的包）', cap2.dl === 0, `downloadFile 调用 ${cap2.dl} 次`);
+      check('⑤ 直接唤起系统安装界面（FileOpener.open 一次）', cap2.opens.length === 1, `open=${cap2.opens.length}`);
+      check('⑤ 成功后提示「安装界面已经打开了」', /安装界面已经打开了/.test(txt2));
+      check('⑤ 装成功后清掉"已下好"标记（不重复打扰）', !dlMarkAfter, dlMarkAfter ? '标记还在' : '已清除');
+      check('⑤ 续装成功卡也不指挥去通知栏', trayDirective(txt2).length === 0, trayDirective(txt2).join('|'));
       await page.close();
     }
 
