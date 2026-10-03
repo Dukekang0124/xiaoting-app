@@ -117,7 +117,7 @@ function inspectConfig() {
     const models = {};
     for (const [m, mc] of Object.entries(p.models || {})) {
       const rk = resolveKey(p, mc, m, pid);
-      models[m] = { enabled: mc.enabled !== false, hasKey: !!rk.key, keySource: rk.source, timeoutMs: mc.timeoutMs || p.timeoutMs || cfg.defaults.timeoutMs, note: mc.note || '' };
+      models[m] = { enabled: mc.enabled !== false, hasKey: !!rk.key, keySource: rk.source, timeoutMs: mc.timeoutMs || p.timeoutMs || cfg.defaults.timeoutMs, params: mc.params || null, note: mc.note || '' };
     }
     out.providers[pid] = { label: p.label, kind: p.kind, endpoint: p.endpoint, enabled: p.enabled !== false, models };
   }
@@ -171,6 +171,11 @@ function resolveTier(module) {
       streamOnly: !!p.streamOnly,
       timeoutMs: mc.timeoutMs || p.timeoutMs || cfg.defaults.timeoutMs || 12000,
       attempts: mc.attempts || cfg.defaults.attempts || 2,
+      // 🔴 v1.7.6：按模型追加请求体参数。加它的唯一原因：GLM-5.3-Flash 是 onlyReasoning 思考模型，
+      //    实测（2026-10-03，产品真实主分析 Prompt）不传 reasoning_effort 时 **26.8s 且正文 0 字符**
+      //    —— 1200 token 全被 reasoning 吃光。传 reasoning_effort:'low' 后 10.9s 出合法 JSON。
+      //    对非思考模型同一个参数无害（实测 deepseek/agnes/glm-4-flash 均正常返回）。
+      params: mc.params || null,
     });
   }
   return out;
@@ -238,6 +243,14 @@ async function callOnce(target, { system, user, temperature, maxTokens, json, ti
   if (maxTokens) body.max_tokens = maxTokens;
   if (json) body.response_format = { type: 'json_object' };
   if (useStream) { body.stream = true; body.stream_options = { include_usage: true }; }
+  // 按模型追加参数（v1.7.6）：放最后，但**不许覆盖**上面四个契约字段 ——
+  // 配置里写错一个 model/messages 就能把整条链路调空，这不是可配置项，是可攻击面。
+  if (target.params && typeof target.params === 'object') {
+    for (const [k, v] of Object.entries(target.params)) {
+      if (['model', 'messages', 'stream', 'stream_options'].includes(k)) continue;
+      body[k] = v;
+    }
+  }
 
   try {
     const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal: ctrl.signal });

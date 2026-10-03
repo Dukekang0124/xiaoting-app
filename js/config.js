@@ -30,7 +30,9 @@ export const SDK_URL_FALLBACK =
 export const AI = {
   enabled: true,          // 总开关
   sdkTimeoutMs: 4500,     // 等 SDK 加载的上限（超时即降级，不卡住页面）
-  callTimeoutMs: 15000,   // 单次模型调用超时（含流式收集）；实测正常模型 1.3-3s，故留 5-10 倍余量
+  callTimeoutMs: 20000,   // 单次模型调用超时（含流式收集）。v1.7.6 由 15000 抬到 20000：
+                          //   新链第一档 glm-5.3-flash 实测主分析 10.9s（思考型，已压 reasoning_effort:low），
+                          //   15s 只剩不到 1.4 倍余量，弱网必被误判成超时降级；20s 才够 2 倍。
   modelAttempts: 2,       // 单次请求最多换几个模型（目录里思考型模型很慢，换模型比死等划算）
   retry: 1,               // 同一模型上的瞬时故障重试次数
   minThinkingMs: 600,     // 「分析中」页最短停留，避免一闪而过

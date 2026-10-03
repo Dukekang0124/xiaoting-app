@@ -3396,6 +3396,55 @@ const MOCK_SDK = `(function(){
       cap.headTitle === 't519' && cap.tailTitle !== 't519', JSON.stringify(cap));
   }
 
+  /* ================= C12. 四模型优先序与按模型参数（v1.7.6） =============
+     · 用户指定序：GLM-5.3-Flash → deepseek-v4-flash → agnes-2.5-flash → GLM-4-Flash
+     · glm-5.3-flash 是 onlyReasoning 思考模型，实测不传 reasoning_effort 时主分析 26.8s 且正文 0 字符
+       ⇒ 「有没有把这个参数接上」不是风格问题，是这一档能不能用的问题
+     · 判据一律打**代码形态**（`Object.assign(req, MODEL_PARAMS[model]`），不打裸 token：
+       本文件顶部的注释里就复述了 "glm-5.0 已下线"，裸串匹配会把注释判红（v1.7.4 栽过三次） */
+  sec('C12. 四模型优先序与按模型参数（v1.7.6）');
+  {
+    const llmSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'llm.js'), 'utf8').replace(/\r\n/g, '\n');
+    const prodCfgSrc = fs.readFileSync(path.join(__dirname, '..', 'server', 'llm.config.json'), 'utf8');
+    const routerSrc = fs.readFileSync(path.join(__dirname, '..', 'server', 'llm-router.cjs'), 'utf8').replace(/\r\n/g, '\n');
+    let prodCfg = null; try { prodCfg = JSON.parse(prodCfgSrc); } catch (e) { prodCfg = null; }
+
+    // 只切 TIERS 对象字面量，避免连带注释里的历史模型名
+    const tiersBlock = (() => {
+      const i = llmSrc.indexOf('const TIERS = {');
+      return i < 0 ? '' : llmSrc.slice(i, llmSrc.indexOf('};', i));
+    })();
+    const arrOf = (key) => {
+      const m = new RegExp(key + "\\s*:\\s*\\[([^\\]]*)\\]").exec(tiersBlock);
+      return m ? m[1].split(',').map((s) => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean) : [];
+    };
+    check('C12·前端 fast 档首位 = glm-5.3-flash', arrOf('fast')[0] === 'glm-5.3-flash', JSON.stringify(arrOf('fast')));
+    check('C12·前端 strong 档首位 = glm-5.3-flash', arrOf('strong')[0] === 'glm-5.3-flash', JSON.stringify(arrOf('strong')));
+    check('C12·前端两个档位都按「GLM-5.3-Flash → deepseek-v4-flash」起头（第二档不许偷换成别的）',
+      arrOf('fast')[1] === 'deepseek-v4-flash' && arrOf('strong')[1] === 'deepseek-v4-flash', JSON.stringify(arrOf('strong')));
+    check('C12·已下线的 glm-5.0 不再出现在前端任何档位里（TIERS 块内无此名）',
+      tiersBlock && !/glm-5\.0/.test(tiersBlock), tiersBlock.slice(0, 60));
+    check('C12·MODEL_PARAMS 给 glm-5.3-flash 配了 reasoning_effort=low',
+      /MODEL_PARAMS\s*=\s*\{[\s\S]*?glm-5\.3-flash[\s\S]*?reasoning_effort\s*:\s*'low'/.test(llmSrc));
+    check('C12·参数真的被接进请求体（打代码形态：runOnce 里 Object.assign(req, MODEL_PARAMS[model]）',
+      /Object\.assign\(\s*req\s*,\s*MODEL_PARAMS\[model\]/.test(llmSrc));
+
+    // 服务端配置：模型顺序 + 两条路由都要带参数
+    const uniq = [...new Set(((prodCfg && prodCfg.tiers && prodCfg.tiers.default) || [])
+      .map((r) => String(r).split(':')[1].replace(/^(z-ai|deepseek)\//, '')))];
+    check('C12·服务端默认链的模型顺序 = 用户指定序',
+      uniq.join(' > ') === 'glm-5.3-flash > deepseek-v4-flash > agnes-2.5-flash > glm-4-flash', uniq.join(' > '));
+    const g53 = prodCfg ? [prodCfg.providers.openrouter.models['z-ai/glm-5.3-flash'], prodCfg.providers.workbuddy.models['glm-5.3-flash']] : [];
+    check('C12·服务端 glm-5.3-flash 的每条路由都带 reasoning_effort=low',
+      g53.length === 2 && g53.every((m) => m && m.params && m.params.reasoning_effort === 'low'),
+      g53.map((m) => (m && m.params ? m.params.reasoning_effort : 'MISSING')).join('/'));
+    check('C12·服务端 router 真的把 params 合并进请求体（代码形态，不是配置写着好看）',
+      /if \(target\.params && typeof target\.params === 'object'\)/.test(routerSrc) &&
+      /body\[k\]\s*=\s*v/.test(routerSrc));
+    check('C12·params 不许覆盖契约字段（model/messages/stream 有白名单）',
+      /\[\s*'model'\s*,\s*'messages'\s*,\s*'stream'\s*,\s*'stream_options'\s*\]\.includes\(k\)/.test(routerSrc));
+  }
+
   await browser.close();
 
   // 断言总数基线自检：数量对不上就是「有人悄悄删/加了断言」，宁可红一条也不要静默漂移。

@@ -127,7 +127,7 @@ async function run(title, args, env, expect) {
   console.log(`\n常驻服务就绪：生产配置 :${PORT_PROD}   降级配置 :${PORT_DEGRADE}`);
 
   // ①②③ 模块级 + HTTP 级
-  await run('① 模块级调度自测（优先级/降级/过滤/密钥零泄漏/日志四要素）', ['_selftest/llm-router.cjs'], {}, 24);
+  await run('① 模块级调度自测（优先级/降级/过滤/密钥零泄漏/日志四要素/按模型参数真进请求体）', ['_selftest/llm-router.cjs'], {}, 32);
   await run('② HTTP 集成验证（生产配置：路由表/脱敏/鉴权/统计/探活/异源门禁）', ['_selftest/llm-http-verify.cjs'], { BASE: `http://127.0.0.1:${PORT_PROD}`, STATS_KEY }, 39);
   await run('③ HTTP 降级链实证（第一档必挂 → 自动落下一档 → 全挂优雅失败）', ['_selftest/llm-http-degrade.cjs'], { BASE: `http://127.0.0.1:${PORT_DEGRADE}` }, 22);
   await run('④ 前端自通道真跑（浏览器内 import：通/回落/脏结构/冷却）', ['_selftest/llm-front-self-channel.cjs'],

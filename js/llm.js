@@ -324,9 +324,28 @@ export async function modelCatalog() {
  *   fast   —— 安全识别：极速 + 高召回（deepseek-v4.1-flash 实测 1.3s 最快，宁可快不可漏）。
  *   strong —— 主分析 / 追问 / 卡片 / 周报：更强推理（glm-5.0 实测 2.4s），治「追问泛泛而谈」与 JSON 不稳。
  */
+/* v1.7.6 全量重排（依据 = 本文件顶部同一套产品真实 Prompt 的实测，2026-10-03）：
+ *   实测结论一：glm-5.3-flash / deepseek-v4-flash 都标着 onlyReasoning:true，但**只有 glm-5.3-flash 真被思考拖死**
+ *     —— 不传 reasoning_effort 时主分析 26.8s 且正文 0 字符（max_tokens 1200 全被 reasoning 吃光）；
+ *     传 reasoning_effort:'low' 后 10.9s 出合法 JSON。所以下面 MODEL_PARAMS 里必须给它带上。
+ *   实测结论二：deepseek-v4-flash 3.7s、deepseek-v4.1-flash 4.2s，都是「思考型却很快」的另类，不需要额外参数。
+ *   实测结论三：glm-5.0 已下线（网关 400 request_invalid_parameter）⇒ 从两个档位里摘掉。
+ * 顺序按用户指定：GLM-5.3-Flash → deepseek-v4-flash → GLM-4-Flash 的线上等价物（网关没有 glm-4-flash，
+ *   退到 v1.7.3~v1.7.5 的线上主力 deepseek-v4.1-flash 收尾）。*/
 const TIERS = {
-  fast: ['deepseek-v4.1-flash', 'glm-5.0', 'hunyuan-chat'],     // 安全识别：极速 + 高召回
-  strong: ['glm-5.0', 'deepseek-v4.1-flash', 'hunyuan-chat'],  // 主分析/追问/卡片/周报：更强推理
+  fast: ['glm-5.3-flash', 'deepseek-v4-flash', 'deepseek-v4.1-flash'],    // 安全识别：快 + 高召回
+  strong: ['glm-5.3-flash', 'deepseek-v4-flash', 'deepseek-v4.1-flash'],  // 主分析/追问/卡片/周报
+};
+
+/**
+ * 按模型追加的请求体参数（v1.7.6）。
+ * 成员只有 glm-5.3-flash，且**必须**有它：它是 onlyReasoning 思考模型，不压推理强度就会把 max_tokens
+ * 全花在 reasoning_content 上，正文为空。实测两侧（云网关 / OpenRouter）都是同一个病、同一个解。
+ * 别顺手给所有模型都加：网关对不认这个参数的请求会给 400，靠下面的 useParams:false 兜底虽然能救，
+ * 但那是白花一次往返。只给真需要的模型加。
+ */
+const MODEL_PARAMS = {
+  'glm-5.3-flash': { reasoning_effort: 'low' },
 };
 
 function scoreModel(m) {
@@ -464,6 +483,8 @@ async function runOnce(model, opts) {
     };
     if (maxTokens && opts.useMaxTokens !== false) req.max_tokens = maxTokens;
     if (opts.useJsonMode !== false) req.response_format = { type: 'json_object' };
+    // v1.7.6：思考型模型压推理强度。useParams:false 是「厂商不认这个参数」时的逃生门。
+    if (opts.useParams !== false) Object.assign(req, MODEL_PARAMS[model] || {});
 
     for await (const chunk of c.llm.chat.completions.create(req)) {
       const choice = chunk && chunk.choices && chunk.choices[0];
@@ -536,6 +557,11 @@ export async function call({ stage = 'llm', system, user, temperature = 0.3, max
     // 该模型不认 response_format → 去掉它再试（不改 Prompt，只改传输参数）
     if (r.err && json && /^request_/.test(String(errOf(r.err).code || ''))) {
       r = await runOnce(model, { ...opts, useJsonMode: false });
+    }
+    // v1.7.6：该模型不认 reasoning_effort → 去掉它再试。宁可少一层「压住思考」的加速，
+    //   也不能让一个可选参数把整档判死（参数不认 ≠ 模型不可用）。
+    if (r.err && MODEL_PARAMS[model] && opts.useParams !== false && /^request_/.test(String(errOf(r.err).code || ''))) {
+      r = await runOnce(model, { ...opts, useParams: false });
     }
     // 瞬时故障重试一次
     if (r.err && AI.retry > 0 && transient(errOf(r.err).code)) {

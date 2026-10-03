@@ -1,22 +1,32 @@
 {
-  "latest_version": "1.7.5",
+  "latest_version": "1.7.6",
   "force_update": false,
-  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.7.5-release.apk",
+  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.7.6-release.apk",
   "web_url": "https://xiaoting.app.workbuddy.host/",
   "apk": {
-    "versionCode": 10705,
+    "versionCode": 10706,
     "version": "1.7.5",
-    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.7.5-release.apk",
-    "md5": "da75bb83e16a806b9e5ab614eaeefced",
-    "size": 4344140,
+    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.7.6-release.apk",
+    "md5": "PENDING_CI",
+    "size": 0,
     "force": false
   },
   "release_notes": [
-    "月度复盘的整屏遮罩，现在点空白处、按返回键都能关掉。以前它只认那两个按钮，每月 1 号打开就整屏盖住，没有物理返回键的手机上等于只能对着按钮点。",
-    "清掉一批「存了但没人用」的假设置：一直写着、样式表里压根没有消费方的粒子效果，四个从来没人读的场景特效，问候语里一条永远轮不到的 morning，以及语音识别里三个没人读的地址配置。删掉比留着诚实——留着你会以为能调，其实调了没反应。",
-    "时间线和卡片各留最多 500 条。本机存储是有上限的，写满之后手机会直接拒绝写入、页面看着却还正常，那种丢数据是静默的，不如早点明确砍一条最旧的。"
+    "墨小溟背后理解你说话的那套模型换了一茬。现在优先用 GLM-5.3-Flash，它要是不可用就自动换成 DeepSeek-V4-Flash，再不行换 Agnes 2.5 Flash，最后还有 GLM-4-Flash 兜底。任何一环出问题都会往下换，你不会看到报错，最多多等一两秒。",
+    "接入的三家模型服务，密钥全部只在服务器一侧，不进你的手机、也不在网页代码里。这是这次换模型的前提——直连厂商就必须有密钥，而密钥放前端等于公开。",
+    "GLM-5.3-Flash 属于「先想一大段再开口」的模型。不管它的话，它会把时间全花在思考上、正文一个字都不给你（实测等 27 秒拿到空回复）。所以给它单独限了思考长度，速度从 27 秒降到 5 秒左右。"
   ],
   "history": [
+    {
+      "version": "1.7.6",
+      "date": "2026-10-03",
+      "title": "模型整链升级：GLM-5.3-Flash 打头，四档自动降级",
+      "notes": [
+        "墨小溟背后理解你说话的那套模型换了一茬。现在优先用 GLM-5.3-Flash，它要是不可用就自动换成 DeepSeek-V4-Flash，再不行换 Agnes 2.5 Flash，最后还有 GLM-4-Flash 兜底。任何一环出问题都会往下换，你不会看到报错，最多多等一两秒。",
+        "接入的三家模型服务，密钥全部只在服务器一侧，不进你的手机、也不在网页代码里。这是这次换模型的前提——直连厂商就必须有密钥，而密钥放前端等于公开。",
+        "GLM-5.3-Flash 属于「先想一大段再开口」的模型。不管它的话，它会把时间全花在思考上、正文一个字都不给你（实测等 27 秒拿到空回复）。所以给它单独限了思考长度，速度从 27 秒降到 5 秒左右。"
+      ]
+    },
     {
       "version": "1.7.5",
       "date": "2026-10-03",
@@ -664,5 +674,5 @@
       ]
     }
   ],
-  "versionCode": 10705
+  "versionCode": 10706
 }

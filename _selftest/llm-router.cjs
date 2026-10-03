@@ -127,10 +127,117 @@ const usr = '我今天很烦。';
   console.log('\n--- ⑧ 按模块覆盖优先级 ---');
   const cfg = router.inspectConfig();
   check('每个功能模块都能各自指定优先级链', cfg.modules && Object.keys(cfg.modules).length >= 1, Object.keys(cfg.modules || {}).join(', '));
-  check('生产配置里 analysis 与 safety 的优先级链确实不同（说明"按模块覆盖"是真的在用，不是摆设）',
-    JSON.stringify((JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'server', 'llm.config.json'), 'utf8')).modules.safety.tier)) !==
-    JSON.stringify((JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'server', 'llm.config.json'), 'utf8')).modules.analysis.tier)),
-    'safety 与 analysis 链不同');
+  /* 🔴 v1.7.6 换判据：原来这条是「生产配置里 analysis 与 safety 的链必须不同」。
+     它拦的假象是对的（怕"按模块覆盖"是摆设），但 v1.7.6 用户明确要求**统一一条优先序**
+     （GLM-5.3-Flash → deepseek-v4-flash → agnes-2.5-flash → GLM-4-Flash），两条链因此变得相同
+     —— 那是需求变了，不是能力没了。所以改判「机制还活着」的两种更有区分力的证据：
+       · 横向上有模块的链**确实不同**（asr_cleanup 仍单独指 zhipu:glm-4-flash）；
+       · 纵向上模块级**参数覆盖真的落到配置里**（safety 9s/temp0 vs analysis 无上限/temp0.3）——
+         这比"链不同"更本质：链可以统一，参数不该被顺手统一掉。 */
+  const prodCfg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'server', 'llm.config.json'), 'utf8'));
+  check('仍存在链不同的模块（按模块覆盖不是摆设）',
+    JSON.stringify(prodCfg.modules.asr_cleanup.tier) !== JSON.stringify(prodCfg.modules.safety.tier),
+    'asr_cleanup=' + prodCfg.modules.asr_cleanup.tier.join(','));
+  check('模块级参数覆盖真的生效（safety 与 analysis 的超时/温度不同，没被顺手统一掉）',
+    prodCfg.modules.safety.timeoutMs !== prodCfg.modules.analysis.timeoutMs &&
+    prodCfg.modules.safety.temperature !== prodCfg.modules.analysis.temperature,
+    `safety ${prodCfg.modules.safety.timeoutMs}ms/${prodCfg.modules.safety.temperature} vs analysis ${prodCfg.modules.analysis.timeoutMs}ms/${prodCfg.modules.analysis.temperature}`);
+
+  /* ---------- ⑨ v1.7.6：四模型优先序 + 按模型参数真的进了请求体 ---------- */
+  console.log('\n--- ⑨ v1.7.6 优先序与按模型参数 ---');
+  const refs = prodCfg.tiers.default || [];
+  // 去重后看「模型顺序」：同一模型可能挂两条路由（换路由比换模型便宜），那不是顺序错误
+  const uniqOrder = [...new Set(refs.map((r) => String(r).split(':')[1].replace(/^(z-ai|deepseek)\//, '')))];
+  check('默认链的模型顺序 = 用户指定序（GLM-5.3-Flash → deepseek-v4-flash → agnes-2.5-flash → GLM-4-Flash）',
+    uniqOrder.join(' > ') === 'glm-5.3-flash > deepseek-v4-flash > agnes-2.5-flash > glm-4-flash', uniqOrder.join(' > '));
+  /* glm-5.3-flash 是 onlyReasoning 思考模型：实测不传 reasoning_effort 时主分析 26.8s 且正文 0 字符。
+     ⇒ 它的**每一条路由**都必须带这个参数，漏一条就等于留了一条"白等 27 秒再降级"的路。 */
+  const g53 = [prodCfg.providers.openrouter.models['z-ai/glm-5.3-flash'], prodCfg.providers.workbuddy.models['glm-5.3-flash']];
+  check('glm-5.3-flash 的每一条路由都带 reasoning_effort=low（否则这一档必空正文）',
+    g53.every((m) => m && m.params && m.params.reasoning_effort === 'low'),
+    g53.map((m) => (m && m.params ? m.params.reasoning_effort : 'MISSING')).join(' / '));
+  check('不需要该参数的模型不带 params（少一次注定被拒的往返）',
+    !prodCfg.providers.workbuddy.models['deepseek-v4-flash'].params &&
+    !prodCfg.providers.agnes.models['agnes-2.5-flash'].params &&
+    !prodCfg.providers.zhipu.models['glm-4-flash'].params);
+
+  /* 光看配置里写了 params 不算验到 —— 必须证明它真的进了 HTTP 请求体。
+     起一个本地桩记录 body，再把配置指向它，这是唯一能证伪的做法。 */
+  const http = require('http');
+  const captured = [];
+  const stub = http.createServer((rq, rs) => {
+    let buf = '';
+    rq.on('data', (d) => { buf += d; });
+    rq.on('end', () => {
+      captured.push({ url: rq.url, auth: rq.headers.authorization || '', body: JSON.parse(buf || '{}') });
+      rs.writeHead(200, { 'Content-Type': 'application/json' });
+      rs.end(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' }, finish_reason: 'stop' }] }));
+    });
+  });
+  await new Promise((res) => stub.listen(0, '127.0.0.1', res));
+  const stubPort = stub.address().port;
+  const tmpCfg = path.join(__dirname, '..', '_probe', '_tmp_llm_params.json');
+  fs.writeFileSync(tmpCfg, JSON.stringify({
+    version: 1,
+    defaults: { timeoutMs: 8000, attempts: 1 },
+    providers: {
+      stub: {
+        label: '本地桩', kind: 'openai-compatible',
+        endpoint: `http://127.0.0.1:${stubPort}/v1/chat/completions`,
+        authHeader: 'Authorization', authPrefix: 'Bearer ',
+        keysFile: 'server/model.keys.json',
+        models: {
+          'with-params': { keyRef: 'glm-4-flash', enabled: true, params: { reasoning_effort: 'low', top_k: 5 } },
+          'no-params': { keyRef: 'glm-4-flash', enabled: true },
+          // 恶意配置：想通过 params 覆盖契约字段。配置是可编辑的，所以它也是可攻击面。
+          'evil-params': { keyRef: 'glm-4-flash', enabled: true, params: { model: 'HACKED', messages: [{ role: 'user', content: 'HACKED' }], stream: true } },
+        },
+      },
+    },
+    tiers: { default: ['stub:with-params'] },
+    degradeOn: { codes: ['http_4xx', 'http_5xx', 'network'] },
+    retry: { perModel: 1, onlyCodes: ['network'] },
+    logging: { dir: false },
+  }), 'utf8');
+
+  process.env.LLM_CONFIG_FILE = tmpCfg;
+  /* 🔴 两个坑叠在一起，都会让桩收不到请求，而现象都是「桩没收到请求」——看起来像 params 链路坏了：
+     ① 前面第 ⑤ 节设过 LLM_TIER_default=zhipu:glm-4-flash，环境变量优先级高于配置文件；
+     ② 更根本的：server/llm-router.cjs 的 CONFIG_FILE 是**模块加载时求值的常量**，
+        加载后再改 process.env.LLM_CONFIG_FILE 完全无效。必须清 require.cache 重新 require。 */
+  delete process.env.LLM_TIER_default;
+  delete require.cache[require.resolve('../server/llm-router.cjs')];
+  const routerStub = require('../server/llm-router.cjs');
+  await routerStub.route({ module: 'default', system: sys, user: usr });
+  const b1 = captured[captured.length - 1];
+  check('配置里的 params 真的进了请求体（不只是配置里写着好看）',
+    !!b1 && b1.body.reasoning_effort === 'low' && b1.body.top_k === 5,
+    b1 ? JSON.stringify({ reasoning_effort: b1.body.reasoning_effort, top_k: b1.body.top_k }) : '桩没收到请求');
+  check('params 是「追加」不是「替换」：契约字段仍在（model 指到桩、messages 完整、非流式）',
+    !!b1 && b1.body.model === 'with-params' && Array.isArray(b1.body.messages) && b1.body.messages.length === 2 && b1.body.stream === undefined,
+    b1 ? JSON.stringify({ model: b1.body.model, msgs: b1.body.messages.length, stream: b1.body.stream }) : '-');
+
+  process.env.LLM_TIER_default = 'stub:no-params';
+  routerStub.loadConfig(true);
+  await routerStub.route({ module: 'default', system: sys, user: usr });
+  const b2 = captured[captured.length - 1];
+  check('不带 params 的模型请求体里确实没有那个字段（没被"顺手统一加"）',
+    !!b2 && !('reasoning_effort' in b2.body), b2 ? Object.keys(b2.body).join(',') : '-');
+
+  process.env.LLM_TIER_default = 'stub:evil-params';
+  routerStub.loadConfig(true);
+  await routerStub.route({ module: 'default', system: sys, user: usr });
+  const b3 = captured[captured.length - 1];
+  check('params 不许覆盖契约字段（model/messages/stream 有白名单挡着）',
+    !!b3 && b3.body.model === 'evil-params' && b3.body.messages[0].content !== 'HACKED' && b3.body.stream === undefined,
+    b3 ? JSON.stringify({ model: b3.body.model, first: String(b3.body.messages[0].content).slice(0, 12), stream: b3.body.stream }) : '-');
+
+  await new Promise((res) => stub.close(res));
+  try { fs.unlinkSync(tmpCfg); } catch (e) { /* 清理失败无所谓，_probe/ 本来就不入库 */ }
+  process.env.LLM_TIER_default = '';
+  process.env.LLM_CONFIG_FILE = path.join(__dirname, 'llm.config.test.json');
+  delete require.cache[require.resolve('../server/llm-router.cjs')];
+  router.loadConfig(true);
 
   const failed = R.filter((r) => !r.ok);
   console.log(`\n==== 汇总：${R.length - failed.length}/${R.length} 通过 ====`);
