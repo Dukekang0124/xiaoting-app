@@ -1,22 +1,34 @@
 {
-  "latest_version": "1.7.6",
+  "latest_version": "1.7.7",
   "force_update": false,
-  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.7.6-release.apk",
+  "download_url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.7.7-release.apk",
   "web_url": "https://xiaoting.app.workbuddy.host/",
   "apk": {
-    "versionCode": 10706,
-    "version": "1.7.6",
-    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.7.6-release.apk",
+    "versionCode": 10707,
+    "version": "1.7.7",
+    "url": "https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.7.7-release.apk",
     "md5": "e674d48040840011066a91eff6fa8335",
     "size": 4348236,
     "force": false
   },
   "release_notes": [
-    "墨小溟背后理解你说话的那套模型换了一茬。现在优先用 GLM-5.3-Flash，它要是不可用就自动换成 DeepSeek-V4-Flash，再不行换 Agnes 2.5 Flash，最后还有 GLM-4-Flash 兜底。任何一环出问题都会往下换，你不会看到报错，最多多等一两秒。",
-    "接入的三家模型服务，密钥全部只在服务器一侧，不进你的手机、也不在网页代码里。这是这次换模型的前提——直连厂商就必须有密钥，而密钥放前端等于公开。",
-    "GLM-5.3-Flash 属于「先想一大段再开口」的模型。不管它的话，它会把时间全花在思考上、正文一个字都不给你（实测等 27 秒拿到空回复）。所以给它单独限了思考长度，速度从 27 秒降到 5 秒左右。"
+    "墨小溟现在有了自己的「模型中转站」。之前只能用三家模型、而且密钥没法安全带到线上，现在四档全开：GLM-5.3-Flash → DeepSeek-V4-Flash → Agnes 2.5 Flash → GLM-4-Flash 依次兜底。",
+    "这个中转站建在 Cloudflare 上，四档模型的密钥全都存在服务器一侧（已加密），不进你的手机、也不在网页代码里——这是四档能真正上线的前提。",
+    "不同场景走不同模型：认真倾诉和安全判断走 GLM-5.3-Flash（想得细），IP 轻互动走 DeepSeek-V4-Flash（回得快一半）。",
+    "过程中修掉一个真问题：配置缓存没按环境变量分桶，会让第一笔请求把配置锁死、不同调用互相串味；现已改为分桶缓存并做了对照验证。"
   ],
   "history": [
+    {
+      "version": "1.7.7",
+      "date": "2026-10-03",
+      "title": "自建模型网关上线：四档模型 + 场景分流，密钥全在服务器",
+      "notes": [
+        "墨小溟现在有了自己的「模型中转站」。之前只能用三家模型、而且密钥没法安全带到线上，现在四档全开：GLM-5.3-Flash → DeepSeek-V4-Flash → Agnes 2.5 Flash → GLM-4-Flash 依次兜底。",
+        "这个中转站建在 Cloudflare 上，四档模型的密钥全都存在服务器一侧（已加密），不进你的手机、也不在网页代码里——这是四档能真正上线的前提。",
+        "不同场景走不同模型：认真倾诉和安全判断走 GLM-5.3-Flash（想得细），IP 轻互动走 DeepSeek-V4-Flash（回得快一半）。",
+        "过程中修掉一个真问题：配置缓存没按环境变量分桶，会让第一笔请求把配置锁死、不同调用互相串味；现已改为分桶缓存并做了对照验证。"
+      ]
+    },
     {
       "version": "1.7.6",
       "date": "2026-10-03",

@@ -10,7 +10,7 @@
 //   3. 全程记 trace，供自测与线上排查拿到「哪一步、什么错误码、原文长什么样」。
 //   4. 模型目录里绝大多数是「只思考」模型（onlyReasoning），对短结构化任务是纯延迟 —— 必须选型。
 
-import { CLOUD, SDK_URL, SDK_URL_FALLBACK, AI, AI_OVERRIDE_KEY, apiBase } from './config.js';
+import { CLOUD, SDK_URL, SDK_URL_FALLBACK, AI, AI_OVERRIDE_KEY, apiBase, LLM_SELF_ENDPOINT } from './config.js';
 import * as diag from './diag.js';
 
 const trace = [];
@@ -65,18 +65,22 @@ const selfChannel = { state: 'unknown', checkedAt: 0, lastError: null, model: ''
 export function selfChannelState() { return { ...selfChannel }; }
 export function resetSelfChannel() { selfChannel.state = 'unknown'; selfChannel.checkedAt = 0; selfChannel.lastError = null; return true; }
 
+/** 自建通道基地址：部署 CF 网关后指向它；为空则沿用旧 apiBase() 逻辑（零行为变化）。 */
+function selfEndpoint() { return LLM_SELF_ENDPOINT || apiBase(); }
+
 async function callSelf({ stage, system, user, temperature, maxTokens, json }) {
   if (selfChannel.state === 'down' && Date.now() - selfChannel.checkedAt < 60000) return null;
   const module = MODULE_MAP[stage] || stage || 'default';
   const t0 = Date.now();
   try {
-    const res = await fetch(apiBase() + '/api/llm', {
+    const res = await fetch(selfEndpoint() + '/api/llm', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ module, system, user, json: !!json, temperature, maxTokens }),
     });
-    // 后端没部署时这里是 404 / 501（静态托管），不是"模型挂了"—— 与模型错误分开处理
-    if (res.status === 404 || res.status === 405 || res.status === 501) {
+    // 后端没部署时这里是 404 / 501（静态托管），不是"模型挂了"—— 与模型错误分开处理。
+    // 403 = 网关 Origin 门禁拒绝（理论上 ALLOWED_ORIGINS 配好不会触发），同样视为本通道不可用、静默回落。
+    if (res.status === 403 || res.status === 404 || res.status === 405 || res.status === 501) {
       selfChannel.state = 'down'; selfChannel.checkedAt = Date.now();
       selfChannel.lastError = { code: 'self_channel_absent', message: '自建模型调度服务未部署' };
       diag.note('llm', 'self', { ok: false, code: 'self_channel_absent', detail: `后端未提供 /api/llm（http=${res.status}）→ 本通道停用，回落免密钥网关` });

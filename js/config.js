@@ -66,6 +66,21 @@ export function apiBase() {
 }
 
 /**
+ * 自建模型调度网关地址（v1.7.7 · P0 收口）。
+ *
+ * ✅ 已上线（2026-10-03）：网关部署在 https://xiaoting-llm.pages.dev，线上 /api/health 回
+ *    build=llm-2026-10-03-v1，三档密钥已入 Cloudflare Secrets（/api/llm/config 全 hasKey=true）。
+ *    前端已全量切到该网关：4 档模型（GLM-5.3-Flash / deepseek-v4-flash / agnes-2.5-flash / GLM-4-Flash）
+ *    + 场景分流（analysis/safety 走 glm-5.3，light 走 deepseek）+ 降级逃生，密钥零落浏览器。
+ *
+ * 回滚止血：把这里改回 ''，流量立即回到旧的「同源 / 免密钥网关」链路，前端无需重出 APK。
+ * 网关挂了或填错也会自动静默回落（403/404/405/501 均视为通道不可用），不会白屏。
+ *
+ * 网关自带 Origin 白名单（只放行 https://xiaoting.app.workbuddy.host）+ 原生 App 免 Origin 放行。
+ */
+export const LLM_SELF_ENDPOINT = 'https://xiaoting-llm.pages.dev';
+
+/**
  * 语音识别（v0.5.0）。
  * 说明：浏览器内置 Web Speech 在 iOS Safari / 微信内置浏览器里不可用，而这两处是国内真机流量的大头，
  * 所以「按住说」改走同源服务端的专业云端 ASR（密钥在服务端，前端拿不到）。

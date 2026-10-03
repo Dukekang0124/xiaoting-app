@@ -1,0 +1,7 @@
+{
+  "name": "xiaoting-llm",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "墨小溟 CF 模型调度网关（端口自 server/llm-router.cjs）"
+}

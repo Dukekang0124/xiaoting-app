@@ -12,6 +12,8 @@ server/model.keys.json
 server/logs/
 *.keystore
 .wrangler/
+_worker.bundle
+.dev.vars
 .DS_Store
 # 工具/内部与产物（不进源码仓库）
 .workbuddy/

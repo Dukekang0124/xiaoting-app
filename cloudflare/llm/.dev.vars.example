@@ -1,0 +1,13 @@
+# 本地开发用：复制本文件为 .dev.vars 并填入真值（.dev.vars 已被 gitignore，切勿提交）。
+# `wrangler pages dev` 会自动读取 .dev.vars 注入到 env。
+#
+# 三把真密钥（与本地 server/llm.config.json 里的一致）：
+OPENROUTER_KEY=your_openrouter_key
+AGNES_KEY=your_agnes_key
+ZHIPU_KEY=your_zhipu_key
+#
+# 允许的来源：本地 dev server 端口 + 线上 web 域名
+ALLOWED_ORIGINS=http://localhost:8788,https://xiaoting.app.workbuddy.host
+#
+# 探活钥匙（本地随意）
+LLM_PING_KEY=dev-ping-key

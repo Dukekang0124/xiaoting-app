@@ -1,0 +1,18 @@
+name = "xiaoting-llm"
+compatibility_date = "2026-09-01"
+pages_build_output_dir = "public"
+
+# 模型网关不需要 Workers AI 绑定 —— 它直接 fetch 外部厂商 API（OpenRouter / Agnes / 智谱 / WorkBuddy 网关）。
+# 密钥（真花钱的口子）一律走 Cloudflare Secrets，不进仓库、不进 wrangler.toml：
+#   wrangler pages secret put OPENROUTER_KEY --project-name xiaoting-llm
+#   wrangler pages secret put AGNES_KEY      --project-name xiaoting-llm
+#   wrangler pages secret put ZHIPU_KEY       --project-name xiaoting-llm
+# 非密钥类开关可放这里（[vars] 会进仓库，只放不敏感的值）。
+
+[vars]
+# 允许跨域调用的前端来源（逗号/空格分隔）。前端从 xiaoting.app.workbuddy.host 打进来时 Origin 就是它。
+# 留空则默认只允许 https://xiaoting.app.workbuddy.host；原生 App（不带 Origin）一律放行（与本地 sameOrigin 对原生的处理一致）。
+ALLOWED_ORIGINS = "https://xiaoting.app.workbuddy.host"
+# 🔴 探活钥匙 LLM_PING_KEY 故意不在 [vars] 里声明 —— 它必须只来自 Cloudflare Secrets。
+#    同名会报 "Binding name 'LLM_PING_KEY' already in use"（2026-10-03 实测踩到）。
+#    注入：wrangler pages secret put LLM_PING_KEY --project-name xiaoting-llm
