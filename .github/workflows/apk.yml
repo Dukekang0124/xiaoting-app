@@ -43,6 +43,20 @@ jobs:
       - name: Build web assets into www/
         run: npm run build:web
 
+      # ── v1.7.9（P5）强制门禁：源码变更 ⇒ 自动重建产物 + 自动全链路自测，全通过才允许出包 ──
+      # 🔴 为什么放在**出包之前**：这里红了就不会有 APK 产出、也不会用新 APK 的元数据覆盖 main。
+      #    放到出包之后，"线上已经在跑旧代码"这件事就已经发生了。
+      # 🔴 防的具体失效：本地改了 js/* 忘了 build:web —— 自测跑的是 www/ 里的旧码、
+      #    线上发的也是 www/ 里的旧码，两边一致地错，行为断言能过掉大半，只有
+      #    「文件系统同源」这条判据抓得住。
+      # 具体跑什么见 scripts/run-selftest-gate.mjs（本机与 CI 共用同一份，不在 YAML 里另写一套）。
+      - name: Self-test gate (源码≡产物 + 主自测 + 动效 + 产物冒烟)
+        env:
+          PW_CHANNEL: chromium          # runner 上没有 Chrome channel，用 Playwright 自带 chromium
+        run: |
+          npx --yes playwright install --with-deps chromium
+          node scripts/run-selftest-gate.mjs
+
       - name: Create android project (not committed — generated each run)
         run: |
           rm -rf android

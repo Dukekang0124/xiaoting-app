@@ -33,7 +33,7 @@ function ok(name, cond, detail = '') {
 }
 
 (async () => {
-  const browser = await chromium.launch({ channel: 'chrome' });
+  const browser = await chromium.launch({ channel: process.env.PW_CHANNEL || 'chrome' });
   const page = await browser.newPage();
   const pageErrors = [];
   page.on('pageerror', (e) => pageErrors.push(String(e && e.message)));

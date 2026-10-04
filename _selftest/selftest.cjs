@@ -3,7 +3,6 @@
 const { chromium } = require('playwright');
 const path = require('path');
 const fs = require('fs');
-const crypto = require('crypto');
 
 const BASE = process.env.BASE || 'http://127.0.0.1:4173';
 const OUT = path.join(__dirname, 'shots');
@@ -160,24 +159,24 @@ const MOCK_SDK = `(function(){
      实测现场：js/prompts.js 源码里有 5 处 hoistUserInput，www/js/prompts.js 里是 0 处 ——
      自测（跑 www/）和线上（发 www/）都在用旧码，而我拿着源码里的修复宣称"已生效"。
      普通断言永远抓不到这一类：它不看文件同源，只看行为，而旧码的行为也能过大部分断言。
-     所以这里加一条**纯文件系统**闸门：源码与产物必须逐字节一致，不一致就红，逼你 build:web。 */
+     所以这里加一条**纯文件系统**闸门：源码与产物必须逐字节一致，不一致就红，逼你 build:web。
+     v1.7.9：实现抽到 scripts/verify-build-sync.mjs —— CI 出包前的门禁与本套件共用同一份，
+     两处各写一份迟早漂移，而"两处判据不一致"本身就是最难查的那类问题。 */
   {
-    const ROOTD = path.resolve(__dirname, '..');
-    const md5f = (f) => crypto.createHash('md5').update(fs.readFileSync(f)).digest('hex');
-    const srcJs = fs.readdirSync(path.join(ROOTD, 'js')).filter((n) => n.endsWith('.js'));
-    const drift = [];
-    for (const n of srcJs) {
-      const o = path.join(ROOTD, 'www', 'js', n);
-      if (!fs.existsSync(o)) { drift.push(n + '(产物缺失)'); continue; }
-      if (md5f(path.join(ROOTD, 'js', n)) !== md5f(o)) drift.push(n);
-    }
-    check('构建同步·js/ 源码与 www/js/ 产物逐字节一致（改源码必须重跑 build:web）',
-      srcJs.length > 0 && drift.length === 0,
-      drift.length ? drift.join(', ') + ' —— 先跑 node scripts/build-web.mjs' : `${srcJs.length} 个 JS 文件一致`);
+    let bs = { ok: false, checked: 0, drift: [{ file: 'scripts/verify-build-sync.mjs', kind: 'error', detail: '模块加载失败' }] };
+    try {
+      const { verifyBuildSync } = await import('../scripts/verify-build-sync.mjs');
+      bs = verifyBuildSync();
+    } catch (e) { bs.drift = [{ file: 'scripts/verify-build-sync.mjs', kind: 'error', detail: String(e && e.message) }]; }
+    check('构建同步·源码 ≡ www/ 产物（逐字节 + 白名单漏项反向核查）',
+      bs.ok,
+      bs.ok ? `${bs.checked} 个文件一致` : bs.drift.map((d) => `${d.file}[${d.kind}]${d.detail ? ':' + d.detail : ''}`).join(' | ') + ' —— 先跑 node scripts/build-web.mjs');
   }
 
   const browser = await chromium.launch({
-    channel: 'chrome',
+    // 本机默认驱动已装的 Chrome；CI（ubuntu runner）里用 Playwright 自带的 chromium，
+    // 由 PW_CHANNEL 环境变量切换——不写死，否则同一套断言在 CI 里必然起不来。
+    channel: process.env.PW_CHANNEL || 'chrome',
     headless: true,
     // 录音闭环要真跑：用假音频设备让 getUserMedia 真返回一条音轨，而不是靠断言绕过
     args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required'],
@@ -449,13 +448,26 @@ const MOCK_SDK = `(function(){
   await page.waitForSelector('#recInput');
   check('输入页 IP=倾听 listening', (await page.getAttribute('.mascot', 'data-state')) === 'listening');
   check('录音中提示来自文案库', A.recording.includes(await page.textContent('#recHint')));
-  // v1.7.8：空输入不该给一个「点了才被告知不行」的按钮。三条断言合起来才有鉴别力
-  // （只看初始态的话，永远 disabled 的按钮也能过；只看填入后亮起的话，满屏空格也能过）。
-  check('打字页空输入时「说完了」置灰', await page.isDisabled('#recDone'), '初始 disabled');
+  // v1.7.9 需求：「输入框有文字 ⇒ 点击直接提交；只有空输入时才提示『还没说话呢』」。
+  // 判据不能只看「弱化」，还要看「空输入点了到底给不给提示、会不会误提交」。四条合起来
+  // 才有鉴别力：初始弱化 / 填入后恢复 / 纯空格仍弱化 / 空输入点击→提示且不跳页。
+  // 🔴 弱化用的是 class 而不是 disabled / aria-disabled——后两者都会让点击彻底失效，
+  //    「空输入给提示」这条需求就永远验不出来（Playwright 也会直接拒绝点击）。
+  const dim = async () => page.evaluate(() => document.getElementById('recDone').classList.contains('is-dim'));
+  check('打字页空输入时「说完了」视觉弱化（class is-dim，不是 disabled）',
+    (await dim()) === true && !(await page.isDisabled('#recDone')), `dim=${await dim()} disabled=${await page.isDisabled('#recDone')}`);
   await page.click('#fillDemo');
-  check('填入示例后「说完了」可点（不是永远置灰）', !(await page.isDisabled('#recDone')), '');
+  check('填入示例后「说完了」恢复正常（不是永远弱化）', (await dim()) === false, String(await dim()));
   await page.fill('#recInput', '   \n  ');
-  check('只输入空白时「说完了」仍置灰（trim 判空）', await page.isDisabled('#recDone'), '');
+  check('只输入空白时仍弱化（trim 判空）', (await dim()) === true, String(await dim()));
+  // 空输入点击：必须给提示，且**不许**跳到分析中页 —— 只提示不提交，才是需求要的语义
+  await page.fill('#recInput', '');
+  await page.click('#recDone');
+  await page.waitForTimeout(250);
+  const emptyToast = await page.textContent('.toast--on').catch(() => '');
+  check('空输入点「说完了」→ 提示「还没说话呢」且不跳页',
+    emptyToast.includes('还没说话呢') && !/#\/analyzing/.test(page.url()),
+    `toast=「${emptyToast}」 url=${page.url()}`);
   await page.fill('#recInput', DEMO);
   await shot(page, '02-record.png');
   await page.click('#recDone');
@@ -560,6 +572,31 @@ const MOCK_SDK = `(function(){
     (await page.locator('.weekly > .page-head a.ghost[href="#/me"]').count()) === 1,
     String(await page.locator('.weekly a.ghost').count()));
   await shot(page, '09-weekly.png');
+
+  /* v1.7.9（P3）：weekly 还必须支持**左滑手势返回**，不能只有按钮和底部 tab。
+     判据打在真链路上——真跑一段 pointer 手势，而不是去读 BACK_PARENT 那个定义处：
+     映射写对了但手势没绑上（或起手区算错）时，读定义处的断言照样绿。 */
+  const swipeZone = await page.evaluate(async () => (await import('/js/app.js')).edgeProbeFacts());
+  const VW = page.viewportSize().width;
+  const swipeFrom = async (x0) => {
+    await page.mouse.move(x0, 430);
+    await page.mouse.down();
+    for (let x = x0; x <= Math.round(VW * 0.9); x += 36) await page.mouse.move(x, 430);
+    await page.mouse.up();
+    await page.waitForTimeout(650);
+  };
+  // 正手：从左边缘起手、拖过屏宽 34% ⇒ 必须回到「我」页
+  await swipeFrom(Math.max(2, (swipeZone.min || 0) + 2));
+  check('周报页支持左滑手势返回（边缘起手真跑 → 回到「我」页）',
+    /#\/me/.test(page.url()), `zone=${swipeZone.min}~${swipeZone.max} url=${page.url()}`);
+
+  // 反手（鉴别力对照臂）：从屏幕中部起手拖同样的距离，**不许**返回。
+  // 没有这一臂的话，"手势恒返回" 这种坏实现也能让上面那条通过。
+  await goto('/#/weekly');
+  await page.waitForSelector('.weekly', { timeout: 9000 });
+  await swipeFrom(Math.round(VW * 0.45));
+  check('对照臂：从屏幕中部起手左滑不触发返回（只有边缘起手才算）',
+    /#\/weekly/.test(page.url()), page.url());
 
   await goto('/#/settings');
   await page.waitForSelector('#setCloudAsr');
@@ -2081,6 +2118,40 @@ const MOCK_SDK = `(function(){
     G2.trunc.risk_level === 'none' && G2.trunc.action === 'continue' && !G2.trunc.degraded && G2.truncCalls.length === 2 && truncLast.maxTokens === undefined,
     `calls=${G2.truncCalls.length} 末次maxTokens=${truncLast.maxTokens} → ${G2.trunc.risk_level}/${G2.trunc.action}`);
   check('兜底·截断事件进轨迹（可观测，不静默）', (G2.truncTrace || []).some((t) => t.code === 'output_truncated_retry'), (G2.truncTrace || []).map((t) => t.code).join(','));
+
+  /* ---- G2b. AI 失败 × 情绪分级（v1.7.9 · P1 核心判据） ----
+     🔴 为什么必须单独一组：G2 上面那两条「失败 → 保守 medium/gentle_check」用的是**中性文本**，
+        本地规则引擎对中性文本也判低风险 ⇒「取更保守者」与「一刀切 medium」两种实现**结果相同、都能过**。
+        只有真高危输入才分得开：一刀切抹平时，明确说到不想活了的倾诉只落温和确认页、拿不到热线。
+        输入固定为 A/B 实测用过的那句（"撑不住" 在 D 段单独有 UI 级断言，这里只测分级函数）。 */
+  sec('G2b. AI 失败 × 情绪分级');
+  const G2B = await page2.evaluate(async () => {
+    const { api } = await import('/js/app.js').then((m) => m.__test__);
+    const out = {};
+    for (const mode of ['fail', 'garbage']) {
+      window.__llmMode = mode;
+      out[mode] = await api.safety({ transcript: '我不想活了，感觉撑不下去了' });
+    }
+    window.__llmMode = 'fail';
+    out.daily = await api.safety({ transcript: '今天和男朋友吵架了，他很晚才回我消息，我觉得他根本不在乎我。' });
+    window.__llmMode = 'ok';
+    return out;
+  });
+  const HI_LV = ['high', 'critical'];
+  const HI_ACT = ['refer', 'emergency', 'harm_others'];
+  check('情绪兜底·AI 流中断 + 高危输入 → 等级不再被抹平成 medium',
+    HI_LV.includes(G2B.fail.risk_level), `${G2B.fail.risk_level}/${G2B.fail.action}`);
+  check('情绪兜底·AI 流中断 + 高危 → action 落 refer/emergency（会给热线，不是温和确认）',
+    HI_ACT.includes(G2B.fail.action), String(G2B.fail.action));
+  check('情绪兜底·AI 返回非 JSON + 高危 → 同样取更保守者',
+    HI_LV.includes(G2B.garbage.risk_level) && HI_ACT.includes(G2B.garbage.action),
+    `${G2B.garbage.risk_level}/${G2B.garbage.action}`);
+  check('情绪兜底·普通日常 + AI 失败 → 仍是 medium/gentle_check（不误伤、不多放行）',
+    G2B.daily.risk_level === 'medium' && G2B.daily.action === 'gentle_check',
+    `${G2B.daily.risk_level}/${G2B.daily.action}`);
+  check('情绪兜底·降级原因可观测（degraded=local_engine_after_llm_failed，不静默）',
+    G2B.fail.degraded === 'local_engine_after_llm_failed' && G2B.garbage.degraded === 'local_engine_after_llm_failed',
+    `${G2B.fail.degraded} / ${G2B.garbage.degraded}`);
 
   /* ---- G3. 最小闭环 5 项验收（走真实 UI） ---- */
   sec('G3. 最小闭环 5 项验收');

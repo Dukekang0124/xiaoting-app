@@ -1181,6 +1181,10 @@ body.is-offline .view{padding-top:46px}
 
 /* ---------------- 禁用态（防重复点击） ---------------- */
 .primary:disabled{opacity:.55;pointer-events:none}
+/* 「暂不该点」但仍可用：用于「说完了」这类——空输入时点了要给提示。
+   所以只弱化视觉，既不能加 pointer-events:none（会吞掉提示），
+   也不能用 disabled / aria-disabled（前者吞点击，后者语义上等于"不可用"）。 */
+.primary.is-dim{opacity:.55}
 
 /* ---------------- 我的记忆（v1.3.0 记忆地基） ---------------- */
 .memory{padding:0 0 24px}

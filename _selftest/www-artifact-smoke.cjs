@@ -97,10 +97,21 @@ async function waitServer() {
   const md5 = (f) => crypto.createHash('md5').update(fs.readFileSync(f)).digest('hex');
   const verApk = path.join(WWW, 'apk', `Xiaoting-v${vHtml}-release.apk`);
   const latestApk = path.join(WWW, 'apk', 'xiaoting-latest.apk');
+  // 本版安装包在**取包之前**结构性地不存在（APK 就是 CI 出包时才产生的）。
+  // 所以判据要按「本版包在不在 apk-dist/」分流，而不是按环境变量：
+  //   · 包在 ⇒ 硬门禁，必须已进 www/apk 且稳定别名与清单 md5 逐字节一致
+  //   · 包不在 ⇒ 显式跳过并说明（既不判红把流程永远卡死，也不假装通过）
+  // 🔴 发布前那一次必须用 SELFTEST_REQUIRE_APK=1 跑，此时包必须已在，跳不掉。
+  const apkSrcReady = fs.existsSync(path.join(ROOT, 'apk-dist', `Xiaoting-v${vHtml}-release.apk`));
+  const requireApk = process.env.SELFTEST_REQUIRE_APK === '1';
   if (fs.existsSync(verApk) && fs.existsSync(latestApk)) {
     check('产物·稳定别名 xiaoting-latest.apk 与该版本包逐字节相同',
       md5(verApk) === md5(latestApk) && md5(verApk) === vj.apk.md5,
       `${md5(verApk).slice(0, 12)}… vs ${vj.apk.md5.slice(0, 12)}…`);
+  } else if (!apkSrcReady && !requireApk) {
+    console.log(`SKIP  产物·稳定别名（v${vHtml} 的安装包还没取回来：apk-dist/ 里没有 —— ` +
+      `出包后跑 node scripts/fetch-dist-apk.mjs ${vHtml} 再 build:web，然后 ` +
+      `SELFTEST_REQUIRE_APK=1 重跑本探针即硬校验）`);
   } else {
     check('产物·稳定别名 xiaoting-latest.apk 存在（下载入口不会 404）', false,
       `缺少 ${path.basename(fs.existsSync(verApk) ? latestApk : verApk)} —— 先 node scripts/fetch-dist-apk.mjs 再 build:web`);
@@ -110,7 +121,7 @@ async function waitServer() {
   let browser;
   try {
     await waitServer();
-    browser = await chromium.launch({ channel: 'chrome', headless: true });
+    browser = await chromium.launch({ channel: process.env.PW_CHANNEL || 'chrome', headless: true });
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: 'zh-CN' });
     // 把 app 的 __test__ 暴露到 window.__t（与 ip-state-selftest 同一手法：动态 import 复用同一模块实例）
     await ctx.addInitScript(() => {

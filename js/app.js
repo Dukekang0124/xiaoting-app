@@ -767,9 +767,13 @@ function pageRecord(p) {
       <div class="row-end">
         <button class="linkbtn" id="fillDemo" type="button">用示例填一句</button>
       </div>
-      <!-- 🔴 v1.7.8 全链路检查：空输入时按钮看着能点、点了只弹「还没说话呢」，
-           是"先让你犯错再告诉你错了"。改成初始 disabled，有内容才亮。 -->
-      <button class="primary" id="recDone" type="button" disabled>说完了</button>
+      <!-- v1.7.9 语义修正：这里既不做 disabled、也不做 aria-disabled。
+           需求是「输入框有文字 ⇒ 点击直接提交；只有空输入时才提示『还没说话呢』」——
+           前两版都试过：disabled 连点击一起吞掉（点了没反应）；aria-disabled 会给
+           辅助技术宣告"不可用"（Playwright 也据此拒绝点击，说明这不是纯视觉标记）。
+           两种都会让「空输入也要给提示」这条失效。最终用**纯视觉弱化 class**：
+           按钮语义始终可用，点了必然有回应，只是看起来淡淡的。 -->
+      <button class="primary is-dim" id="recDone" type="button">说完了</button>
     ` : `
       <div class="rec-live">${wave('wave--live')}<span id="recTimer">0.0s</span></div>
       <div class="live-text" id="liveText">……</div>
@@ -792,15 +796,25 @@ function bindRecord(p) {
     const input = document.getElementById('recInput');
     const done = document.getElementById('recDone');
     const fill = document.getElementById('fillDemo');
-    // 空输入 ⇒ 按钮置灰（v1.7.8）。trim 判空：只打空格不算说过话。
-    const syncDone = () => { if (done) done.disabled = !(input && (input.value || '').trim()); };
+    // v1.7.9：空输入只做「视觉弱化 + 点击提示」，**按钮始终可用**。
+    // 需求原文：输入框有文字 ⇒ 点击直接提交；只有空输入才提示「还没说话呢」。
+    // 走过的两条弯路都记在这里，别再退回去：
+    //   ① `disabled` —— 连 click 一起吞掉，用户点了毫无反应、也拿不到解释；
+    //   ② `aria-disabled` —— 语义上等于"不可用"（读屏会这么宣告，Playwright 也据此拒绝点击），
+    //      与"点了要提示"直接冲突。
+    // 所以只用 class 做视觉弱化，语义保持可用。
+    const syncDone = () => {
+      if (!done) return;
+      const empty = !(input && (input.value || '').trim());
+      done.classList.toggle('is-dim', empty);
+    };
     if (fill) fill.addEventListener('click', () => { input.value = '今天又和男朋友吵架了，他很晚才回我消息，我觉得他根本不在乎我。'; syncDone(); input.focus(); });
     if (input) { input.addEventListener('input', syncDone); syncDone(); }
     if (done) done.addEventListener('click', () => {
-      if (done.disabled) return; // v1.1.10：防重复点击，避免连点生成多张草稿
+      if (done.dataset.busy === '1') return; // v1.1.10：防重复点击，避免连点生成多张草稿
       const text = (input.value || '').trim();
-      if (!text) { store.toast('还没说话呢'); return; }
-      done.disabled = true;
+      if (!text) { store.toast('还没说话呢'); return; }   // 唯一的前置校验：空输入才提示
+      done.dataset.busy = '1';
       store.startDraft(text, 'r_' + Date.now().toString(36));
       go('analyzing');
     });
@@ -2336,7 +2350,7 @@ function pageMe() {
       <p class="mblock__d">${esc(M.download.desc)}</p>
       <a class="mrow mrow--download" href="#/download">
         <span class="mrow__ico">${ICON.download}</span>
-        <span class="mrow__txt">${esc(M.download.row)}<span class="mrow__sub" id="meDlSub">当前版本 v${esc(window.APP_VERSION || '1.7.8')}</span></span>
+        <span class="mrow__txt">${esc(M.download.row)}<span class="mrow__sub" id="meDlSub">当前版本 v${esc(window.APP_VERSION || '1.7.9')}</span></span>
         <i class="mrow__arrow">›</i>
       </a>
       <button class="ghost me-install" id="meInstall" type="button">${esc(M.download.installBtn)}</button>
@@ -2596,7 +2610,7 @@ function pageSettings() {
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
     ${privacyBlockHtml(COPY.privacyFull)}
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.7.8')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.7.9')}</p>
   </section>`;
 }
 
@@ -2961,7 +2975,7 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.7.8')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.7.9')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -2974,7 +2988,7 @@ function pageChangelog() {
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.7.8')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.7.9')}</p>
   </section>`;
 }
 
