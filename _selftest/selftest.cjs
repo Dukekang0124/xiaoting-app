@@ -3,6 +3,7 @@
 const { chromium } = require('playwright');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 
 const BASE = process.env.BASE || 'http://127.0.0.1:4173';
 const OUT = path.join(__dirname, 'shots');
@@ -155,6 +156,26 @@ const MOCK_SDK = `(function(){
 })();`;
 
 (async () => {
+  /* 🔴 v1.7.8 全链路检查发现的**最危险的静默失效**：源码改了、www/ 没重建。
+     实测现场：js/prompts.js 源码里有 5 处 hoistUserInput，www/js/prompts.js 里是 0 处 ——
+     自测（跑 www/）和线上（发 www/）都在用旧码，而我拿着源码里的修复宣称"已生效"。
+     普通断言永远抓不到这一类：它不看文件同源，只看行为，而旧码的行为也能过大部分断言。
+     所以这里加一条**纯文件系统**闸门：源码与产物必须逐字节一致，不一致就红，逼你 build:web。 */
+  {
+    const ROOTD = path.resolve(__dirname, '..');
+    const md5f = (f) => crypto.createHash('md5').update(fs.readFileSync(f)).digest('hex');
+    const srcJs = fs.readdirSync(path.join(ROOTD, 'js')).filter((n) => n.endsWith('.js'));
+    const drift = [];
+    for (const n of srcJs) {
+      const o = path.join(ROOTD, 'www', 'js', n);
+      if (!fs.existsSync(o)) { drift.push(n + '(产物缺失)'); continue; }
+      if (md5f(path.join(ROOTD, 'js', n)) !== md5f(o)) drift.push(n);
+    }
+    check('构建同步·js/ 源码与 www/js/ 产物逐字节一致（改源码必须重跑 build:web）',
+      srcJs.length > 0 && drift.length === 0,
+      drift.length ? drift.join(', ') + ' —— 先跑 node scripts/build-web.mjs' : `${srcJs.length} 个 JS 文件一致`);
+  }
+
   const browser = await chromium.launch({
     channel: 'chrome',
     headless: true,
@@ -428,7 +449,14 @@ const MOCK_SDK = `(function(){
   await page.waitForSelector('#recInput');
   check('输入页 IP=倾听 listening', (await page.getAttribute('.mascot', 'data-state')) === 'listening');
   check('录音中提示来自文案库', A.recording.includes(await page.textContent('#recHint')));
+  // v1.7.8：空输入不该给一个「点了才被告知不行」的按钮。三条断言合起来才有鉴别力
+  // （只看初始态的话，永远 disabled 的按钮也能过；只看填入后亮起的话，满屏空格也能过）。
+  check('打字页空输入时「说完了」置灰', await page.isDisabled('#recDone'), '初始 disabled');
   await page.click('#fillDemo');
+  check('填入示例后「说完了」可点（不是永远置灰）', !(await page.isDisabled('#recDone')), '');
+  await page.fill('#recInput', '   \n  ');
+  check('只输入空白时「说完了」仍置灰（trim 判空）', await page.isDisabled('#recDone'), '');
+  await page.fill('#recInput', DEMO);
   await shot(page, '02-record.png');
   await page.click('#recDone');
 
@@ -526,6 +554,11 @@ const MOCK_SDK = `(function(){
   check('周报含 headline + cards_count', wk.includes('共 1 张卡片') && (await page.locator('.wk-headline').count()) > 0);
   check('周报含全部 5 个板块', ['Top 3 触发点', '最常出现的人 / 场景', '可能的关联', '哪种应对方式有效', '下周一个实验'].every((s) => wk.includes(s)));
   check('周报结尾语来自文案库', A.weeklyClosing.some((s) => wk.includes(s)), '');
+  // v1.7.8：返回入口原先被写进异步产物里 ⇒ 周报生成慢或失败时，整页只有一个 spinner、没有出口。
+  // 现在页头常驻，加载中也能退出。判据打在「.weekly 下、在内容区之外」才是真修好。
+  check('周报页有常驻返回入口（不依赖异步产物）',
+    (await page.locator('.weekly > .page-head a.ghost[href="#/me"]').count()) === 1,
+    String(await page.locator('.weekly a.ghost').count()));
   await shot(page, '09-weekly.png');
 
   await goto('/#/settings');

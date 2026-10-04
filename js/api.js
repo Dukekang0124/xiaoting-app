@@ -487,8 +487,24 @@ export const api = {
     } else if (isStructural(res.code)) {
       r = { ...safetyCheck(transcript), degraded: 'local_engine' };
     } else {
-      r = normalizeSafety(null);
-      r.degraded = res.code || 'llm_failed';
+      // 🔴 v1.7.8 全链路检查发现（本轮最严重的一处）：这一支原本无条件用 medium/gentle_check 兜底，
+      //    等于把「模型答错了」和「模型根本没答」一律当成「中等风险」，同时造成两个方向的伤害：
+      //    ① 漏放（安全红线）：AI 挂掉时，本地 ai.js safetyCheck() 明明能判出 high/critical
+      //       （实测 9/9 判对，见 _probe/fullcheck_05_safety.cjs），却因为这条分支把它整个旁路，
+      //       危重用户被当成一般低落送去 gentle 页，不自动给热线，要他自己点按钮才能看到援助电话。
+      //    ② 误伤：AI 一抖动，任何普通抱怨（"加班到十一点累得不行"）都被拦下问"你听起来有点沉"。
+      //    修法：同时问一次本地规则引擎，取「两者中更保守」的那个。
+      //    本地判不出（none/low）时仍维持原来的保守兜底语义 —— 不放行任何一个可疑的人，
+      //    只是不再假装"所有的 AI 失败都等于中等风险"。
+      const fallback = normalizeSafety(null);          // medium + gentle_check（原行为）
+      let local = null;
+      try { local = safetyCheck(transcript); } catch (e) { local = null; }
+      const RANK = { none: 0, low: 1, medium: 2, high: 3, critical: 4 };
+      const localLevel = (local && RANK[local.risk_level]) || 0;
+      const fbLevel = RANK[fallback.risk_level] || 0;
+      const takeLocal = !!(local && localLevel > fbLevel);
+      r = takeLocal ? { ...local } : fallback;
+      r.degraded = takeLocal ? 'local_engine_after_llm_failed' : (res.code || 'llm_failed');
     }
     // 安全识别的放行/拦截结论必须留痕：这是整条链路上唯一一个「能不能继续」的开关
     diag.note('ai', 'safety.verdict', {

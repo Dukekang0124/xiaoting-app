@@ -1159,6 +1159,34 @@ export const TIMELINE_PROMPT = `你是墨小溟，一只住在深海的紫色小
 
 /* ==================== Prompt builder（填充占位符） ==================== */
 
+/**
+ * 🔴 v1.7.8 P1 核心修法：把「用户真实输入」提到 Prompt 最前面（v1.7.7 基线实测发现）。
+ *
+ * 【问题现象】main 模块跑产品真实 Prompt，模型像「没读用户输入」：
+ *   - 输入「今天项目拿下来了，老板当着全组夸我，一整天都飘着」→ 返回 emotion=[]、intensity=0
+ *   - 输入含明确自杀意念的原文 → 返回 emotion=["模糊情绪"]、intensity=3，完全没识别出风险
+ *   - summary 变成「我还在这里，随时可以听你说说发生了什么」（纯兜底话术，与原文无关）
+ *   - 复现条件：MAIN_PROMPT 约 4266 字，用户输入被放在**最末尾**，紧邻输出格式的填空 example。
+ *
+ * 【根因】不是模型不听话，也不是规则没写（intensity 硬规则原文就在 Prompt 里）：
+ * 长上下文里「用户输入」离 system 越远权重越弱，模型退化成「照着 example 的空结构填」——
+ * 典型症状就是 JSON 合法但内容与输入无关（100% JSON 合法率掩盖了内容全空）。
+ * 已做干预实验排除其他可能：① 把 intensity 规则提到最前 → 合规率 2/6 无变化；
+ * ② 把用户输入移到开头 → emotion 正确识别为「开心」、event 准确概括、summary 贴切。
+ *
+ * 【修法】不动 Prompt 正文一个字，只把「已经清洗过的用户输入」复制一份到最开头。
+ * 末尾原位置保留（模型需要知道输入边界在哪），形成首尾呼应。
+ * 这样既保住原有全部规则与 example，又解决长上下文末尾权重衰减。
+ *
+ * 【安全性】前置用的是同一个 sanitizeInput() 结果，不是原始输入；
+ * 且前置块带显式分隔标记，避免用户原话里的换行/引号提前闭合边界。
+ */
+export const hoistUserInput = (tpl, userInput, label = '用户倾诉原文', hint = '请务必基于它作答') => {
+  const raw = sanitizeInput(userInput);
+  if (!raw) return tpl;
+  return `【${label} · 最高优先级 · ${hint}】\n"""\n${raw}\n"""\n\n---\n\n${tpl}`;
+};
+
 const fill = (tpl, vars) => tpl.replace(/\{\{(\w+)\}\}/g, (_, k) => {
   const v = vars[k];
   return v == null ? '' : (typeof v === 'string' ? v : JSON.stringify(v, null, 2));
@@ -1176,7 +1204,11 @@ export function sanitizeInput(text, max = 2000) {
     .slice(0, max);
 }
 
-export const buildSafetyPrompt = (userInput) => fill(SAFETY_PROMPT, { user_input: sanitizeInput(userInput) });
+export const buildSafetyPrompt = (userInput) =>
+  // 🔴 v1.7.8 P1：安全识别同理——用户原话必须前置，否则长 Prompt 下高危信号会被稀释
+  // （v1.7.7 基线：含明确自杀意念的输入被判成「模糊情绪」、intensity=3）。
+  hoistUserInput(fill(SAFETY_PROMPT, { user_input: sanitizeInput(userInput) }), userInput, '用户原话（安全判定依据）', '判断风险等级必须以这段原话为唯一依据');
+
 export const buildMainPrompt = (userInput, voiceFeatures = null, memoryContext = '') => {
   let tpl = MAIN_PROMPT;
   if (voiceFeatures && typeof voiceFeatures === 'object') {
@@ -1187,14 +1219,24 @@ export const buildMainPrompt = (userInput, voiceFeatures = null, memoryContext =
   if (memoryContext && typeof memoryContext === 'string' && memoryContext.trim()) {
     tpl += `\n${memoryContext}`;
   }
-  return fill(tpl, { user_input: sanitizeInput(userInput) });
+  return hoistUserInput(fill(tpl, { user_input: sanitizeInput(userInput) }), userInput);
 };
-export const buildFollowupPrompt = ({ analysis, asked = [], userAnswer = '' }) =>
-  fill(FOLLOWUP_PROMPT, {
+export const buildFollowupPrompt = ({ analysis, asked = [], userAnswer = '' }) => {
+  const tpl = fill(FOLLOWUP_PROMPT, {
     analysis_json: analysis,
     asked_questions: asked.length ? asked : '（还没有问过）',
     user_answer: userAnswer || '（用户本轮还没回答）',
   });
+  // 🔴 v1.7.8 P1：user_answer 是用户真实回答，861 字 Prompt 里它埋在末尾 ⇒ 会被稀释。
+  // 前置后模型才真的针对「他刚说的这句话」回应，而不是泛泛追问。
+  return userAnswer && String(userAnswer).trim()
+    ? hoistUserInput(tpl, userAnswer, '用户本轮回答（追问必须回应的内容）', '先回应他刚说的这句话，再问下一个问题')
+    : tpl;
+};
+// v1.7.8 P1 说明：card / weekly 不做「输入前置」。
+//   理由：两者输入是结构化分析结果（analysis_json / weekly_cards_json），不是用户原话，
+//   且 Prompt 只有 1670 / 791 字，末尾衰减不明显；实测基线 card 的 JSON 合法率已是 8/8。
+//   main 那种「4266 字 + 用户原话压末尾」是该修的病，对这两套硬加前置只会白增 token。
 export const buildCardPrompt = ({ analysis, followup = [], extra = '' }) =>
   fill(CARD_PROMPT, { analysis_json: analysis, followup_history: followup.length ? followup : '（无追问记录）', user_extra: extra || '（无）' });
 export const buildWeeklyPrompt = ({ cards = [], lastWeek = null }) =>
@@ -1204,7 +1246,10 @@ export const buildTimelinePrompt = ({ conversation = [] } = {}) => {
   const lines = (conversation || [])
     .filter((m) => m && m.role === 'user' && m.text)
     .map((m, i) => `第${i + 1}轮（用户原话）：${m.text}`);
-  return fill(TIMELINE_PROMPT, { user_lines: lines.length ? lines.join('\n') : '（用户本轮没有留下文字）' });
+  const userLines = lines.length ? lines.join('\n') : '（用户本轮没有留下文字）';
+  // 🔴 v1.7.8 P1：时间线 1847 字，用户原话在末尾 ⇒ 同样会被长上下文稀释。
+  // 前置后模型才真的去「还原情绪起伏」，而不是照 example 填三条通用节点。
+  return hoistUserInput(fill(TIMELINE_PROMPT, { user_lines: userLines }), userLines, '用户倾诉记录（时间线还原依据）', '按轮次还原情绪起伏，不要照抄示例节点');
 };
 
 /* ==================== 固定文案库（§6）==================== */

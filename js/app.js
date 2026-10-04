@@ -767,7 +767,9 @@ function pageRecord(p) {
       <div class="row-end">
         <button class="linkbtn" id="fillDemo" type="button">用示例填一句</button>
       </div>
-      <button class="primary" id="recDone" type="button">说完了</button>
+      <!-- 🔴 v1.7.8 全链路检查：空输入时按钮看着能点、点了只弹「还没说话呢」，
+           是"先让你犯错再告诉你错了"。改成初始 disabled，有内容才亮。 -->
+      <button class="primary" id="recDone" type="button" disabled>说完了</button>
     ` : `
       <div class="rec-live">${wave('wave--live')}<span id="recTimer">0.0s</span></div>
       <div class="live-text" id="liveText">……</div>
@@ -790,7 +792,10 @@ function bindRecord(p) {
     const input = document.getElementById('recInput');
     const done = document.getElementById('recDone');
     const fill = document.getElementById('fillDemo');
-    if (fill) fill.addEventListener('click', () => { input.value = '今天又和男朋友吵架了，他很晚才回我消息，我觉得他根本不在乎我。'; input.focus(); });
+    // 空输入 ⇒ 按钮置灰（v1.7.8）。trim 判空：只打空格不算说过话。
+    const syncDone = () => { if (done) done.disabled = !(input && (input.value || '').trim()); };
+    if (fill) fill.addEventListener('click', () => { input.value = '今天又和男朋友吵架了，他很晚才回我消息，我觉得他根本不在乎我。'; syncDone(); input.focus(); });
+    if (input) { input.addEventListener('input', syncDone); syncDone(); }
     if (done) done.addEventListener('click', () => {
       if (done.disabled) return; // v1.1.10：防重复点击，避免连点生成多张草稿
       const text = (input.value || '').trim();
@@ -904,7 +909,10 @@ function mountAnalyzing() {
       // 不允许把流程挂在这里，也不允许直接跳到主分析。
       safety = await api.safety({ transcript: d.transcript });
     } catch (e) {
-      safety = { risk_level: 'medium', reason: '安全识别异常，按保守策略处理', action: 'gentle_check' };
+      // 🔴 v1.7.8 全链路检查：这里原先无条件兜 medium/gentle_check，与 api.js 那条兜底是同一个
+      //    病灶的两个出口。AI 挂掉时本地 safetyCheck() 能判出 high/critical（实测 9/9 判对），
+      //    却被这里抹平成 medium ⇒ 危重倾诉只落到 gentle 页，不给热线。取更保守者修掉漏放。
+      safety = await conservativeSafetyFallback(d.transcript, e);
       store.setRisk({ level: safety.risk_level, action: safety.action, evidence: d.transcript.slice(0, 60) });
     }
     if (token !== analyzingToken) return;
@@ -931,6 +939,31 @@ function mountAnalyzing() {
 
     await runAnalysisAndContinue();
   })();
+}
+
+/**
+ * 安全识别整体失败时的兜底：把「保守兜底 medium」和「本地规则引擎」放在一起比，取更保守的那个。
+ *
+ * 🔴 为什么不能只看 MCARD medium：AI 挂掉的时候，`ai.js safetyCheck()` 仍然完整可用
+ *    （纯本地关键词 + 等级判据，实测 9/9 判对）。无条件兜 medium 会发生两件事——
+ *    ① 漏放：明确的自伤表述被降成 medium，不弹热线（安全红线，宁可慢也不能漏）；
+ *    ② 误伤：一句普通抱怨也被送去 gentle 问「你听起来有点沉」。
+ *    取 max(两者) 只修掉 ①；② 需要改 mapping 中那句 medium 的语义（风险更大，另行评估）。
+ *    这里与 api.js safety() 的非结构性失败分支保持同一套判据，避免两个出口行为分叉。
+ */
+async function conservativeSafetyFallback(transcript, err) {
+  const RANK = { none: 0, low: 1, medium: 2, high: 3, critical: 4 };
+  const fallback = { risk_level: 'medium', reason: '安全识别异常，按保守策略处理', action: 'gentle_check' };
+  let local = null;
+  try {
+    const { safetyCheck } = await import('./ai.js');
+    local = safetyCheck(transcript);
+  } catch (e) { local = null; }
+  const localLevel = RANK[local && local.risk_level] || 0;
+  if (local && localLevel > RANK[fallback.risk_level]) {
+    return { risk_level: local.risk_level, reason: local.reason || '', action: local.action || 'refer', degraded: 'local_engine_after_llm_throw' };
+  }
+  return { ...fallback, degraded: String((err && err.message) || 'llm_throw').slice(0, 80) };
 }
 
 /** 主分析 → 追问 / 直接生成卡片 */
@@ -2174,7 +2207,15 @@ function bindCardDetail() {
 /* ---------------- 页面：周报 ---------------- */
 
 function pageWeekly() {
-  return `<section class="weekly" id="weeklyRoot"><div class="loading"><span class="spinner"></span>正在整理这一周……</div></section>`;
+  // 🔴 v1.7.8 全链路检查：这里原本整块内容（含加载态）都由 mountWeekly 异步替换，
+  //    而返回入口被写进了异步产物里 ⇒ 生成慢或失败时，页面上除了 spinner 没有任何出口。
+  //    改成「页头常驻（含返回）+ 内容区异步填充」，加载中也能退出。
+  return `<section class="weekly">
+    <div class="page-head">
+      <a class="ghost" href="#/me">返回</a><div class="page-title">本周情绪体检</div><span style="width:48px"></span>
+    </div>
+    <div id="weeklyRoot"><div class="loading"><span class="spinner"></span>正在整理这一周……</div></div>
+  </section>`;
 }
 
 function mountWeekly() {
@@ -2195,7 +2236,6 @@ function mountWeekly() {
       ? arr.map((x) => `<li><span>${esc(fmt(x))}</span>${x.count ? `<b>${x.count} 次</b>` : '<b>—</b>'}</li>`).join('')
       : `<li class="muted">${emptyTxt}</li>`;
     root.innerHTML = `
-      <div class="page-title center">本周情绪体检</div>
       <div class="wk-note">${esc(r.week_start)} ~ ${esc(r.week_end)} · 共 ${esc(r.cards_count)} 张卡片</div>
       <div class="wk-block wk-block--lead">
         <div class="wk-label">本周概览</div>
@@ -2296,7 +2336,7 @@ function pageMe() {
       <p class="mblock__d">${esc(M.download.desc)}</p>
       <a class="mrow mrow--download" href="#/download">
         <span class="mrow__ico">${ICON.download}</span>
-        <span class="mrow__txt">${esc(M.download.row)}<span class="mrow__sub" id="meDlSub">当前版本 v${esc(window.APP_VERSION || '1.7.7')}</span></span>
+        <span class="mrow__txt">${esc(M.download.row)}<span class="mrow__sub" id="meDlSub">当前版本 v${esc(window.APP_VERSION || '1.7.8')}</span></span>
         <i class="mrow__arrow">›</i>
       </a>
       <button class="ghost me-install" id="meInstall" type="button">${esc(M.download.installBtn)}</button>
@@ -2556,7 +2596,7 @@ function pageSettings() {
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
     ${privacyBlockHtml(COPY.privacyFull)}
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.7.7')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.7.8')}</p>
   </section>`;
 }
 
@@ -2921,7 +2961,7 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.7.7')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.7.8')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -2934,7 +2974,7 @@ function pageChangelog() {
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.7.7')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.7.8')}</p>
   </section>`;
 }
 

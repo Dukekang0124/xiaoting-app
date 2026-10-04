@@ -1,6 +1,6 @@
 {
   "_comment": "断言总数基线（单一来源）。主套件 selftest.cjs 每次跑完会拿实际条数跟这里比，不一致就算一条失败，防止「悄悄删掉几条断言」被当成全绿。新增/删除断言后请同步这里的数字。llm-mechanism-verify-all.cjs 的第 ⑦ 项也从这里读，避免同一个数字散落两处。",
-  "selftest": 578,
+  "selftest": 583,
   "ipState": 61,
   "memory": 32,
   "swipe": 7

@@ -85,6 +85,13 @@ async function waitServer() {
     const [ma, mi, pa] = vHtml.split('.').map(Number);
     return vj.apk.versionCode === ma * 10000 + mi * 100 + pa;
   })(), `v${vHtml} → ${vj.apk.versionCode}`);
+  // 🔴 v1.7.8 全链路检查发现：version.json 里存在**两处** versionCode（顶层 + apk 内），
+  //    发版脚本只抬了 apk.versionCode，顶层那份停在上一版（1.7.6→1.7.7 时停留在 10706）。
+  //    虽然现在全仓 0 处消费顶层那份，但同一份清单里两个互相矛盾的 versionCode，
+  //    迟早有人照顶层那份做版本比较 ⇒ 加断言把它焊死，防止再次漂移。
+  check('产物·version.json 顶层 versionCode 与 apk.versionCode 同源',
+    vj.versionCode === vj.apk.versionCode,
+    `顶层=${vj.versionCode} apk内=${vj.apk.versionCode}`);
 
   // ⑤ 稳定别名与版本包逐字节相同
   const md5 = (f) => crypto.createHash('md5').update(fs.readFileSync(f)).digest('hex');
