@@ -50,12 +50,44 @@ jobs:
       #    线上发的也是 www/ 里的旧码，两边一致地错，行为断言能过掉大半，只有
       #    「文件系统同源」这条判据抓得住。
       # 具体跑什么见 scripts/run-selftest-gate.mjs（本机与 CI 共用同一份，不在 YAML 里另写一套）。
+      # 🔴 为什么拆成两步（原来是一步里两行）：这两件事会以完全不同的方式失败 ——
+      #    · 装浏览器/依赖挂了 = 基建问题（apt 源、网络），跟产品代码无关
+      #    · 门禁挂了 = 产品/判据问题，必须去看具体是哪条断言
+      #    合并成一步时，job 页面只显示「Self-test gate 失败了」——等于没有判据。
+      - name: Install Playwright chromium (for self-test gate)
+        run: npx --yes playwright install --with-deps chromium
+
       - name: Self-test gate (源码≡产物 + 主自测 + 动效 + 产物冒烟)
         env:
           PW_CHANNEL: chromium          # runner 上没有 Chrome channel，用 Playwright 自带 chromium
         run: |
-          npx --yes playwright install --with-deps chromium
-          node scripts/run-selftest-gate.mjs
+          set -o pipefail               # 不加这句，管道会吃掉门禁的退出码，红了也当绿
+          node scripts/run-selftest-gate.mjs 2>&1 | tee "$RUNNER_TEMP/ci-selftest.log"
+
+      # 🔴 为什么必须留痕（v1.8.0 实测代价）：
+      #    CI 的 run 日志 zip 要管理员权限（403）、check-run 的 output 是 null、
+      #    注解只有一句 "Process exited with code 1"
+      #    ⇒ 不是仓库管理员就永远看不到哪条断言红了。v1.8.0 就是这么红的：
+      #      本地干净检出 + 同款构建 + 同款 chromium + UTC 全部复现为全绿，
+      #      CI 却在 3 分 26 秒红掉，白等 25 分钟仍无任何证据。
+      #    这里把尾部写进注解（Checks 页面不用登录、不用下载就能看见），完整日志挂 artifact。
+      - name: Surface self-test failure (annotation, no auth needed)
+        if: failure()
+        run: |
+          LOG="$RUNNER_TEMP/ci-selftest.log"
+          if [ -s "$LOG" ]; then
+            echo "::error title=selftest-gate-tail::$(tail -c 1500 "$LOG" | tr '\n' '~')"
+          else
+            echo "::error title=selftest-gate-no-output::门禁连输出都没有 —— 说明它没跑到自测，先看上一步（装 chromium）"
+          fi
+
+      - name: Upload self-test log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: selftest-log-${{ github.run_id }}
+          path: ${{ runner.temp }}/ci-selftest.log
+          if-no-files-found: ignore
 
       - name: Create android project (not committed — generated each run)
         run: |
