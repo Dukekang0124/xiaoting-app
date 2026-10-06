@@ -14,8 +14,15 @@
  *   isMobile+hasTouch 上下文 + 完整 page.goto(BASE+hash) + page.mouse 左边缘右拖。
  *   （缺 isMobile 时 page.mouse 不会转成手势 handler 能接住的指针事件，落点会保持不变 = 假红。）
  * 运行：NODE_PATH=<workspace>/node_modules node _selftest/timeline-exit.cjs   （BASE 由门禁注入）
+ *
+ * 🔴 为什么这里只能是 `require('playwright')` 这种裸写法（v1.8.0 血债）：
+ *    这个探针首次进门禁时用的是 require('C:/Users/…/node_modules/playwright')——
+ *    本机绝对路径。本机跑永远绿，CI（Linux runner）上直接 MODULE_NOT_FOUND、
+ *    整套 0/2 秒退，门禁判红 ⇒ **不出包**。而且它只在「另一台机器」上发作，
+ *    本地怎么复现都复现不出，只能靠「不依赖本机路径」这条判据拦（见门禁步骤 ⓪）。
+ *    本仓另外 60+ 个探针都是裸 require，由 NODE_PATH（本机）/ 仓库 node_modules（CI）解析。
  */
-const { chromium } = require('C:/Users/Admin/.workbuddy/binaries/node/workspace/node_modules/playwright');
+const { chromium } = require('playwright');
 const BASE = process.env.BASE || 'http://127.0.0.1:4173';
 
 let pass = 0, failN = 0;
