@@ -39,11 +39,11 @@ const SNOOZE_KEY = 'xiaoting:update_snooze_day'; // 当天"稍后再说"过的�
  * 🔴 与 APP_VERSION 必须同步：自测里有一条断言卡死这条（两者必须相等），
  *   否则「发版忘改常量」又会变成下一个静默故障。
  */
-export const LATEST_VERSION = '1.7.9';
+export const LATEST_VERSION = '1.8.0';
 
 /** 兜底安装包地址：必须是**版本化文件名**，不能用 xiaoting-latest.apk 别名
  *  （别名指向"站点上最新的那一版"，站点没发布时它反而是旧版 ⇒ 会让人装回旧包）。 */
-const FALLBACK_APK_URL = 'https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.7.9-release.apk';
+const FALLBACK_APK_URL = 'https://xiaoting.app.workbuddy.host/apk/Xiaoting-v1.8.0-release.apk';
 
 /**
  * 版本清单的两个候选路径，按顺序试（v1.1.4 修）。
@@ -382,6 +382,13 @@ export async function fetchHistory() {
 let modalEl = null;
 let lastShownKey = ''; // 防止同一次 session 内（前台/后台来回切）重复弹
 
+/**
+ * 🔴 v1.7.10：「已下好待安装」卡片正在提示的版本。
+ * 这张卡已经把"有新版 + 能直接装"讲清楚了，同一版本的通用更新弹窗就不再自动弹 ——
+ * 否则启动两张卡叠罗汉、用户从安装器回来（visibilitychange → checkUpdate）又叠一张。
+ * 只压"自动弹"：手动检查（关于页）与强制更新永远放行。 */
+let pendingPromptVersion = '';
+
 function closeModal() {
   if (modalEl && modalEl.parentNode) modalEl.parentNode.removeChild(modalEl);
   modalEl = null;
@@ -639,9 +646,18 @@ async function downloadViaDownloadManager(url, version, opts = {}) {
   let resolveFinish;
   const finish = new Promise((r) => { resolveFinish = r; });
   const done = (r) => { if (settled) return; settled = true; resolveFinish(r); };
+  // 🔴 v1.7.10 修「下载完成后安装弹窗弹两次」（康哥真机反馈，探针 update-popup-once.cjs 场景 A 复现）：
+  //    完成时刻有**两条通道**都会喊"下完了"—— downloadCompleted 事件 + checkStatus 轮询兜底
+  //    （后者就是为"WebView 暂停漏事件"设计的，所以完成事件正常到达时它**也**会看到 SUCCESSFUL）。
+  //    此前 finalize 无重入保护 ⇒ 两条都放行 ⇒ FileOpener.open 调两次 ⇒ 系统安装弹窗弹两次。
+  //    done() 的 settled 防的是"结果记两次"，防不了"唤起两次"——第一遍 finalize 还在
+  //    await stat/getUri/open 的桥往返里没走到 done()，第二遍已经进门了。
+  let finalizeStarted = false;
   const handles = [];
 
   const finalize = async () => {
+    if (finalizeStarted) return; // 双通道只允许第一个进门，第二个直接走人
+    finalizeStarted = true;
     let size = 0;
     try { const st = await Filesystem.stat({ path, directory: DL_DIR }); size = Number(st && st.size) || 0; } catch (e) { /* ignore */ }
     const expect = Number(opts.expectSize) || 0;
@@ -892,6 +908,14 @@ export async function installApkInApp(url, version = '', opts = {}) {
 }
 
 function showInstallGuide(data, p) {
+  // 🔴 v1.7.10 修「更新弹窗重复出现两次」②（探针 update-popup-once.cjs 场景 B 复现）：
+  //    同一层级的弹窗只允许存在一张。此前有两个入口会把新卡盖在旧卡上：
+  //      · doUpdate() 的 APK 分支进来不关更新弹窗 → 指引盖住它；用户下载完装完关掉指引，
+  //        更新弹窗又露出来 = "弹窗又出现了一次"；
+  //      · resumeInstall() 失败回落进来不撤旧的待装卡 → 同样叠罗汉。
+  //    在唯一入口统一收场：先把更新弹窗和旧指引卡都撤掉，再渲染新卡。
+  closeModal();
+  document.querySelectorAll('.install-overlay').forEach((o) => { try { o.remove(); } catch (e) { /* ignore */ } });
   const url = absUrl(data.download_url) || absUrl(data.web_url) || location.href;
   const overlay = document.createElement('div');
   overlay.className = 'install-overlay';
@@ -1256,6 +1280,12 @@ export async function checkUpdate(opts = {}) {
     return Object.assign({ shown: false, reason: 'snoozed' }, ctx);
   }
 
+  // 🔴 v1.7.10 修「更新弹窗重复出现两次」③：同一版本的提示已经在屏幕上（待装卡），
+  //    自动检测到此为止 —— 启动不叠第二张，从安装器回来（visibilitychange）也不补一张。
+  if (!data.force_update && !showUpdate && !opts.manual && pendingPromptVersion && cmpVersion(latest, pendingPromptVersion) === 0) {
+    return Object.assign({ shown: false, reason: 'pending_install' }, ctx);
+  }
+
   // 防止同一次 session 内重复弹（前台/后台来回切）
   const key = `${data.latest_version}:${data.force_update ? 'F' : 'N'}:${todayStr()}`;
   if (!showUpdate && !opts.manual && key === lastShownKey) return Object.assign({ shown: false, reason: 'already_shown' }, ctx);
@@ -1303,6 +1333,8 @@ export function describeCheckResult(r) {
       return { ok: true, text: `你之前选了「稍后再说」，v${latest} 不再自动提醒（想装随时手动检查）` };
     case 'already_shown':
       return { ok: true, text: `本次已提示过新版本 v${latest}` };
+    case 'pending_install':
+      return { ok: true, text: `v${latest} 的安装包已经下好了，用屏幕上的「立即安装」提示直接装就行` };
     case 'fetch_failed':
       return {
         ok: false,
@@ -1353,17 +1385,22 @@ async function reconcileDownloadManager() {
 }
 
 export function initUpdate() {
-  // 启动即检测一次
-  checkUpdate().catch(() => {});
-  // v1.6.9：重开续装 —— 若上一次下载完成但没装上（被杀/退后台），自动提示"安装包已下好，是否立即安装"
+  // 🔴 v1.7.10 修「更新弹窗重复出现两次」③（探针 update-popup-once.cjs 场景 C 复现）：
+  //    下载完成但没装上时重开 App，原实现「通用更新弹窗」和「安装包已下好」两条链各自弹 ——
+  //    两张同版本卡叠罗汉。启动只允许一张：有待装包 ⇒ 只弹那张卡（信息量更大：能直接装），
+  //    并让该版本的自动检测闭嘴（见 checkUpdate 的 pending_install 分支）；
+  //    没有待装包 ⇒ 照旧走通用检测。手动检查（关于页）不受任何影响。
   (async () => {
     await reconcileDownloadManager();          // v1.6.12：先把后台下载的最终态认出来
     const pending = getDownloadedVersion();
-    if (!pending) return;
-    if (getDismissedVersion() === pending) return;   // 用户曾对这个版本点"稍后再说"则不打扰
-    let data = { latest_version: pending };
-    try { const f = await fetchLatest(); if (f && cmpVersion(String(f.latest_version || ''), pending) === 0) data = f; } catch (e) { /* 用最小 data */ }
-    showPendingInstallCard(data);
+    if (pending && getDismissedVersion() !== pending) {   // 用户曾对这个版本点"稍后再说"则不打扰
+      pendingPromptVersion = pending;
+      let data = { latest_version: pending };
+      try { const f = await fetchLatest(); if (f && cmpVersion(String(f.latest_version || ''), pending) === 0) data = f; } catch (e) { /* 用最小 data */ }
+      showPendingInstallCard(data);
+      return;
+    }
+    checkUpdate().catch(() => {});
   })().catch(() => {});
   // 从后台回到前台再检测一次（用户去微信聊天回来，可能正好发了新版）
   document.addEventListener('visibilitychange', () => {

@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>墨小溟 · 柔光设计系统预览</title>
+<style>
+/* ============ 柔光设计系统 Token（同 design/柔光设计系统.md §2） ============ */
+:root{
+  --bg:#FFF8F0; --bg-soft:#FDF3E9; --surface:#FFFBF7; --surface-2:#FCF6EF; --surface-3:#F6EFF7;
+  --primary:#B8A9E8; --primary-deep:#9E8CD8; --primary-soft:#F3EDFF;
+  --orange:#FFB88C; --mint:#A8D8C8; --blue:#A8C8E8;
+  --danger:#C98A7A; --danger-soft:#FFF4F0;
+  --ink:#3A3A3A; --ink-2:#6B6478; --ink-3:#9A93A6;
+  --line:#EFE6DC; --card-line:rgba(184,169,232,.18);
+  --hi:inset 0 1px 0 rgba(255,255,255,.9);
+  --hi-soft:inset 0 1px 1px rgba(255,255,255,.7);
+  --shadow-xs:0 1px 2px rgba(94,78,140,.05),0 2px 6px rgba(94,78,140,.06);
+  --shadow-sm:0 2px 4px rgba(94,78,140,.06),0 6px 16px rgba(94,78,140,.08);
+  --shadow-md:0 4px 8px rgba(94,78,140,.07),0 12px 28px rgba(94,78,140,.12);
+  --shadow-lg:0 8px 16px rgba(94,78,140,.10),0 24px 48px rgba(94,78,140,.16);
+  --shadow-press:0 1px 2px rgba(94,78,140,.10),inset 0 1px 3px rgba(94,78,140,.14);
+  --r-sm:12px; --r-md:18px; --r-lg:24px; --r-xl:32px; --r-pill:999px;
+  --sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-5:20px;--sp-6:24px;--sp-8:32px;
+  --fs-xs:12px;--fs-sm:13.5px;--fs-base:15px;--fs-md:16px;--fs-lg:18px;--fs-xl:21px;--fs-2xl:26px;
+  --dur-fast:140ms;--dur:220ms;--dur-slow:340ms;
+  --ease-spring:cubic-bezier(.34,1.56,.64,1);--ease-out:cubic-bezier(.22,1,.36,1);--ease-in-out:cubic-bezier(.65,0,.35,1);
+  --glass-bg:rgba(255,251,247,.72);--glass-brd:rgba(255,255,255,.6);--glass-blur:18px;
+  --grad-primary:linear-gradient(135deg,#C3B4EE 0%,#9E8CD8 100%);
+  --grad-brand:linear-gradient(135deg,#FFF8F0 0%,#F3EDFF 100%);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  background:radial-gradient(120% 80% at 50% -10%,#FBF4FF 0%,var(--bg) 55%);
+  color:var(--ink);padding:32px 16px 64px;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1080px;margin:0 auto}
+h1{font-size:var(--fs-2xl);letter-spacing:.5px}
+.lede{color:var(--ink-2);font-size:var(--fs-md);margin:8px 0 4px;line-height:1.7}
+.tag-line{display:inline-flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.pill{font-size:var(--fs-xs);padding:5px 12px;border-radius:var(--r-pill);
+  background:var(--primary-soft);color:var(--primary-deep);box-shadow:var(--hi-soft)}
+
+/* 布局：左说明 + 右手机预览 */
+.grid{display:grid;grid-template-columns:1fr 420px;gap:28px;margin-top:32px;align-items:start}
+@media(max-width:880px){.grid{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--card-line);border-radius:var(--r-lg);
+  box-shadow:var(--shadow-sm),var(--hi-soft);padding:20px}
+.panel h2{font-size:var(--fs-lg);margin-bottom:4px}
+.panel .sub{color:var(--ink-3);font-size:var(--fs-sm);margin-bottom:16px}
+.row{display:flex;flex-direction:column;gap:12px;margin-bottom:18px}
+.lbl{font-size:var(--fs-xs);color:var(--ink-3);letter-spacing:.6px;text-transform:uppercase}
+
+/* 手机预览外框 */
+.phone{position:relative;width:100%;max-width:420px;margin:0 auto;height:760px;
+  background:var(--bg);border-radius:44px;border:10px solid #fff;
+  box-shadow:var(--shadow-lg),var(--hi);overflow:hidden}
+.screen{position:absolute;inset:0;padding:20px 18px 118px;overflow-y:auto}
+.ip-stage{position:relative;height:230px;border-radius:var(--r-xl);
+  background:var(--grad-brand);overflow:hidden;box-shadow:var(--shadow-sm),var(--hi-soft)}
+.ip-stage::before{content:"";position:absolute;inset:0;
+  background:radial-gradient(60% 50% at 50% 32%,rgba(195,180,238,.34),transparent 70%),
+            radial-gradient(50% 42% at 72% 78%,rgba(255,184,140,.22),transparent 70%)}
+.mascot{position:absolute;left:50%;top:48%;transform:translate(-50%,-50%);
+  width:120px;height:120px}
+.mascot .body{position:absolute;inset:0;border-radius:52% 52% 48% 48%;
+  background:radial-gradient(circle at 38% 32%,#F3EEFF,#B8A9E8 78%);
+  box-shadow:0 10px 30px rgba(150,130,200,.4),var(--hi)}
+.mascot .eye{position:absolute;top:46%;width:13px;height:16px;border-radius:50%;background:#4E4969}
+.mascot .eye.l{left:38%}.mascot .eye.r{right:38%}
+.mascot .blush{position:absolute;top:58%;width:16px;height:9px;border-radius:50%;background:#FFC4A2;opacity:.8}
+.mascot .blush.l{left:30%}.mascot .blush.r{right:30%}
+.stage-tip{position:absolute;left:0;right:0;bottom:14px;text-align:center;color:var(--primary-deep);
+  font-size:var(--fs-sm);font-weight:600}
+
+/* 主按钮 */
+.primary{display:block;width:100%;padding:15px 18px;margin-top:16px;border:0;border-radius:var(--r-pill);
+  background:var(--grad-primary);color:#fff;font-size:var(--fs-md);font-weight:600;letter-spacing:.3px;
+  box-shadow:var(--shadow-md),var(--hi);cursor:pointer;
+  transition:transform var(--dur) var(--ease-spring),box-shadow var(--dur) var(--ease-out),filter var(--dur-fast)}
+.primary:active{transform:scale(.975) translateY(1px);box-shadow:var(--shadow-press);filter:brightness(1.05)}
+.ghost-btn{display:block;width:100%;padding:13px;margin-top:10px;border:1.5px solid var(--card-line);
+  border-radius:var(--r-pill);background:var(--surface);color:var(--ink);font-size:var(--fs-base);
+  box-shadow:var(--shadow-xs),var(--hi-soft);cursor:pointer;
+  transition:transform var(--dur) var(--ease-spring),box-shadow var(--dur) var(--ease-out),border-color var(--dur)}
+.ghost-btn:active{transform:scale(.985);box-shadow:var(--shadow-press)}
+.danger{display:block;width:100%;margin-top:12px;padding:13px;border:1.5px solid #EBD0C8;
+  border-radius:var(--r-pill);color:var(--danger);font-size:var(--fs-base);background:var(--danger-soft);
+  box-shadow:var(--shadow-xs);cursor:pointer;transition:transform var(--dur) var(--ease-spring),box-shadow var(--dur)}
+.danger:active{transform:scale(.985);box-shadow:var(--shadow-press)}
+
+/* 卡片 */
+.card{background:var(--surface);border:1px solid var(--card-line);border-radius:var(--r-lg);
+  box-shadow:var(--shadow-sm),var(--hi-soft);padding:16px 18px;margin-bottom:12px;
+  transition:transform var(--dur) var(--ease-out),box-shadow var(--dur) var(--ease-out)}
+.card:active{transform:translateY(-2px);box-shadow:var(--shadow-md),var(--hi-soft)}
+.card .ttl{font-size:var(--fs-md);font-weight:600;margin-bottom:6px}
+.card .meta{font-size:var(--fs-sm);color:var(--ink-2);line-height:1.6}
+.tag{font-size:var(--fs-xs);color:var(--primary-deep);background:var(--surface);
+  border:1px solid var(--card-line);border-radius:var(--r-pill);padding:3px 10px;box-shadow:var(--hi-soft);
+  display:inline-block;margin-right:6px;margin-top:8px}
+
+/* 开关行 */
+.set-block{background:var(--surface);border:1px solid var(--card-line);border-radius:var(--r-lg);
+  box-shadow:var(--shadow-sm),var(--hi-soft);padding:14px 16px;margin-bottom:12px;
+  display:flex;align-items:center;justify-content:space-between}
+.set-block .name{font-size:var(--fs-base)}
+.set-block .desc{font-size:var(--fs-xs);color:var(--ink-3);margin-top:2px}
+.switch{position:relative}
+.switch input{width:46px;height:26px;appearance:none;-webkit-appearance:none;background:#E4DCF2;
+  border-radius:var(--r-pill);position:relative;transition:background var(--dur) var(--ease-out);outline:none;cursor:pointer}
+.switch input:checked{background:var(--grad-primary)}
+.switch input::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;
+  background:#fff;box-shadow:var(--shadow-sm),var(--hi);transition:transform var(--dur) var(--ease-spring)}
+.switch input:checked::after{transform:translateX(20px)}
+
+/* 滑块 */
+.slider-row{background:var(--surface);border:1px solid var(--card-line);border-radius:var(--r-lg);
+  box-shadow:var(--shadow-sm),var(--hi-soft);padding:16px 18px;margin-bottom:12px}
+.slider-row .name{font-size:var(--fs-base);margin-bottom:12px}
+.fld__range{-webkit-appearance:none;appearance:none;width:100%;height:8px;border-radius:var(--r-pill);
+  background:rgba(184,169,232,.4);outline:none}
+.fld__range::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:50%;
+  background:#fff;border:0;margin-top:-7px;box-shadow:var(--shadow-sm),var(--hi),0 0 0 4px rgba(184,169,232,.18)}
+.fld__range::-moz-range-thumb{width:20px;height:20px;border-radius:50%;background:#fff;border:0;
+  box-shadow:var(--shadow-sm),var(--hi),0 0 0 4px rgba(184,169,232,.18)}
+
+/* 底部悬浮玻璃导航 */
+.tabbar{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);width:max-content;
+  display:flex;gap:4px;padding:6px;background:var(--glass-bg);
+  -webkit-backdrop-filter:blur(var(--glass-blur));backdrop-filter:blur(var(--glass-blur));
+  border:1px solid var(--glass-brd);border-radius:var(--r-pill);box-shadow:var(--shadow-md),var(--hi);z-index:20}
+.tab{flex:0 0 auto;text-align:center;font-size:13px;color:var(--ink-2);padding:8px 16px;
+  border-radius:var(--r-pill);white-space:nowrap;cursor:pointer;
+  transition:color var(--dur),background var(--dur)}
+.tab.on{color:#fff;font-weight:600;background:var(--grad-primary);box-shadow:var(--shadow-sm),var(--hi)}
+
+/* Toast */
+.toast{position:absolute;left:50%;bottom:90px;transform:translate(-50%,14px) scale(.96);
+  background:var(--glass-bg);-webkit-backdrop-filter:blur(var(--glass-blur));backdrop-filter:blur(var(--glass-blur));
+  color:var(--ink);font-size:var(--fs-sm);line-height:1.65;padding:12px 18px;border-radius:var(--r-md);
+  border:1px solid var(--glass-brd);box-shadow:var(--shadow-md),var(--hi);opacity:0;pointer-events:none;
+  transition:opacity var(--dur) var(--ease-out),transform var(--dur) var(--ease-spring);z-index:40;max-width:82%}
+.toast.on{opacity:1;transform:translate(-50%,0) scale(1)}
+
+/* 底部抽屉 */
+.sheet-mask{position:absolute;inset:0;background:rgba(58,58,58,.28);-webkit-backdrop-filter:blur(2px);
+  backdrop-filter:blur(2px);opacity:0;pointer-events:none;transition:opacity var(--dur) var(--ease-out);z-index:60}
+.sheet-mask.on{opacity:1;pointer-events:auto}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:var(--surface);border:1px solid var(--card-line);
+  border-radius:var(--r-xl) var(--r-xl) 0 0;padding:24px 20px 28px;box-shadow:var(--shadow-lg),var(--hi);
+  transform:translateY(100%);transition:transform var(--dur-slow) var(--ease-spring);z-index:61}
+.sheet.on{transform:translateY(0)}
+.sheet .ttl{font-size:var(--fs-xl);font-weight:600;margin-bottom:8px}
+.sheet .body{font-size:var(--fs-base);color:var(--ink-2);line-height:1.7;margin-bottom:18px}
+
+/* 对比：当前（v1.7.9 扁平） */
+.compare-old .primary{background:var(--primary);box-shadow:var(--shadow);filter:none}
+.compare-old .card{background:#fff;box-shadow:var(--shadow-sm);border:0}
+.compare-old .tabbar{left:0;right:0;bottom:0;transform:none;width:100%;max-width:none;border-radius:0;
+  background:rgba(255,250,244,.92);-webkit-backdrop-filter:blur(12px);border-top:1px solid var(--line);
+  border:0;box-shadow:none}
+.compare-old .tab.on{background:transparent;color:var(--primary-deep);font-weight:600;box-shadow:none}
+
+.ctrl{display:flex;gap:10px;align-items:center;margin-bottom:18px;flex-wrap:wrap}
+.btn-sm{font-size:var(--fs-sm);padding:9px 14px;border-radius:var(--r-pill);border:1.5px solid var(--card-line);
+  background:var(--surface);color:var(--ink);cursor:pointer;box-shadow:var(--shadow-xs),var(--hi-soft);
+  transition:transform var(--dur-fast) var(--ease-spring),box-shadow var(--dur)}
+.btn-sm:active{transform:scale(.97);box-shadow:var(--shadow-press)}
+.swatches{display:flex;gap:8px;flex-wrap:wrap}
+.sw{width:46px;height:46px;border-radius:var(--r-md);box-shadow:var(--shadow-xs),var(--hi-soft);border:1px solid var(--card-line)}
+.code-note{font-size:var(--fs-xs);color:var(--ink-3);line-height:1.7;margin-top:8px;
+  background:var(--surface-2);border-radius:var(--r-md);padding:12px 14px}
+.foot{text-align:center;color:var(--ink-3);font-size:var(--fs-sm);margin-top:40px;line-height:1.8}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>墨小溟 · 柔光设计系统</h1>
+  <p class="lede">在现有奶油白 + 柔紫品牌上，用「柔光层级 + 触感内高光 + 弹性微交互」把"能用"升级成"想一直用"。下面左边是规范要点，右边是<strong>真实渲染</strong>的手机预览——能点、能看、能直接抄 CSS。</p>
+  <div class="tag-line">
+    <span class="pill">治愈</span><span class="pill">平静</span><span class="pill">克制</span>
+    <span class="pill">染色中性色</span><span class="pill">柔光多层阴影</span><span class="pill">内高光触感</span>
+  </div>
+
+  <div class="grid">
+    <!-- 左：规范说明 -->
+    <div>
+      <div class="panel">
+        <h2>① 色彩与材质</h2>
+        <div class="sub">表面不再是纯白，而是暖白 / 淡紫白，靠"材质"分层而非纯色差。</div>
+        <div class="swatches">
+          <div class="sw" style="background:#FFF8F0" title="页面奶油底"></div>
+          <div class="sw" style="background:#FFFBF7" title="卡片暖白表面"></div>
+          <div class="sw" style="background:#F6EFF7" title="强调淡紫白"></div>
+          <div class="sw" style="background:linear-gradient(135deg,#C3B4EE,#9E8CD8)" title="结构渐变紫"></div>
+          <div class="sw" style="background:#FFB88C" title="录音橙"></div>
+          <div class="sw" style="background:#C98A7A" title="暖陶土危险"></div>
+        </div>
+        <div class="code-note">关键改动：<code>--surface:#FFFBF7</code>（原 #FFFFFF）、新增 <code>--surface-2/--surface-3</code> 染色中性色。详见《柔光设计系统.md》§2.2。</div>
+      </div>
+
+      <div class="panel">
+        <h2>② 柔光阴影 + 内高光</h2>
+        <div class="sub">4 档多层阴影 + 一道内高光（inset 0 1px 0 #fff），让可点击面"立起来"。</div>
+        <div class="row">
+          <div><span class="lbl">静止 — shadow-sm</span><div class="card" style="margin-top:6px">轻轻浮起</div></div>
+          <div><span class="lbl">悬停/按压 — shadow-md + 抬升</span><div class="card" style="margin-top:6px;transform:translateY(-2px);box-shadow:var(--shadow-md),var(--hi-soft)">按下去会浮起 2px</div></div>
+          <div><span class="lbl">按压态 — shadow-press（下沉+内阴影）</span><div class="card" style="margin-top:6px;box-shadow:var(--shadow-press)">按进去的凹陷感</div></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>③ 圆角阶梯</h2>
+        <div class="sub">用弧度区分重要性：按钮 pill、卡片 24、输入框 18、芯片 12。</div>
+        <div class="row" style="flex-direction:row;flex-wrap:wrap;gap:14px;align-items:flex-end">
+          <div style="text-align:center"><div style="width:90px;height:54px;background:var(--surface);border:1px solid var(--card-line);border-radius:var(--r-pill);box-shadow:var(--shadow-sm),var(--hi-soft)"></div><div class="lbl" style="margin-top:6px">pill 按钮</div></div>
+          <div style="text-align:center"><div style="width:90px;height:54px;background:var(--surface);border:1px solid var(--card-line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm),var(--hi-soft)"></div><div class="lbl" style="margin-top:6px">24 卡片</div></div>
+          <div style="text-align:center"><div style="width:90px;height:54px;background:var(--surface);border:1px solid var(--card-line);border-radius:var(--r-md);box-shadow:var(--shadow-sm),var(--hi-soft)"></div><div class="lbl" style="margin-top:6px">18 输入</div></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>④ 微交互纪律</h2>
+        <div class="sub">只服务信息层级：按压形变、状态弹性切换、抽屉滑入、Toast 轻飘、数字滚动。单页同时强调动效 ≤1，位移 ≤24px，时长 ≤340ms。</div>
+        <div class="code-note">时长：<code>--dur-fast 140 / --dur 220 / --dur-slow 340</code><br/>曲线：<code>--ease-spring</code>（弹性进出）、<code>--ease-out</code>（柔减速）。</div>
+      </div>
+    </div>
+
+    <!-- 右：手机预览 -->
+    <div>
+      <div class="ctrl">
+        <span class="lbl" style="margin:0">预览模式</span>
+        <button class="btn-sm" id="toggleCmp">切换：柔光 → 当前扁平</button>
+        <button class="btn-sm" id="showToast">弹 Toast</button>
+        <button class="btn-sm" id="openSheet">打开抽屉</button>
+      </div>
+
+      <div class="phone" id="phone">
+        <div class="screen" id="screen">
+          <!-- IP 舞台 -->
+          <div class="ip-stage">
+            <div class="mascot">
+              <div class="body"></div>
+              <div class="eye l"></div><div class="eye r"></div>
+              <div class="blush l"></div><div class="blush r"></div>
+            </div>
+            <div class="stage-tip">说出来，就轻一点</div>
+          </div>
+
+          <!-- 主按钮 -->
+          <button class="primary">按住说 · 开始倾诉</button>
+
+          <!-- 卡片 -->
+          <div class="card">
+            <div class="ttl">今天有点委屈</div>
+            <div class="meta">被误会了却说不出口，憋了一整天。</div>
+            <span class="tag">委屈</span><span class="tag">闷</span>
+          </div>
+
+          <!-- 设置开关 -->
+          <div class="set-block">
+            <div><div class="name">允许云端转写</div><div class="desc">关了就不上传任何录音</div></div>
+            <label class="switch"><input type="checkbox" id="sw1"/></label>
+          </div>
+
+          <!-- 滑块 -->
+          <div class="slider-row">
+            <div class="name">倾诉强度</div>
+            <input class="fld__range" type="range" min="1" max="10" value="6"/>
+          </div>
+
+          <button class="ghost-btn">查看我的时间线</button>
+          <button class="danger">清空本地记录</button>
+        </div>
+
+        <!-- 底部悬浮玻璃导航 -->
+        <div class="tabbar" id="tabbar">
+          <div class="tab on">说</div><div class="tab">卡片</div><div class="tab">复盘</div><div class="tab">我的</div>
+        </div>
+
+        <!-- Toast -->
+        <div class="toast" id="toast">已保存 · 轻轻接住了这一刻</div>
+
+        <!-- 底部抽屉 -->
+        <div class="sheet-mask" id="sheetMask"></div>
+        <div class="sheet" id="sheet">
+          <div class="ttl">有新版可以更新</div>
+          <div class="body">墨小溟 v1.8 带来了更柔和的界面与更稳的承接。更新不会影响你的本地记录。</div>
+          <button class="primary">立即更新</button>
+          <button class="ghost-btn">稍后再说</button>
+        </div>
+      </div>
+      <div class="code-note">右图所有组件均用《柔光设计系统.md》§3 的"可直接替换"CSS 渲染。点「切换」可对比 v1.7.9 扁平版，升级一眼可见。</div>
+    </div>
+  </div>
+
+  <div class="foot">
+    墨小溟 · 柔光设计系统预览 ｜ 配套文档：<strong>柔光设计系统.md</strong><br/>
+    落地路线：P1 地基（Token+按钮/卡片/开关/导航/Toast）→ P2 弹层/输入/芯片 → P3 IP 光晕/计数动画。每期跑 run-selftest-gate.mjs + 内置浏览器真跑。
+  </div>
+</div>
+
+<script>
+// 对比切换
+const phone=document.getElementById('phone');
+document.getElementById('toggleCmp').addEventListener('click',function(){
+  phone.classList.toggle('compare-old');
+  this.textContent = phone.classList.contains('compare-old') ? '切换：当前扁平 → 柔光' : '切换：柔光 → 当前扁平';
+});
+// Toast
+const toast=document.getElementById('toast');
+let tT;
+document.getElementById('showToast').addEventListener('click',()=>{
+  toast.classList.add('on');clearTimeout(tT);tT=setTimeout(()=>toast.classList.remove('on'),1800);
+});
+// 抽屉
+const mask=document.getElementById('sheetMask'),sheet=document.getElementById('sheet');
+document.getElementById('openSheet').addEventListener('click',()=>{mask.classList.add('on');sheet.classList.add('on');});
+function closeSheet(){mask.classList.remove('on');sheet.classList.remove('on');}
+mask.addEventListener('click',closeSheet);
+// 导航激活
+document.querySelectorAll('#tabbar .tab').forEach(t=>{
+  t.addEventListener('click',()=>{document.querySelectorAll('#tabbar .tab').forEach(x=>x.classList.remove('on'));t.classList.add('on');});
+});
+// 开关即时反馈
+document.getElementById('sw1').addEventListener('change',function(){
+  toast.textContent = this.checked ? '已开启 · 录音会发云端转写' : '已关闭 · 不再上传任何录音';
+  toast.classList.add('on');clearTimeout(tT);tT=setTimeout(()=>toast.classList.remove('on'),1800);
+});
+</script>
+</body>
+</html>

@@ -4,7 +4,7 @@
  * 顺序（顺序即因果，不能调）：
  *   ① 源码 ≡ 产物 —— 这一条不通过，后面跑的全是**旧码**，全绿也没有意义
  *   ② 起 server.cjs（静态根 = www/，与线上发的是同一份产物）
- *   ③ 主自测（591 条）+ 动效音效配置探针 + 产物冒烟
+ *   ③ 主自测（591 条）+ 动效音效配置探针 + 更新弹窗单次性探针 + 产物冒烟
  *   ④ 任一步失败 → 非零退出 ⇒ CI 不再出包、也就不可能回填新 APK 元数据
  *
  * 🔴 为什么必须放在**出包之前**：出包前红了，就不会有 APK、不会有用新 APK 覆盖 main 的元数据。
@@ -74,6 +74,10 @@ if (!up) { killServer(); fail('自测服务 40 次探测仍未就绪'); }
 const SUITES = [
   { name: '主自测（全链路）', file: '_selftest/selftest.cjs', env: { BASE } },
   { name: '动效音效配置探针', file: '_selftest/motion-sound-config.cjs', env: { BASE } },
+  // v1.7.10：更新弹窗只弹一次（DM 完成时刻单次唤起 / 弹窗互斥 / 启动单弹窗）——自带 4193 端口服务
+  { name: '更新弹窗单次性探针', file: '_selftest/update-popup-once.cjs', env: {} },
+  // #261：时间线页左滑退出落点（实时→首页 / 回看→我的）——用门禁 BASE 服务
+  { name: '时间线左滑退出落点探针', file: '_selftest/timeline-exit.cjs', env: { BASE } },
   { name: '产物冒烟（跑 www/）', file: '_selftest/www-artifact-smoke.cjs', env: { SMOKE_PORT } },
 ];
 
@@ -97,4 +101,4 @@ if (failed.length) {
   console.error('[gate] 出包已阻断 —— 线上不会拿到这一版；先修好再重新打 tag。');
   process.exit(1);
 }
-log('\n[gate] ✓✓ 全链路自测门禁通过：源码 ≡ 产物，主自测 / 动效 / 产物冒烟 三套全绿。');
+log('\n[gate] ✓✓ 全链路自测门禁通过：源码 ≡ 产物，主自测 / 动效 / 更新弹窗单次性 / 产物冒烟 全绿。');

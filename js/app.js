@@ -2350,7 +2350,7 @@ function pageMe() {
       <p class="mblock__d">${esc(M.download.desc)}</p>
       <a class="mrow mrow--download" href="#/download">
         <span class="mrow__ico">${ICON.download}</span>
-        <span class="mrow__txt">${esc(M.download.row)}<span class="mrow__sub" id="meDlSub">当前版本 v${esc(window.APP_VERSION || '1.7.9')}</span></span>
+        <span class="mrow__txt">${esc(M.download.row)}<span class="mrow__sub" id="meDlSub">当前版本 v${esc(window.APP_VERSION || '1.8.0')}</span></span>
         <i class="mrow__arrow">›</i>
       </a>
       <button class="ghost me-install" id="meInstall" type="button">${esc(M.download.installBtn)}</button>
@@ -2610,7 +2610,7 @@ function pageSettings() {
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
     ${privacyBlockHtml(COPY.privacyFull)}
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.7.9')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.8.0')}</p>
   </section>`;
 }
 
@@ -2975,7 +2975,7 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.7.9')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.8.0')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -2988,7 +2988,7 @@ function pageChangelog() {
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.7.9')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.8.0')}</p>
   </section>`;
 }
 
@@ -3832,7 +3832,14 @@ function _isBusy() {
   if (rec.active) return true;
   return parseHash().name === 'analyzing';
 }
-function _parentOf(name) { return BACK_PARENT[name] || 'say'; }
+function _parentOf(name) {
+  // 🔴 #261 修复：时间线页的退出落点要区分「从哪来」。
+  //   · 实时时间线（结束倾诉后进入，URL 为 #/timeline 且无 ?id=）⇒ 回首页「说」；
+  //   · 回看时间线（#/timeline?id=xxx，从「我的 → 时间线」进来）⇒ 回「我的」。
+  //   此改动同时作用于左滑手势与 Android 物理返回键（两者共用 _parentOf）。
+  if (name === 'timeline' && !(parseHash().q && parseHash().q.id)) return 'say';
+  return BACK_PARENT[name] || 'say';
+}
 
 /** 温柔确认框（替代浏览器原生 confirm，走墨小溟紫色主题）。返回 Promise<boolean> */
 function gentleConfirm(message, opts) {

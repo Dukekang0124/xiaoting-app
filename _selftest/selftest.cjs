@@ -13,6 +13,26 @@ const check = (name, ok, detail = '') => {
   results.push({ name, ok: !!ok, detail: String(detail || '') });
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  — ' + detail : ''}`);
 };
+/* ── v1.8.0 柔光设计系统：颜色类判据从「硬判某一版的具体色值」升级为「验证意图本身」 ──
+ *
+ * 🔴 为什么必须改：柔光的第一个主张就是「不用纯白，用染色暖白（--surface / --card）」，
+ *    于是所有写着 `bg === 'rgb(255, 255, 255)'` 或 `=== 'rgb(255, 248, 240)'` 的旧断言
+ *    会把这次**已完成的设计升级**误报成缺陷 —— 它们把"某一版的实现细节"当成了"不变的设计意图"。
+ *
+ *   但按「判据过期不直接删，换成仍拦得住同一假象的新判据」的原则，我们不能只是放宽：
+ *    新判据要比旧判据**更有鉴别力**。例如旧判据判"卡片是纯白"，其实证明不了层次感——
+ *    若哪天有人把 --card 与 --bg 设成同一个色，卡片照样糊在背景上看不出分区，
+ *    旧判据会因为"不是纯白"而红得莫名其妙，却命中不了真正的根因；
+ *    新判据直接判"卡片底色 ≠ 页面底色 且更亮"，根因一击命中。
+ */
+const parseRGBA = (s) => {
+  const m = String(s || '').match(/rgba?\(([^)]+)\)/);
+  if (!m) return null;
+  const p = m[1].split(',').map((n) => parseFloat(n.trim()));
+  return { r: p[0] || 0, g: p[1] || 0, b: p[2] || 0, a: p.length > 3 ? p[3] : 1 };
+};
+// 相对亮度：黑色系统警告条 ≈ 40，暖白/纯白 ≈ 250 ⇒ 用 220 这条线能把两者彻底分开
+const lumaOf = (c) => (c ? 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b : -1);
 // 分区横幅：让证据文件「自解释」——报告里要按分区报条数，就必须能从输出里直接数出来，
 // 而不是回头翻源码数。sectionCounts 由本函数维护。
 const sections = [];
@@ -1258,8 +1278,14 @@ const MOCK_SDK = `(function(){
     const cs = getComputedStyle(t);
     return { bg: cs.backgroundColor, color: cs.color, radius: cs.borderRadius };
   });
-  check('[体验] 提示气泡不再是黑色系统警告（奶油白底 + 深色字）',
-    !!Z6 && Z6.bg === 'rgb(255, 248, 240)' && Z6.color !== 'rgb(255, 255, 255)', JSON.stringify(Z6));
+  // 意图：这条防的是「回到黑色系统警告条」（旧的黑底白字 toast）。
+  // v1.8.0 柔光把 toast 升级为暖白玻璃（半透明 + 模糊），它**依然满足**这条意图，
+  // 旧写法硬判 rgb(255, 248, 240) 会把已完成的升级误判成倒退。
+  // 新写法三条：① 底色仍是浅色（黑条 luma≈40 ⇒ 命中）② 透明度别低到读不清（≥0.5）③ 深色字（不是系统白字）。
+  const toastBg = parseRGBA(Z6 && Z6.bg);
+  check('[体验] 提示气泡不再是黑色系统警告（暖白底 + 深色字 + 半透明仍可读）',
+    !!Z6 && !!toastBg && lumaOf(toastBg) > 220 && toastBg.a >= 0.5 && Z6.color !== 'rgb(255, 255, 255)',
+    JSON.stringify(Z6));
 
   // ⑦ 失败文案：区分「没录上」与「没听清」，且不再出现吓人的旧黑条措辞
   const appSrcC5 = readC5('js/app.js');
@@ -1711,6 +1737,8 @@ const MOCK_SDK = `(function(){
       faq: q('.faq'),
       blockBg: getComputedStyle(blk).backgroundColor,
       blockShadow: getComputedStyle(blk).boxShadow,
+      // 页面底色：判断「有没有分层」必须拿卡片色跟它比，只判"是不是纯白"证明不了层次
+      pageBg: getComputedStyle(document.querySelector('.app') || document.body).backgroundColor,
       radius: getComputedStyle(blk).borderRadius,
       title: (document.querySelector('.me__title2') || {}).textContent || '',
       subColor: getComputedStyle(document.querySelector('.mrow__sub')).color,
@@ -1729,7 +1757,18 @@ const MOCK_SDK = `(function(){
   check('图标为线性描边（fill:none）', me.fill.every((f) => f === 'none'), me.fill.join('|'));
   check('图标用辅助色点缀（≥4 色互不相同）', new Set(me.strokes).size >= 4, me.strokes.join(' | '));
   check('图标含淡蓝（心电图）', me.strokes.some((c) => c === 'rgb(168, 200, 232)'), me.strokes.join(' | '));
-  check('分区卡有白底 + 阴影（层次分明）', me.blockBg === 'rgb(255, 255, 255)' && me.blockShadow.length > 20, `${me.blockBg}/${me.blockShadow.slice(0, 34)}`);
+  // 意图：「层次分明」= 分区卡能从页面背景里浮出来（差异化底色 + 阴影）。
+  // 旧写法硬判 rgb(255,255,255)：柔光把 --card 由纯白换成染色暖白 #FFFBF7 后必然红，
+  // 而它其实**从来没证明过层次** —— 若有人把 --card 设成与 --bg 同色，卡片照样糊在背景上，
+  // 旧判据却只是"不是纯白"地红一下、命不中根因。新写法补上这一点：直接判卡片必须比页面更亮。
+  const cardC = parseRGBA(me.blockBg), pageC = parseRGBA(me.pageBg);
+  check('分区卡浮出背景（底色比页面更亮 + 带阴影 ⇒ 层次分明）',
+    !!cardC && !!pageC
+      && me.blockBg !== me.pageBg        // 不能与页面同色，否则再白也是糊在一起
+      && lumaOf(cardC) > lumaOf(pageC)   // 卡片更亮 ⇒ 视觉上「浮起来」
+      && lumaOf(cardC) > 220             // 仍是浅色表面（深色卡不算「白底」分区）
+      && me.blockShadow.length > 20,     // 且带阴影
+    `card=${me.blockBg}/page=${me.pageBg}/shadow=${me.blockShadow.slice(0, 34)}`);
   check('分区卡圆角 20px', me.radius === '20px', me.radius);
   check('我的页信息分区 ≥6 块（碎片/记忆/设置/存储/边界/支持/关于/协议）', me.blocks >= 6, `blocks=${me.blocks}`);
   check('情绪支持 FAQ 可展开（≥3 条）', me.faq >= 3, `faq=${me.faq}`);
