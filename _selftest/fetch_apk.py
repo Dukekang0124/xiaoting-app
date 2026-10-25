@@ -6,14 +6,17 @@
 # 说明：
 #   · GH_TOKEN 必填（GitHub PAT，需要 repo + workflow 读权限）。
 #   · TAG 默认取 argv[1]；HEAD 可选（给了就按 commit 前缀精确定位本次 run）。
-#   · 产物落到桌面：C:/Users/Admin/Desktop/墨小溟-<TAG>-release.apk
+#   · 产物落到项目内 apk-dist/（D 盘，已 gitignore）：墨小溟-<TAG>-release.apk
+#     · 可用环境变量 OUTPUT_DIR 覆盖输出目录（例如仍想落桌面时设 OUTPUT_DIR=C:/Users/Admin/Desktop）
 import os, sys, time, json, zipfile, urllib.request
 
 REPO = "Dukekang0124/xiaoting-app"
 TAG = os.environ.get("TAG") or (sys.argv[1] if len(sys.argv) > 1 else "v1.1.0")
 HEAD = os.environ.get("HEAD", "")
 TOKEN = os.environ.get("GH_TOKEN", "")
-DESKTOP = "C:/Users/Admin/Desktop"
+# 默认输出到项目内 apk-dist/（D 盘，已 gitignore）；可用 OUTPUT_DIR 环境变量覆盖
+DESKTOP = os.environ.get("OUTPUT_DIR") or os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "apk-dist"))
 VERSION_EXPECT = TAG.lstrip("v")
 OUT = os.path.join(DESKTOP, f"墨小溟-{TAG}-release.apk")
 MAX_WAIT = 30 * 60  # 30 分钟上限

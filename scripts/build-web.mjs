@@ -18,7 +18,11 @@ const src = path.join(root, '..'); // 墨小溟App/
 const out = path.join(src, 'www');
 
 // 需要进包的目录 / 文件（其余一律不带）
-const DIRS = ['js', 'icons', 'vendor'];
+// site/（v1.8.1）：墨小溟官方网站（静态营销站，上线在同一域名的 /site/ 子路径）。
+//   进 www/ 才会随静态站发布到 xiaoting.app.workbuddy.host/site/。
+//   注意：它也会被 Capacitor 一并打进 APK（www/ 整目录进包），故 og 封面用 JPEG(~54KB) 而非 PNG(~440KB)。
+//   sw.js 的 ASSETS **故意不含官网页面** —— 官网不需要 App 外壳的离线缓存。
+const DIRS = ['js', 'icons', 'vendor', 'site'];
 // 动效音效参数真相源：前端 js/motion.js 运行时 fetch 它。
 const FILES = ['index.html', 'styles.css', 'sw.js', 'manifest.webmanifest', 'moxiaoming_motion_sound_config.json'];
 

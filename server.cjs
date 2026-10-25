@@ -48,7 +48,7 @@ async function ensureManifestJs(abs) {
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
-const VERSION = '1.8.0';
+const VERSION = '1.8.1';
 
 /* ==================== 静态资源白名单 ==================== */
 
@@ -70,7 +70,7 @@ const PUBLIC_FILES = new Set([
 // '/vendor/'（v1.1.3）：云服务 SDK 的随包副本。之前只有 /js/ /icons/ /assets/，
 // 加了 vendor/ 却忘了开白名单 ⇒ 本地副本 404 ⇒ SDK 静默回退 CDN ⇒ 一旦外网不可达整条 AI 链路降级。
 // 这类"加了新目录没同步白名单"的失败不会报错，只会让功能悄悄变差。
-const PUBLIC_PREFIXES = ['/js/', '/icons/', '/assets/', '/vendor/', '/apk/'];
+const PUBLIC_PREFIXES = ['/js/', '/icons/', '/assets/', '/vendor/', '/apk/', '/site/'];
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -95,6 +95,9 @@ async function resolvePublic(pathname) {
   let p;
   try { p = decodeURIComponent(pathname); } catch (e) { return null; }
   if (pathname === '/' || p === '/') p = '/index.html';
+  // 目录索引：'/site/' → '/site/index.html'。静态托管（CloudStudio Gateway 等）普遍如此，
+  // 本地补齐以保持一致，否则开发时 /site/ 404、线上 200 —— 又是"两边不一致"的坑。
+  if (p.length > 1 && p.endsWith('/')) p += 'index.html';
   if (!p.startsWith('/') || p.includes('\0') || p.includes('..')) return null;
   if (!PUBLIC_FILES.has(p) && !PUBLIC_PREFIXES.some((d) => p.startsWith(d))) return null;
   // '/version.json'（v1.1.4）：线上是构建产物 www/version.json，本地没有这个根级文件。

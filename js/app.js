@@ -1624,9 +1624,10 @@ function timelineBody(tl) {
     const nScore = it.emotion_score != null ? it.emotion_score : emotionScoreFor(it.emotions);
     const nRisk = !!it.is_high_risk;
     const nTheme = it.card_theme || cardThemeFor(nScore, nRisk);
+    // node_label：可选。月度复盘卡复用时间线结构，但它的节点是「高频情绪」不是「倾诉分段」，
+    // 不给标签就会一律渲染成「第 1 段」，读起来像月度总结在分段。
+    // 🔴 v1.8.1 修复：这两行注释原来写在下方模板字符串「里面」，// 被当成正文渲染到了每个节点上（真产品 UI 漏出代码注释）。
     return `<div class="tl-node tl-node--${nTheme}${nRisk ? ' tl-node--risk' : ''}">
-      // node_label：可选。月度复盘卡复用时间线结构，但它的节点是「高频情绪」不是「倾诉分段」，
-      // 不给标签就会一律渲染成「第 1 段」，读起来像月度总结在分段。
       ${(it.node_label != null && it.node_label !== '') ? `<div class="tl-node__no">${esc(String(it.node_label))}</div>` : `<div class="tl-node__no">第 ${no} 段</div>`}
       <div class="tl-node__emo${dual ? ' tl-node__emo--dual' : ''}">${esc(emo)}</div>
       <div class="tl-node__cap">${esc(desc)}${tail}</div>
@@ -2350,7 +2351,7 @@ function pageMe() {
       <p class="mblock__d">${esc(M.download.desc)}</p>
       <a class="mrow mrow--download" href="#/download">
         <span class="mrow__ico">${ICON.download}</span>
-        <span class="mrow__txt">${esc(M.download.row)}<span class="mrow__sub" id="meDlSub">当前版本 v${esc(window.APP_VERSION || '1.8.0')}</span></span>
+        <span class="mrow__txt">${esc(M.download.row)}<span class="mrow__sub" id="meDlSub">当前版本 v${esc(window.APP_VERSION || '1.8.1')}</span></span>
         <i class="mrow__arrow">›</i>
       </a>
       <button class="ghost me-install" id="meInstall" type="button">${esc(M.download.installBtn)}</button>
@@ -2610,7 +2611,7 @@ function pageSettings() {
       <p class="set-sub">${esc(COPY.about.disclaimer)}</p>
     </div>
     ${privacyBlockHtml(COPY.privacyFull)}
-    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.8.0')}</p>
+    <p class="foot-note">墨小溟 MVP · v${esc(window.APP_VERSION || '1.8.1')}</p>
   </section>`;
 }
 
@@ -2975,7 +2976,7 @@ function pageChangelog() {
   <section class="changelog">
     <div class="page-head"><a class="ghost" href="#/me">返回</a><div class="page-title">关于墨小溟</div><span style="width:48px"></span></div>
     <div class="changelog__ip">${avatar('happy', 64)}</div>
-    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.8.0')}</div>
+    <div class="changelog__ver">当前版本 v${esc(window.APP_VERSION || '1.8.1')}</div>
     <div class="about-persona">${esc(COPY.about.persona)}</div>
     <p class="changelog__desc">${esc(COPY.about.intro)}</p>
     <p class="changelog__desc">${esc(COPY.about.pronunciation)}</p>
@@ -2988,7 +2989,7 @@ function pageChangelog() {
     <button class="primary" id="clCheck" type="button">检查更新</button>
     ${isNativeApp() ? '' : '<a class="cl-dl" id="clDl" href="/apk/xiaoting-latest.apk" download>下载安卓安装包（.apk）</a>'}
     <button class="ghost" id="clExport" type="button">导出本地行为数据</button>
-    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.8.0')}</p>
+    <p class="foot-note">墨小溟 · v${esc(window.APP_VERSION || '1.8.1')}</p>
   </section>`;
 }
 
@@ -4465,4 +4466,4 @@ export function boot() {
 // 供自测与调试使用
 export const __test__ = { findForbidden, COPY, api, asr, rec, CAP, store, extractPartialSummary,
   handleHardwareBack, gentleConfirm, updateOfflineBar, BACK_PARENT, _isBusy, _parentOf, initSwipeBack, ipSM, render, currentIpDesc: () => currentIpDesc,
-  monthly, generateMonthlyReview, monthlyCardView, showMonthlyModal, autoMonthlyReview };
+  monthly, generateMonthlyReview, monthlyCardView, showMonthlyModal, autoMonthlyReview, timelineBody };
